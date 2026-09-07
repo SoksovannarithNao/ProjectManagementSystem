@@ -1,5 +1,3 @@
-import './ui.css'
-
 export function ProgressRing({
   percent = 0,
   size = 44,
@@ -12,17 +10,17 @@ export function ProgressRing({
   const offset = circumference - (Math.min(100, Math.max(0, percent)) / 100) * circumference
 
   return (
-    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
-      <svg className="progress-ring" width={size} height={size}>
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg className="-rotate-90" width={size} height={size}>
         <circle
-          className="progress-ring__track"
+          className="stroke-divider fill-none"
           cx={size / 2}
           cy={size / 2}
           r={r}
           strokeWidth={stroke}
         />
         <circle
-          className="progress-ring__fill"
+          className="ease-[var(--ease-standard)] fill-none transition-[stroke-dashoffset] duration-700 [stroke-linecap:round]"
           cx={size / 2}
           cy={size / 2}
           r={r}
@@ -33,17 +31,7 @@ export function ProgressRing({
         />
       </svg>
       {children && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          {children}
-        </div>
+        <div className="absolute inset-0 flex items-center justify-center">{children}</div>
       )}
     </div>
   )

@@ -2,7 +2,6 @@ import { Plus } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { ProjectCard } from '../components/ProjectCard'
 import { projects } from '../data/mockData'
-import './Projects.css'
 
 export function Projects() {
   return (
@@ -17,7 +16,7 @@ export function Projects() {
         }
       />
 
-      <div className="projects-grid">
+      <div className="grid grid-cols-3 gap-5 max-[1100px]:grid-cols-2 max-[700px]:grid-cols-1">
         {projects.map((p) => (
           <ProjectCard key={p.id} project={p} />
         ))}
