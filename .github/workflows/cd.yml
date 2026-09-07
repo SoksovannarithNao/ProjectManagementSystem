@@ -8,7 +8,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: ${{ github.repository }} # e.g. yourteam/task-manager
 
 jobs:
   build-and-push:
@@ -22,7 +21,11 @@ jobs:
 
       # main -> tagged "latest" (your stable/demo build)
       # dev  -> tagged "dev"    (your integration/staging build)
-      - name: Set image tag
+      #
+      # GHCR/OCI repository names must be all-lowercase, but github.repository
+      # preserves the owner/repo casing as configured on GitHub, so it is
+      # lowercased here rather than used directly in the image tag.
+      - name: Set image tag and namespace
         id: vars
         run: |
           if [ "${{ github.ref_name }}" = "main" ]; then
@@ -30,27 +33,28 @@ jobs:
           else
             echo "tag=dev" >> "$GITHUB_OUTPUT"
           fi
+          echo "namespace=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} # auto-provided by GitHub, no setup needed
 
       - name: Build & push frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/frontend:${{ steps.vars.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/${{ steps.vars.outputs.namespace }}/frontend:${{ steps.vars.outputs.tag }}
 
       - name: Build & push backend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/backend:${{ steps.vars.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/${{ steps.vars.outputs.namespace }}/backend:${{ steps.vars.outputs.tag }}
 
       # --- Optional deploy step ---
       # Add this once you decide where the demo actually runs (a VM you SSH into,
