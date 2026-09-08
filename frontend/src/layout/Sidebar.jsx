@@ -10,7 +10,6 @@ import {
   Settings,
   HelpCircle,
   X,
-  Sparkles,
 } from 'lucide-react'
 import { Avatar } from '../components/ui/Avatar'
 import { currentUser } from '../data/mockData'
