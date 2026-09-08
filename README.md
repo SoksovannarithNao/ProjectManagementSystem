@@ -27,21 +27,37 @@ Each area has its own README with setup details: [frontend](frontend/README.md) 
 
 ## Getting Started
 
-### Frontend
+### Full stack via Docker
+```bash
+cp .env.example .env   # first time only
+docker compose up -d --build
+```
+
+This builds and runs all three services — Postgres, backend, and frontend — wired together:
+
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:5173 |
+| Backend API | http://localhost:8080/api |
+| Postgres | localhost:5432 |
+
+The frontend's nginx container proxies `/api/*` to the backend, so the app and API are reachable from the same origin. See [database/README.md](database/README.md) for schema/reset details.
+
+### Frontend (local dev)
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-### Backend
+### Backend (local dev)
 ```bash
 cd backend
 ./mvnw spring-boot:run
 ```
 
 ### Database
-PostgreSQL 18.3 is expected locally (see [database/init/01-init.sql](database/init/01-init.sql) for init scripts). Backend/database wiring is still in progress — see [backend/README.md](backend/README.md) for current status.
+PostgreSQL 18.3 is expected locally (see [database/init/01-init.sql](database/init/01-init.sql) for init scripts), or use the Docker Compose stack above, which provisions it automatically.
 
 ## Team & Workflow
 
@@ -55,7 +71,7 @@ Branching model, naming conventions, and the day-to-day PR workflow are document
 
 ## CI/CD
 
-GitHub Actions runs on every PR into `dev`/`main` ([ci.yml](.github/workflows/ci.yml)): frontend lint/test/build, backend Maven verify against a throwaway Postgres instance, and a Docker build check for both images. On merge, [cd.yml](.github/workflows/cd.yml) builds and pushes frontend/backend images to GitHub Container Registry (`latest` from `main`, `dev` from `dev`).
+GitHub Actions runs on every PR into `dev`/`main` ([ci.yml](.github/workflows/ci.yml)): frontend lint/build, backend Maven verify against a throwaway Postgres instance (schema loaded from [database/init](database/init) before tests run), and a Docker build check for both images. On merge, [cd.yml](.github/workflows/cd.yml) builds and pushes frontend/backend images to GitHub Container Registry (`latest` from `main`, `dev` from `dev`). Frontend tests are not wired in yet (no test suite exists).
 
 ## Status
 
