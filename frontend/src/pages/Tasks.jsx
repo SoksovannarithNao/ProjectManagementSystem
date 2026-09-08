@@ -6,25 +6,12 @@ import {
   CheckCircle2,
   Circle,
   MoreHorizontal,
-  GripVertical,
-  CalendarDays,
 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { allTasks, getMember } from '../data/mockData'
-import './Tasks.css'
-
-const STATUS_ORDER = ['To Do', 'In Progress', 'Review', 'Done']
-
-const PROJECT_TONES = ['green', 'pink', 'yellow', 'orange', 'blue', 'purple']
-
-function projectTone(name = '') {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
-  return PROJECT_TONES[hash % PROJECT_TONES.length]
-}
 
 export function Tasks() {
   const [tasks, setTasks] = useState(allTasks)
@@ -36,11 +23,6 @@ export function Tasks() {
       prev.map((t) => (t.id === id ? { ...t, done: !t.done, status: !t.done ? 'Done' : 'To Do' } : t))
     )
   }
-
-  const sections = STATUS_ORDER.map((status) => ({
-    status,
-    items: tasks.filter((t) => t.status === status),
-  }))
 
   return (
     <div>
@@ -62,81 +44,85 @@ export function Tasks() {
         }
       />
 
-      <div className="tasks-board">
-        {sections.map((section) => (
-          <section className="tasks-section" key={section.status}>
-            <header className="tasks-section__head">
-              <div className="tasks-section__heading">
-                <h3 className="tasks-section__title">{section.status}</h3>
-                <span className="tasks-section__count">{section.items.length}</span>
-              </div>
-              <button className="tasks-section__add">
-                <Plus size={14} /> Add task
-              </button>
-            </header>
-
-            <div className="tasks-section__list">
-              {section.items.length === 0 && (
-                <div className="tasks-section__empty">No tasks here yet</div>
-              )}
-
-              {section.items.map((t) => {
+      <div className="card px-2 pt-2 pb-1">
+        <div className="scroll-x">
+          <table className="w-full min-w-[780px] border-collapse">
+            <thead>
+              <tr>
+                <th className="w-10"></th>
+                <th className="text-faint border-divider border-b px-4 py-3.5 text-left text-[11.5px] font-[650] tracking-[0.04em] uppercase">
+                  Task
+                </th>
+                <th className="text-faint border-divider border-b px-4 py-3.5 text-left text-[11.5px] font-[650] tracking-[0.04em] uppercase">
+                  Project
+                </th>
+                <th className="text-faint border-divider border-b px-4 py-3.5 text-left text-[11.5px] font-[650] tracking-[0.04em] uppercase">
+                  Assignee
+                </th>
+                <th className="text-faint border-divider border-b px-4 py-3.5 text-left text-[11.5px] font-[650] tracking-[0.04em] uppercase">
+                  Priority
+                </th>
+                <th className="text-faint border-divider border-b px-4 py-3.5 text-left text-[11.5px] font-[650] tracking-[0.04em] uppercase">
+                  Status
+                </th>
+                <th className="text-faint border-divider border-b px-4 py-3.5 text-left text-[11.5px] font-[650] tracking-[0.04em] uppercase">
+                  Due Date
+                </th>
+                <th className="border-divider border-b"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((t) => {
                 const member = getMember(t.assignee)
-                const tone = projectTone(t.project)
                 return (
-                  <div key={t.id} className="task-row" onClick={() => setActiveTask(t)}>
-                    <span className="task-row__handle" aria-hidden="true">
-                      <GripVertical size={15} />
-                    </span>
-
-                    <button
-                      className="task-row__check"
-                      onClick={(e) => toggleDone(t.id, e)}
-                      aria-label="Toggle complete"
-                    >
+                  <tr
+                    key={t.id}
+                    onClick={() => setActiveTask(t)}
+                    className="hover:bg-subtle duration-[var(--duration-fast)] ease-[var(--ease-standard)] cursor-pointer transition-colors last:[&>td]:border-b-0 [&>td]:border-b [&>td]:border-[#d3d4d8] [&>td]:px-4 [&>td]:py-3.5 [&>td]:align-middle [&>td]:whitespace-nowrap [&>td]:text-[13.5px] [&>td]:text-ink"
+                  >
+                    <td onClick={(e) => toggleDone(t.id, e)}>
                       {t.done ? (
                         <CheckCircle2 size={18} color="var(--status-success)" />
                       ) : (
                         <Circle size={18} color="var(--text-muted)" />
                       )}
-                    </button>
-
-                    <div className="task-row__main">
-                      <span className={t.done ? 'task-row__title task-row__title--done' : 'task-row__title'}>
-                        {t.name}
-                      </span>
-                      {t.project && <span className="task-row__subtitle">{t.project}</span>}
-                    </div>
-
-                    <div className="task-row__meta">
-                      {t.due && (
-                        <span className="task-row__due">
-                          <CalendarDays size={13} />
-                          {t.due}
+                    </td>
+                    <td
+                      className={`!min-w-[200px] !whitespace-normal font-semibold ${t.done ? '!text-faint line-through' : ''}`}
+                    >
+                      {t.name}
+                    </td>
+                    <td className="!text-muted">{t.project}</td>
+                    <td>
+                      {member && (
+                        <span className="text-muted inline-flex items-center gap-2 text-[12.5px]">
+                          <Avatar initials={member.initials} color={member.color} size={26} />
+                          {member.name}
                         </span>
                       )}
-                    </div>
-
-                    <div className="task-row__right">
-                      {member && (
-                        <Avatar initials={member.initials} color={member.color} size={28} title={member.name} />
-                      )}
-                      <span className={`pill pill--${tone}`}>{t.project}</span>
+                    </td>
+                    <td>
                       <Badge tone={t.priority}>{t.priority}</Badge>
+                    </td>
+                    <td>
+                      <Badge tone={t.status}>{t.status}</Badge>
+                    </td>
+                    <td className="!text-muted">{t.due}</td>
+                    <td>
                       <button
-                        className="task-row__menu"
+                        className="icon-btn"
                         onClick={(e) => e.stopPropagation()}
                         aria-label="More actions"
                       >
                         <MoreHorizontal size={16} />
                       </button>
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 )
               })}
-            </div>
-          </section>
-        ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {activeTask && <TaskDetailPanel task={activeTask} onClose={() => setActiveTask(null)} />}

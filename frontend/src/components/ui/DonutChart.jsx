@@ -17,7 +17,7 @@ export function DonutChart({
   const innerRadius = outerRadius - thickness
 
   return (
-    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
       <PieChart width={size} height={size}>
         <Pie
           data={data}
@@ -37,24 +37,16 @@ export function DonutChart({
         </Pie>
       </PieChart>
       {(centerLabel || centerSub) && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
           {centerLabel && (
-            <span style={{ fontSize: size * 0.155, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+            <span
+              className="text-ink font-bold tracking-[-0.02em]"
+              style={{ fontSize: size * 0.155 }}
+            >
               {centerLabel}
             </span>
           )}
-          {centerSub && (
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{centerSub}</span>
-          )}
+          {centerSub && <span className="text-muted mt-0.5 text-xs">{centerSub}</span>}
         </div>
       )}
     </div>
