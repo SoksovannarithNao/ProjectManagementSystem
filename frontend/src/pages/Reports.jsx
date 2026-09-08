@@ -20,7 +20,6 @@ import {
   productivityByMember,
   workloadByMember,
 } from '../data/mockData'
-import './Reports.css'
 
 const barColors = ['#242426', '#66676B', '#AEB9D2', '#B9B0C8', '#7E9FC4', '#D2A85A']
 
@@ -57,15 +56,15 @@ export function Reports() {
         }
       />
 
-      <div className="reports-stats">
+      <div className="mb-6 grid grid-cols-4 gap-[18px] max-[1100px]:grid-cols-2 max-[520px]:grid-cols-1">
         {statCards.map((s) => (
           <StatCard key={s.key} label={s.label} value={s.value} delta={s.delta} tone={s.tone} />
         ))}
       </div>
 
-      <div className="reports-grid">
-        <section className="card reports-panel">
-          <h3 className="section-title reports-panel__title">Task Completion</h3>
+      <div className="grid grid-cols-2 gap-5 max-[900px]:grid-cols-1">
+        <section className="card px-5 pt-5 pb-3">
+          <h3 className="section-title mb-3">Task Completion</h3>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={weeklyReport} margin={{ top: 6, right: 8, left: -6, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--border-divider)" />
@@ -78,8 +77,8 @@ export function Reports() {
           </ResponsiveContainer>
         </section>
 
-        <section className="card reports-panel">
-          <h3 className="section-title reports-panel__title">Project Progress</h3>
+        <section className="card px-5 pt-5 pb-3">
+          <h3 className="section-title mb-3">Project Progress</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={projects} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
               <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
@@ -95,8 +94,8 @@ export function Reports() {
           </ResponsiveContainer>
         </section>
 
-        <section className="card reports-panel">
-          <h3 className="section-title reports-panel__title">Team Productivity</h3>
+        <section className="card px-5 pt-5 pb-3">
+          <h3 className="section-title mb-3">Team Productivity</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={productivityByMember} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--border-divider)" />
@@ -108,8 +107,8 @@ export function Reports() {
           </ResponsiveContainer>
         </section>
 
-        <section className="card reports-panel">
-          <h3 className="section-title reports-panel__title">Workload</h3>
+        <section className="card px-5 pt-5 pb-3">
+          <h3 className="section-title mb-3">Workload</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={workloadByMember} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
               <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
