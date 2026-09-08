@@ -9,7 +9,6 @@ import {
   BarChart3,
   Settings,
   HelpCircle,
-  Sparkles,
   X,
 } from 'lucide-react'
 import { Avatar } from '../components/ui/Avatar'
@@ -65,13 +64,6 @@ export function Sidebar() {
             </NavLink>
           ))}
         </nav>
-
-        <div className="sidebar__upgrade">
-          <Sparkles size={18} className="sidebar__upgrade-icon" />
-          <p className="sidebar__upgrade-title">Go Pro</p>
-          <p className="sidebar__upgrade-text">Unlock advanced reports and unlimited projects.</p>
-          <button className="btn btn-primary sidebar__upgrade-btn">Upgrade</button>
-        </div>
 
         <div className="sidebar__bottom">
           <button className="sidebar__item sidebar__item--plain">

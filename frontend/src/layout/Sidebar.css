@@ -50,6 +50,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  margin-bottom: auto;
 }
 
 .sidebar__item {
@@ -103,46 +104,6 @@
 
 .sidebar__item--active:hover svg {
   color: var(--text-white);
-}
-
-.sidebar__upgrade {
-  margin-top: auto;
-  background: var(--color-charcoal);
-  border-radius: var(--radius-md);
-  padding: 16px 14px;
-  position: relative;
-  overflow: hidden;
-}
-
-.sidebar__upgrade-icon {
-  color: var(--accent-lavender);
-  margin-bottom: 8px;
-}
-
-.sidebar__upgrade-title {
-  color: var(--text-white);
-  font-size: 13.5px;
-  font-weight: 650;
-  margin-bottom: 4px;
-}
-
-.sidebar__upgrade-text {
-  color: #a3a3a8;
-  font-size: 11.5px;
-  line-height: 1.5;
-  margin-bottom: 12px;
-}
-
-.sidebar__upgrade-btn {
-  width: 100%;
-  background: var(--text-white);
-  color: var(--color-charcoal);
-  padding: 8px;
-  font-size: 12.5px;
-}
-
-.sidebar__upgrade-btn:hover {
-  background: var(--accent-blue-gray);
 }
 
 .sidebar__bottom {
