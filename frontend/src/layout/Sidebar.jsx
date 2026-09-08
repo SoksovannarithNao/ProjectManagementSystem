@@ -10,7 +10,6 @@ import {
   Settings,
   HelpCircle,
   X,
-  Sparkles,
 } from 'lucide-react'
 import { Avatar } from '../components/ui/Avatar'
 import { currentUser } from '../data/mockData'
@@ -85,18 +84,7 @@ export function Sidebar() {
           ))}
         </nav>
 
-        <div className="bg-charcoal relative mt-auto overflow-hidden rounded-md p-[14px] px-3.5 py-4">
-          <Sparkles size={18} className="text-lavender mb-2" />
-          <p className="mb-1 text-[13.5px] font-[650] text-white">Go Pro</p>
-          <p className="mb-3 text-[11.5px] leading-normal text-[#a3a3a8]">
-            Unlock advanced reports and unlimited projects.
-          </p>
-          <button className="btn btn-primary hover:bg-blue-gray w-full bg-white p-2 text-[12.5px] text-charcoal">
-            Upgrade
-          </button>
-        </div>
-
-        <div className="border-divider mt-3.5 flex flex-col gap-[3px] border-t pt-3.5">
+        <div className="border-divider mt-auto flex flex-col gap-[3px] border-t pt-3.5">
           <button className={`${itemBase} ${itemInactive}`}>
             <Settings size={18} strokeWidth={2} />
             <span>Settings</span>

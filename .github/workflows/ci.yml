@@ -25,7 +25,8 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
-      - run: npm test -- --run
+      # TODO: enable once a frontend test suite exists (no "test" script defined yet).
+      # - run: npm test -- --run
       - run: npm run build
 
   backend:
@@ -58,6 +59,18 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      # Service containers start before checkout, so the schema can't be mounted into
+      # /docker-entrypoint-initdb.d like docker-compose.yml does locally — load it here
+      # instead, once the repo is actually on disk and Postgres is healthy.
+      - name: Load database schema
+        env:
+          PGPASSWORD: postgres
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          for f in "${{ github.workspace }}"/database/init/*.sql; do
+            psql -h localhost -U postgres -d taskmanager_test -f "$f"
+          done
 
       - name: Build & test
         env:
