@@ -1,0 +1,1372 @@
+openapi: 3.0.3
+info:
+  title: Task & Project Management System API
+  description: >
+    Documents the REST API exactly as implemented in `backend/` today — not an
+    idealized target contract. Known gaps/quirks are called out inline via
+    `description` fields so frontend work can account for them; see
+    `api/README.md` for the summary list.
+  version: "0.1.0"
+servers:
+  - url: http://localhost:8080
+    description: Local (via docker-compose or `mvn spring-boot:run`)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+  - name: Health
+  - name: Users
+  - name: Projects
+  - name: Project Members
+  - name: Milestones
+  - name: Tasks
+  - name: Task Assignees
+  - name: Task Dependencies
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Backend API is running
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in with username + password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: >
+            Authenticated. Returns a JWT (HS512, signed with `app.jwt.secret`)
+            to send as `Authorization: Bearer <token>` on every other request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: >
+            Bad credentials or account not ACTIVE. Currently surfaces as
+            Spring Security's default 401 body, not a custom error shape.
+        "400":
+          description: >
+            `username`/`password` blank — the only validated field in the
+            whole API (`@NotBlank` on `LoginRequest`). Since there's no
+            `@ControllerAdvice`, this comes back as Spring's default
+            validation-error body, not a documented custom shape.
+
+  /api/users:
+    get:
+      tags: [Users]
+      summary: List all users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserResponse"
+    post:
+      tags: [Users]
+      summary: Create a user
+      description: >
+        **Registration does not hash the password.** Whatever string is sent
+        as `passwordHash` is stored as-is — the client is expected to have
+        already hashed it, which no known client actually does. Login will
+        not work for a user created this way unless the value happens to be
+        a valid BCrypt hash of the intended password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreateRequest"
+      responses:
+        "200":
+          description: >
+            Created (returns 200, not 201 — no controller in this API sets
+            `@ResponseStatus`, so every POST responds 200 OK).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+
+  /api/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get a user by ID
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    put:
+      tags: [Users]
+      summary: Replace a user
+      description: >
+        Full-replace semantics — every field must be sent on PUT, not just
+        the ones changing; there is no PATCH anywhere in this API.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreateRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    delete:
+      tags: [Users]
+      summary: Delete a user
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: No content (empty 200 body — no `@ResponseStatus(NO_CONTENT)` set)
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+
+  /api/users/username/{username}:
+    get:
+      tags: [Users]
+      summary: Get a user by username
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+
+  /api/projects:
+    get:
+      tags: [Projects]
+      summary: List all projects
+      description: >
+        No filtering/pagination — returns every row. Also no search by
+        name/manager/status/date despite the requirements doc calling for it.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      tags: [Projects]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectWriteRequest"
+      responses:
+        "200":
+          description: Created (200, see note on Users POST)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /api/projects/{id}:
+    get:
+      tags: [Projects]
+      summary: Get a project by ID
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    put:
+      tags: [Projects]
+      summary: Replace a project
+      description: >
+        Full-replace semantics — every field must be sent on PUT, not just
+        the ones changing; there is no PATCH anywhere in this API.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectWriteRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    delete:
+      tags: [Projects]
+      summary: Delete a project
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: No content (empty 200 body)
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+
+  /api/project-members:
+    get:
+      tags: [Project Members]
+      summary: List all project-member rows
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectMember"
+    post:
+      tags: [Project Members]
+      summary: Add a member to a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectMemberWriteRequest"
+      responses:
+        "200":
+          description: Created (200, see note on Users POST)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMember"
+
+  /api/project-members/{id}:
+    get:
+      tags: [Project Members]
+      summary: Get a project-member row by its own ID
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMember"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    put:
+      tags: [Project Members]
+      summary: Replace a project-member row
+      description: >
+        Full-replace semantics — every field must be sent on PUT, not just
+        the ones changing; there is no PATCH anywhere in this API.
+        Additionally, this lets a client change which `project`/`user` a
+        membership row points to via PUT, not just its `projectRole`.
+        There's no dedicated "change role" endpoint.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectMemberWriteRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMember"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    delete:
+      tags: [Project Members]
+      summary: Remove a member from a project
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: No content (empty 200 body)
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+
+  /api/project-members/project/{projectId}:
+    get:
+      tags: [Project Members]
+      summary: List members of a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectMember"
+
+  /api/project-members/user/{userId}:
+    get:
+      tags: [Project Members]
+      summary: List the projects a user belongs to
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectMember"
+
+  /api/milestones:
+    get:
+      tags: [Milestones]
+      summary: List all milestones
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Milestone"
+    post:
+      tags: [Milestones]
+      summary: Create a milestone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MilestoneWriteRequest"
+      responses:
+        "200":
+          description: Created (200, see note on Users POST)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Milestone"
+
+  /api/milestones/{id}:
+    get:
+      tags: [Milestones]
+      summary: Get a milestone by ID
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Milestone"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    put:
+      tags: [Milestones]
+      summary: Replace a milestone
+      description: >
+        Full-replace semantics — every field must be sent on PUT, not just
+        the ones changing; there is no PATCH anywhere in this API. There's
+        also no dedicated "update progress/status" endpoint, and no
+        server-side recompute of the parent project's `progress` when a
+        milestone changes.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MilestoneWriteRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Milestone"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    delete:
+      tags: [Milestones]
+      summary: Delete a milestone
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: No content (empty 200 body)
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+
+  /api/milestones/project/{projectId}:
+    get:
+      tags: [Milestones]
+      summary: List milestones for a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Milestone"
+
+  /api/tasks:
+    get:
+      tags: [Tasks]
+      summary: List all tasks
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskWriteRequest"
+      responses:
+        "200":
+          description: Created (200, see note on Users POST)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{id}:
+    get:
+      tags: [Tasks]
+      summary: Get a task by ID
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    put:
+      tags: [Tasks]
+      summary: Replace a task
+      description: >
+        Full-replace semantics — every field must be sent on PUT, not just
+        the ones changing; there is no `PATCH /api/tasks/{id}/status`. A
+        status change means re-sending the entire task body, including its
+        `project`/`milestone` references. `completedAt` is a plain nullable
+        field the caller must set themselves; nothing stamps it automatically
+        when `status` becomes `COMPLETED`.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskWriteRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    delete:
+      tags: [Tasks]
+      summary: Delete a task
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: No content (empty 200 body)
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+
+  /api/tasks/project/{projectId}:
+    get:
+      tags: [Tasks]
+      summary: List tasks in a project
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+
+  /api/tasks/milestone/{milestoneId}:
+    get:
+      tags: [Tasks]
+      summary: List tasks under a milestone
+      parameters:
+        - name: milestoneId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+
+  /api/tasks/status/{status}:
+    get:
+      tags: [Tasks]
+      summary: List tasks by status
+      description: >
+        `status` is a free-text path segment, not validated against the
+        `TaskStatus` enum below — an unrecognized value just returns an empty
+        list rather than a 400.
+      parameters:
+        - name: status
+          in: path
+          required: true
+          schema:
+            type: string
+          example: IN_PROGRESS
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+
+  /api/task-assignees:
+    get:
+      tags: [Task Assignees]
+      summary: List all task-assignee rows
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskAssignee"
+    post:
+      tags: [Task Assignees]
+      summary: Assign a task to a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskAssigneeWriteRequest"
+      responses:
+        "200":
+          description: Created (200, see note on Users POST)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAssignee"
+
+  /api/task-assignees/{id}:
+    get:
+      tags: [Task Assignees]
+      summary: Get a task-assignee row by its own ID
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAssignee"
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+    delete:
+      tags: [Task Assignees]
+      summary: Unassign (remove one assignee row)
+      description: >
+        No `PUT` — this is a pure join table, so there's nothing to update
+        beyond delete+recreate. To unassign, the client must already know
+        this row's own `id` (from a prior GET); there's no
+        `DELETE ?taskId=&userId=` shortcut like `task-dependencies` has.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: No content (empty 200 body)
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+
+  /api/task-assignees/task/{taskId}:
+    get:
+      tags: [Task Assignees]
+      summary: List assignees of a task
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskAssignee"
+
+  /api/task-assignees/user/{userId}:
+    get:
+      tags: [Task Assignees]
+      summary: List tasks assigned to a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskAssignee"
+
+  /api/task-dependencies:
+    get:
+      tags: [Task Dependencies]
+      summary: List all task-dependency rows
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskDependency"
+    post:
+      tags: [Task Dependencies]
+      summary: Add a dependency ("task can't start until dependsOnTask is done")
+      description: >
+        The DB enforces cycle-prevention (`trg_task_dependencies_no_cycle`)
+        and self-reference rejection at the trigger level — a cyclic request
+        here will fail with a raw Postgres exception, since nothing in the
+        service layer pre-checks it or maps it to a clean 4xx.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskDependencyWriteRequest"
+      responses:
+        "200":
+          description: Created (200, see note on Users POST)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDependency"
+    delete:
+      tags: [Task Dependencies]
+      summary: Remove a dependency
+      description: >
+        Unlike `task-assignees`, this deletes by the natural composite key via
+        query params, not by a surrogate row `id` (there isn't one).
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: dependsOnTaskId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: No content (empty 200 body)
+        "500":
+          $ref: "#/components/responses/NotFoundAs500"
+
+  /api/task-dependencies/task/{taskId}:
+    get:
+      tags: [Task Dependencies]
+      summary: List what a task depends on
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskDependency"
+
+  /api/task-dependencies/depends-on/{taskId}:
+    get:
+      tags: [Task Dependencies]
+      summary: List what depends on a task
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskDependency"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Required on every endpoint except `GET /api/health` and
+        `POST /api/auth/login`. No `@PreAuthorize`/role checks exist anywhere
+        yet — any authenticated user (any of the 4 roles) can call any
+        endpoint, including deleting other users.
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+  responses:
+    NotFoundAs500:
+      description: >
+        **Not actually 404.** There's no `@ControllerAdvice` in this backend,
+        so a missing row's `orElseThrow(() -> new RuntimeException(...))`
+        surfaces as an unhandled 500 with a raw stack trace, not a clean
+        404 JSON body. Documented here as-is so clients don't rely on 404.
+
+  schemas:
+    # ---------- shared enum-ish string fields ----------
+    # None of these are enforced by @Enumerated/@Pattern in Java — they're
+    # documented from the Postgres CHECK constraints in database/init/01-init.sql.
+    # An invalid value passes the controller/service layer and only fails at
+    # the DB constraint, surfacing as another unhandled 500.
+
+    AccountStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE, SUSPENDED]
+    ProjectPriority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+    ProjectStatus:
+      type: string
+      enum: [PLANNING, IN_PROGRESS, ON_HOLD, COMPLETED, CANCELLED]
+    ProjectRole:
+      type: string
+      enum: [PROJECT_MANAGER, TEAM_LEADER, TEAM_MEMBER]
+    MilestoneStatus:
+      type: string
+      enum: [PENDING, IN_PROGRESS, COMPLETED]
+    TaskPriority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, URGENT]
+    TaskStatus:
+      type: string
+      enum: [TO_DO, IN_PROGRESS, IN_REVIEW, COMPLETED, CANCELLED]
+
+    # ---------- auth ----------
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT, HS512-signed. No documented expiry/refresh flow yet.
+        username:
+          type: string
+        role:
+          type: string
+          description: Role name, e.g. `PROJECT_MANAGER`.
+
+    # ---------- users ----------
+    # Two different shapes exist for "a user" depending on where it appears:
+    # UserResponse (the /api/users endpoints — no passwordHash, role flattened
+    # to a name string) vs UserEntity (nested inside Project/Task/etc. below —
+    # the raw JPA entity, WHICH STILL INCLUDES passwordHash and a full nested
+    # Role object). This is a real, current inconsistency, not a typo here.
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        fullName:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        gender:
+          type: string
+          nullable: true
+        dateOfBirth:
+          type: string
+          format: date
+          nullable: true
+        phoneNumber:
+          type: string
+          nullable: true
+        profilePhotoUrl:
+          type: string
+          nullable: true
+        position:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        role:
+          type: string
+          description: Role name, e.g. `TEAM_MEMBER`.
+        roleDescription:
+          type: string
+          nullable: true
+        accountStatus:
+          $ref: "#/components/schemas/AccountStatus"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserCreateRequest:
+      type: object
+      description: >
+        Body for `POST /api/users` and `PUT /api/users/{id}` — bound directly
+        to the `User` entity (no separate request DTO), so any entity field
+        is technically settable including `accountStatus`.
+      required: [fullName, username, email, passwordHash, role]
+      properties:
+        fullName:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        passwordHash:
+          type: string
+          description: >
+            Stored as-is, NOT hashed server-side. See the POST description
+            above.
+        gender:
+          type: string
+          nullable: true
+        dateOfBirth:
+          type: string
+          format: date
+          nullable: true
+        phoneNumber:
+          type: string
+          nullable: true
+        profilePhotoUrl:
+          type: string
+          nullable: true
+        position:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        role:
+          $ref: "#/components/schemas/RoleRef"
+        accountStatus:
+          $ref: "#/components/schemas/AccountStatus"
+
+    RoleRef:
+      type: object
+      description: Only `id` is used to resolve the association; other fields are ignored.
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+
+    UserEntity:
+      type: object
+      description: >
+        The raw `User` JPA entity as it appears nested inside Project/Task/
+        ProjectMember/TaskAssignee responses below — includes `passwordHash`
+        and a full `role` object, unlike `UserResponse`.
+      properties:
+        id:
+          type: integer
+          format: int64
+        fullName:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        passwordHash:
+          type: string
+          description: Real BCrypt hash (or whatever was stored) — leaked here.
+        gender:
+          type: string
+          nullable: true
+        dateOfBirth:
+          type: string
+          format: date
+          nullable: true
+        phoneNumber:
+          type: string
+          nullable: true
+        profilePhotoUrl:
+          type: string
+          nullable: true
+        position:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        role:
+          $ref: "#/components/schemas/Role"
+        accountStatus:
+          $ref: "#/components/schemas/AccountStatus"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Role:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+
+    # ---------- projects ----------
+
+    Project:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        projectCode:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        manager:
+          $ref: "#/components/schemas/UserEntity"
+        priority:
+          $ref: "#/components/schemas/ProjectPriority"
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+        progress:
+          type: number
+          description: 0–100, DB-enforced (`NUMERIC(5,2) CHECK BETWEEN 0 AND 100`), not app-validated.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProjectWriteRequest:
+      type: object
+      required: [projectCode, name, startDate, endDate, manager]
+      properties:
+        projectCode:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        manager:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a user id here, despite the shared schema name).
+        priority:
+          $ref: "#/components/schemas/ProjectPriority"
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+        progress:
+          type: number
+
+    # ---------- project members ----------
+
+    ProjectMember:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        project:
+          $ref: "#/components/schemas/Project"
+        user:
+          $ref: "#/components/schemas/UserEntity"
+        projectRole:
+          $ref: "#/components/schemas/ProjectRole"
+        joinedAt:
+          type: string
+          format: date-time
+
+    ProjectMemberWriteRequest:
+      type: object
+      required: [project, user]
+      properties:
+        project:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a project id here).
+        user:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a user id here).
+        projectRole:
+          $ref: "#/components/schemas/ProjectRole"
+
+    # ---------- milestones ----------
+
+    Milestone:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        project:
+          $ref: "#/components/schemas/Project"
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/MilestoneStatus"
+        progress:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MilestoneWriteRequest:
+      type: object
+      required: [project, title, dueDate]
+      properties:
+        project:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a project id here).
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/MilestoneStatus"
+        progress:
+          type: number
+
+    # ---------- tasks ----------
+
+    Task:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        project:
+          $ref: "#/components/schemas/Project"
+        milestone:
+          $ref: "#/components/schemas/Milestone"
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        estimatedHours:
+          type: number
+          nullable: true
+        progress:
+          type: number
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdBy:
+          $ref: "#/components/schemas/UserEntity"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TaskWriteRequest:
+      type: object
+      required: [project, title]
+      properties:
+        project:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a project id here).
+        milestone:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a milestone id here). Omit/null for no milestone.
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        estimatedHours:
+          type: number
+          nullable: true
+        progress:
+          type: number
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Not auto-set — caller must set this explicitly when marking a task done.
+        createdBy:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a user id here).
+
+    # ---------- task assignees ----------
+
+    TaskAssignee:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        task:
+          $ref: "#/components/schemas/Task"
+        user:
+          $ref: "#/components/schemas/UserEntity"
+        assignedAt:
+          type: string
+          format: date-time
+
+    TaskAssigneeWriteRequest:
+      type: object
+      required: [task, user]
+      properties:
+        task:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a task id here).
+        user:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a user id here).
+
+    # ---------- task dependencies ----------
+
+    TaskDependency:
+      type: object
+      description: No surrogate `id` — identity is the (task, dependsOnTask) pair.
+      properties:
+        task:
+          $ref: "#/components/schemas/Task"
+        dependsOnTask:
+          $ref: "#/components/schemas/Task"
+
+    TaskDependencyWriteRequest:
+      type: object
+      required: [task, dependsOnTask]
+      properties:
+        task:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a task id here) — the task that has the dependency.
+        dependsOnTask:
+          $ref: "#/components/schemas/RoleRef"
+          description: Only `id` is used (a task id here) — the task that must complete first.

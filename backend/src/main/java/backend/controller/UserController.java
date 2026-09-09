@@ -1,8 +1,12 @@
 package backend.controller;
 
+import backend.dto.UserCreateRequest;
 import backend.dto.UserResponse;
-import backend.entity.User;
+import backend.dto.UserUpdateRequest;
 import backend.service.UserService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,39 +23,37 @@ public class UserController {
 
     @GetMapping
     public List<UserResponse> getAllUsers() {
-        return userService.getAllUsers()
-                .stream()
-                .map(UserResponse::new)
-                .toList();
+        return userService.getAllUsers();
     }
 
     @GetMapping("/{id}")
     public UserResponse getUserById(@PathVariable Long id) {
-        User user = userService.getUserById(id);
-        return new UserResponse(user);
+        return userService.getUserById(id);
     }
 
     @GetMapping("/username/{username}")
     public UserResponse getUserByUsername(@PathVariable String username) {
-        User user = userService.getUserByUsername(username);
-        return new UserResponse(user);
+        return userService.getUserByUsername(username);
     }
 
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
-    public UserResponse createUser(@RequestBody User user) {
-        User createdUser = userService.createUser(user);
-        return new UserResponse(createdUser);
+    public UserResponse createUser(@Valid @RequestBody UserCreateRequest request) {
+        return userService.createUser(request);
     }
 
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
     @PutMapping("/{id}")
     public UserResponse updateUser(
             @PathVariable Long id,
-            @RequestBody User user
+            @Valid @RequestBody UserUpdateRequest request
     ) {
-        User updatedUser = userService.updateUser(id, user);
-        return new UserResponse(updatedUser);
+        return userService.updateUser(id, request);
     }
 
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/{id}")
     public void deleteUser(@PathVariable Long id) {
         userService.deleteUser(id);

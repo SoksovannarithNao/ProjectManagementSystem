@@ -1,53 +1,98 @@
 package backend.service;
 
+import backend.dto.ProjectMemberRequest;
+import backend.dto.ProjectMemberResponse;
+import backend.entity.Project;
 import backend.entity.ProjectMember;
+import backend.entity.User;
+import backend.exception.NotFoundException;
 import backend.repository.ProjectMemberRepository;
+import backend.repository.ProjectRepository;
+import backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 @Service
+@Transactional
 public class ProjectMemberService {
 
     private final ProjectMemberRepository projectMemberRepository;
+    private final ProjectRepository projectRepository;
+    private final UserRepository userRepository;
 
-    public ProjectMemberService(ProjectMemberRepository projectMemberRepository) {
+    public ProjectMemberService(
+            ProjectMemberRepository projectMemberRepository,
+            ProjectRepository projectRepository,
+            UserRepository userRepository) {
         this.projectMemberRepository = projectMemberRepository;
+        this.projectRepository = projectRepository;
+        this.userRepository = userRepository;
     }
 
-    public List<ProjectMember> getAllProjectMembers() {
-        return projectMemberRepository.findAll();
+    @Transactional(readOnly = true)
+    public List<ProjectMemberResponse> getAllProjectMembers() {
+        return projectMemberRepository.findAll()
+                .stream()
+                .map(ProjectMemberResponse::new)
+                .toList();
     }
 
-    public ProjectMember getProjectMemberById(Long id) {
+    @Transactional(readOnly = true)
+    public ProjectMemberResponse getProjectMemberById(Long id) {
+        return new ProjectMemberResponse(getProjectMemberEntityById(id));
+    }
+
+    @Transactional(readOnly = true)
+    public ProjectMember getProjectMemberEntityById(Long id) {
         return projectMemberRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Project member not found"));
+                .orElseThrow(() -> new NotFoundException("Project member not found"));
     }
 
-    public List<ProjectMember> getMembersByProjectId(Long projectId) {
-        return projectMemberRepository.findByProjectId(projectId);
+    @Transactional(readOnly = true)
+    public List<ProjectMemberResponse> getMembersByProjectId(Long projectId) {
+        return projectMemberRepository.findByProjectId(projectId)
+                .stream()
+                .map(ProjectMemberResponse::new)
+                .toList();
     }
 
-    public List<ProjectMember> getProjectsByUserId(Long userId) {
-        return projectMemberRepository.findByUserId(userId);
+    @Transactional(readOnly = true)
+    public List<ProjectMemberResponse> getProjectsByUserId(Long userId) {
+        return projectMemberRepository.findByUserId(userId)
+                .stream()
+                .map(ProjectMemberResponse::new)
+                .toList();
     }
 
-    public ProjectMember createProjectMember(ProjectMember projectMember) {
-        return projectMemberRepository.save(projectMember);
+    public ProjectMemberResponse createProjectMember(ProjectMemberRequest request) {
+        ProjectMember projectMember = new ProjectMember();
+        applyRequest(projectMember, request);
+        return new ProjectMemberResponse(projectMemberRepository.save(projectMember));
     }
 
-    public ProjectMember updateProjectMember(Long id, ProjectMember memberDetails) {
-        ProjectMember projectMember = getProjectMemberById(id);
-
-        projectMember.setProject(memberDetails.getProject());
-        projectMember.setUser(memberDetails.getUser());
-        projectMember.setProjectRole(memberDetails.getProjectRole());
-
-        return projectMemberRepository.save(projectMember);
+    public ProjectMemberResponse updateProjectMember(Long id, ProjectMemberRequest request) {
+        ProjectMember projectMember = getProjectMemberEntityById(id);
+        applyRequest(projectMember, request);
+        return new ProjectMemberResponse(projectMemberRepository.save(projectMember));
     }
 
     public void deleteProjectMember(Long id) {
-        ProjectMember projectMember = getProjectMemberById(id);
+        ProjectMember projectMember = getProjectMemberEntityById(id);
         projectMemberRepository.delete(projectMember);
+    }
+
+    private void applyRequest(ProjectMember projectMember, ProjectMemberRequest request) {
+        Project project = projectRepository.findById(request.getProjectId())
+                .orElseThrow(() -> new NotFoundException("Project not found"));
+        User user = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> new NotFoundException("User not found"));
+
+        projectMember.setProject(project);
+        projectMember.setUser(user);
+        if (request.getProjectRole() != null) {
+            projectMember.setProjectRole(request.getProjectRole());
+        }
     }
 }

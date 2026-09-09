@@ -62,4 +62,9 @@ public class ProjectMember {
     public OffsetDateTime getJoinedAt() {
         return joinedAt;
     }
+
+    @PrePersist
+    void onCreate() {
+        joinedAt = OffsetDateTime.now();
+    }
 }
