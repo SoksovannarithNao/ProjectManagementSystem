@@ -22,7 +22,7 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user;
 
         try {
-            user = userService.getUserByUsername(username);
+            user = userService.getUserEntityByUsername(username);
         } catch (RuntimeException ex) {
             throw new UsernameNotFoundException("User not found");
         }

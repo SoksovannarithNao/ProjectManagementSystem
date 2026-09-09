@@ -1,63 +1,54 @@
-package backend.entity;
+package backend.dto;
 
-import jakarta.persistence.*;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
 
-@Entity
-@Table(name = "users")
-public class User {
+public class UserUpdateRequest {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    @Column(name = "full_name", nullable = false, length = 150)
+    @NotBlank
+    @Size(max = 150)
     private String fullName;
 
-    @Column(nullable = false, unique = true, length = 50)
+    @NotBlank
+    @Size(max = 50)
     private String username;
 
-    @Column(nullable = false, unique = true, length = 255)
+    @NotBlank
+    @Email
+    @Size(max = 255)
     private String email;
 
-    @Column(name = "password_hash", nullable = false, length = 255)
-    private String passwordHash;
+    /** Optional — null/blank leaves the existing password hash untouched. */
+    @Size(min = 8, max = 255)
+    private String password;
 
-    @Column(length = 20)
+    @Size(max = 20)
     private String gender;
 
-    @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
-    @Column(name = "phone_number", length = 30)
+    @Size(max = 30)
     private String phoneNumber;
 
-    @Column(name = "profile_photo_url", length = 500)
+    @Size(max = 500)
     private String profilePhotoUrl;
 
-    @Column(length = 100)
+    @Size(max = 100)
     private String position;
 
-    @Column(length = 100)
+    @Size(max = 100)
     private String department;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "role_id", nullable = false)
-    private Role role;
+    @NotNull
+    private Long roleId;
 
-    @Column(name = "account_status", nullable = false, length = 20)
-    private String accountStatus = "ACTIVE";
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private OffsetDateTime createdAt;
-
-    @Column(name = "updated_at", nullable = false)
-    private OffsetDateTime updatedAt;
-
-    public Long getId() {
-        return id;
-    }
+    @Pattern(regexp = "ACTIVE|INACTIVE|SUSPENDED")
+    private String accountStatus;
 
     public String getFullName() {
         return fullName;
@@ -83,12 +74,12 @@ public class User {
         this.email = email;
     }
 
-    public String getPasswordHash() {
-        return passwordHash;
+    public String getPassword() {
+        return password;
     }
 
-    public void setPasswordHash(String passwordHash) {
-        this.passwordHash = passwordHash;
+    public void setPassword(String password) {
+        this.password = password;
     }
 
     public String getGender() {
@@ -139,12 +130,12 @@ public class User {
         this.department = department;
     }
 
-    public Role getRole() {
-        return role;
+    public Long getRoleId() {
+        return roleId;
     }
 
-    public void setRole(Role role) {
-        this.role = role;
+    public void setRoleId(Long roleId) {
+        this.roleId = roleId;
     }
 
     public String getAccountStatus() {
@@ -153,25 +144,5 @@ public class User {
 
     public void setAccountStatus(String accountStatus) {
         this.accountStatus = accountStatus;
-    }
-
-    public OffsetDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public OffsetDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    @PrePersist
-    void onCreate() {
-        OffsetDateTime now = OffsetDateTime.now();
-        createdAt = now;
-        updatedAt = now;
-    }
-
-    @PreUpdate
-    void onUpdate() {
-        updatedAt = OffsetDateTime.now();
     }
 }

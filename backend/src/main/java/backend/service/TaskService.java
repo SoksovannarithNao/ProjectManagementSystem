@@ -1,66 +1,137 @@
 package backend.service;
 
+import backend.dto.TaskRequest;
+import backend.dto.TaskResponse;
+import backend.entity.Milestone;
+import backend.entity.Project;
 import backend.entity.Task;
+import backend.entity.User;
+import backend.exception.NotFoundException;
+import backend.repository.MilestoneRepository;
+import backend.repository.ProjectRepository;
 import backend.repository.TaskRepository;
+import backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Service
+@Transactional
 public class TaskService {
 
     private final TaskRepository taskRepository;
+    private final ProjectRepository projectRepository;
+    private final MilestoneRepository milestoneRepository;
+    private final UserRepository userRepository;
 
-    public TaskService(TaskRepository taskRepository) {
+    public TaskService(
+            TaskRepository taskRepository,
+            ProjectRepository projectRepository,
+            MilestoneRepository milestoneRepository,
+            UserRepository userRepository) {
         this.taskRepository = taskRepository;
+        this.projectRepository = projectRepository;
+        this.milestoneRepository = milestoneRepository;
+        this.userRepository = userRepository;
     }
 
-    public List<Task> getAllTasks() {
-        return taskRepository.findAll();
+    @Transactional(readOnly = true)
+    public List<TaskResponse> getAllTasks() {
+        return taskRepository.findAll()
+                .stream()
+                .map(TaskResponse::new)
+                .toList();
     }
 
-    public Task getTaskById(Long id) {
+    @Transactional(readOnly = true)
+    public TaskResponse getTaskById(Long id) {
+        return new TaskResponse(getTaskEntityById(id));
+    }
+
+    @Transactional(readOnly = true)
+    public Task getTaskEntityById(Long id) {
         return taskRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Task not found"));
+                .orElseThrow(() -> new NotFoundException("Task not found"));
     }
 
-    public List<Task> getTasksByProjectId(Long projectId) {
-        return taskRepository.findByProjectId(projectId);
+    @Transactional(readOnly = true)
+    public List<TaskResponse> getTasksByProjectId(Long projectId) {
+        return taskRepository.findByProjectId(projectId)
+                .stream()
+                .map(TaskResponse::new)
+                .toList();
     }
 
-    public List<Task> getTasksByMilestoneId(Long milestoneId) {
-        return taskRepository.findByMilestoneId(milestoneId);
+    @Transactional(readOnly = true)
+    public List<TaskResponse> getTasksByMilestoneId(Long milestoneId) {
+        return taskRepository.findByMilestoneId(milestoneId)
+                .stream()
+                .map(TaskResponse::new)
+                .toList();
     }
 
-    public List<Task> getTasksByStatus(String status) {
-        return taskRepository.findByStatus(status);
+    @Transactional(readOnly = true)
+    public List<TaskResponse> getTasksByStatus(String status) {
+        return taskRepository.findByStatus(status)
+                .stream()
+                .map(TaskResponse::new)
+                .toList();
     }
 
-    public Task createTask(Task task) {
-        return taskRepository.save(task);
+    public TaskResponse createTask(TaskRequest request) {
+        Task task = new Task();
+        applyRequest(task, request);
+        return new TaskResponse(taskRepository.save(task));
     }
 
-    public Task updateTask(Long id, Task taskDetails) {
-        Task task = getTaskById(id);
-
-        task.setProject(taskDetails.getProject());
-        task.setMilestone(taskDetails.getMilestone());
-        task.setTitle(taskDetails.getTitle());
-        task.setDescription(taskDetails.getDescription());
-        task.setPriority(taskDetails.getPriority());
-        task.setStatus(taskDetails.getStatus());
-        task.setStartDate(taskDetails.getStartDate());
-        task.setDueDate(taskDetails.getDueDate());
-        task.setEstimatedHours(taskDetails.getEstimatedHours());
-        task.setProgress(taskDetails.getProgress());
-        task.setCompletedAt(taskDetails.getCompletedAt());
-        task.setCreatedBy(taskDetails.getCreatedBy());
-
-        return taskRepository.save(task);
+    public TaskResponse updateTask(Long id, TaskRequest request) {
+        Task task = getTaskEntityById(id);
+        applyRequest(task, request);
+        return new TaskResponse(taskRepository.save(task));
     }
 
     public void deleteTask(Long id) {
-        Task task = getTaskById(id);
+        Task task = getTaskEntityById(id);
         taskRepository.delete(task);
+    }
+
+    private void applyRequest(Task task, TaskRequest request) {
+        Project project = projectRepository.findById(request.getProjectId())
+                .orElseThrow(() -> new NotFoundException("Project not found"));
+
+        Milestone milestone = null;
+        if (request.getMilestoneId() != null) {
+            milestone = milestoneRepository.findById(request.getMilestoneId())
+                    .orElseThrow(() -> new NotFoundException("Milestone not found"));
+        }
+
+        User createdBy = null;
+        if (request.getCreatedById() != null) {
+            createdBy = userRepository.findById(request.getCreatedById())
+                    .orElseThrow(() -> new NotFoundException("Creator (user) not found"));
+        }
+
+        task.setProject(project);
+        task.setMilestone(milestone);
+        task.setTitle(request.getTitle());
+        task.setDescription(request.getDescription());
+        if (request.getPriority() != null) {
+            task.setPriority(request.getPriority());
+        }
+        if (request.getStatus() != null) {
+            task.setStatus(request.getStatus());
+        }
+        task.setStartDate(request.getStartDate());
+        task.setDueDate(request.getDueDate());
+        task.setEstimatedHours(request.getEstimatedHours());
+        if (request.getProgress() != null) {
+            task.setProgress(request.getProgress());
+        } else if (task.getProgress() == null) {
+            task.setProgress(BigDecimal.ZERO);
+        }
+        task.setCompletedAt(request.getCompletedAt());
+        task.setCreatedBy(createdBy);
     }
 }

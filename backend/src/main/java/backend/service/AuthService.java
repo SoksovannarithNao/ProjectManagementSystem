@@ -31,7 +31,7 @@ public class AuthService {
                 )
         );
 
-        User user = userService.getUserByUsername(request.getUsername());
+        User user = userService.getUserEntityByUsername(request.getUsername());
 
         String token = jwtService.generateToken(
                 user.getUsername(),

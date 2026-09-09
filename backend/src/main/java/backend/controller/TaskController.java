@@ -1,7 +1,11 @@
 package backend.controller;
 
-import backend.entity.Task;
+import backend.dto.TaskRequest;
+import backend.dto.TaskResponse;
 import backend.service.TaskService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,43 +21,51 @@ public class TaskController {
     }
 
     @GetMapping
-    public List<Task> getAllTasks() {
+    public List<TaskResponse> getAllTasks() {
         return taskService.getAllTasks();
     }
 
     @GetMapping("/{id}")
-    public Task getTaskById(@PathVariable Long id) {
+    public TaskResponse getTaskById(@PathVariable Long id) {
         return taskService.getTaskById(id);
     }
 
     @GetMapping("/project/{projectId}")
-    public List<Task> getTasksByProjectId(@PathVariable Long projectId) {
+    public List<TaskResponse> getTasksByProjectId(@PathVariable Long projectId) {
         return taskService.getTasksByProjectId(projectId);
     }
 
     @GetMapping("/milestone/{milestoneId}")
-    public List<Task> getTasksByMilestoneId(@PathVariable Long milestoneId) {
+    public List<TaskResponse> getTasksByMilestoneId(@PathVariable Long milestoneId) {
         return taskService.getTasksByMilestoneId(milestoneId);
     }
 
     @GetMapping("/status/{status}")
-    public List<Task> getTasksByStatus(@PathVariable String status) {
+    public List<TaskResponse> getTasksByStatus(@PathVariable String status) {
         return taskService.getTasksByStatus(status);
     }
 
+    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")
+    @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
-    public Task createTask(@RequestBody Task task) {
-        return taskService.createTask(task);
+    public TaskResponse createTask(@Valid @RequestBody TaskRequest request) {
+        return taskService.createTask(request);
     }
 
+    // Open to any authenticated role (not just PM/TL), since a TEAM_MEMBER
+    // must be able to update the status/progress of their own tasks. There's
+    // no per-row ownership check yet, so this is coarser than ideal — see
+    // the README's Security section.
     @PutMapping("/{id}")
-    public Task updateTask(
+    public TaskResponse updateTask(
             @PathVariable Long id,
-            @RequestBody Task task
+            @Valid @RequestBody TaskRequest request
     ) {
-        return taskService.updateTask(id, task);
+        return taskService.updateTask(id, request);
     }
 
+    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/{id}")
     public void deleteTask(@PathVariable Long id) {
         taskService.deleteTask(id);
