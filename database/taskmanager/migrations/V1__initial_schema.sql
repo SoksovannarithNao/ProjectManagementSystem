@@ -1,11 +1,9 @@
--- Task & Project Management System — initial schema
--- Runs automatically when the Postgres container starts with an empty data
--- directory (mounted into /docker-entrypoint-initdb.d by docker-compose.yml).
---
--- Scope: the core tables for the main workflow — Register/Login -> Create
--- Project -> Add Team Members -> Create Milestones -> Create Tasks -> Assign
--- Tasks -> Track Progress — plus subtasks/checklists, comments, attachments,
--- work logs, notifications, and activity logs.
+-- Task & Project Management System — Flyway baseline
+-- This is the versioned starting point for schema history going forward.
+-- Content matches database/init/01-init.sql as of the migration folder's
+-- introduction — from here on, schema changes are new V2__*.sql files, not
+-- edits to this one (Flyway checksums applied migrations and refuses to
+-- re-run a file whose content changed underneath it).
 
 -- ==================== updated_at helper ==================== --
 
