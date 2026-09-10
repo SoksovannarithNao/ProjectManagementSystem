@@ -2,6 +2,7 @@ import { CalendarDays } from 'lucide-react'
 import { AvatarGroup } from './ui/Avatar'
 import { ProgressBar } from './ui/ProgressBar'
 import { Badge } from './ui/Badge'
+import { humanizeEnum } from '../api/format'
 
 export function ProjectCard({ project }) {
   return (
@@ -11,7 +12,7 @@ export function ProjectCard({ project }) {
           <h3 className="text-ink mb-1 text-[15.5px] font-[650]">{project.name}</h3>
           <p className="text-muted text-[12.5px]">{project.description}</p>
         </div>
-        <Badge tone={project.status}>{project.status}</Badge>
+        <Badge tone={project.status}>{humanizeEnum(project.status)}</Badge>
       </div>
 
       <div className="flex flex-col gap-2">

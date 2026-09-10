@@ -1,18 +1,30 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus, SlidersHorizontal } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
-import { kanbanColumns, getMember } from '../data/mockData'
+import { useMembers } from '../data/UsersContext'
+import { useApi } from '../api/useApi'
+import { getTasks } from '../api/tasks'
+import { getTaskAssignees } from '../api/taskAssignees'
+import { buildTaskAssigneeMap } from '../api/relations'
+import { groupTasksByStatus } from '../api/stats'
+import { formatDate } from '../api/format'
 
 export function Kanban() {
+  const { getMember } = useMembers()
+  const { data: tasks, loading, refetch } = useApi(getTasks)
+  const { data: taskAssignees } = useApi(getTaskAssignees)
   const [activeTask, setActiveTask] = useState(null)
+
+  const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
+  const columns = useMemo(() => groupTasksByStatus(tasks), [tasks])
 
   return (
     <div>
       <TopBar
         title="Kanban Board"
-        subtitle="Drag tasks across stages to track progress"
+        subtitle="Track progress across stages"
         actions={
           <>
             <button className="btn btn-secondary">
@@ -26,7 +38,7 @@ export function Kanban() {
       />
 
       <div className="scroll-x flex items-start gap-[18px] pb-2">
-        {kanbanColumns.map((col) => (
+        {columns.map((col) => (
           <div
             key={col.id}
             className="bg-subtle border-divider flex w-[268px] shrink-0 flex-col gap-2.5 rounded-md border p-3.5"
@@ -38,20 +50,24 @@ export function Kanban() {
               </span>
             </div>
             <div className="flex flex-col gap-2.5">
+              {!loading && col.tasks.length === 0 && (
+                <p className="text-faint px-1 py-2 text-[12px]">No tasks.</p>
+              )}
               {col.tasks.map((task) => {
-                const member = getMember(task.assignee)
+                const assigneeIds = assigneeMap.get(task.id) ?? []
+                const member = getMember(assigneeIds[0])
                 return (
                   <button
                     key={task.id}
                     className="bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] rounded-[13px] border p-[13px] text-left transition hover:-translate-y-px"
-                    onClick={() => setActiveTask({ ...task, status: col.title })}
+                    onClick={() => setActiveTask({ ...task, assigneeIds })}
                   >
                     <span className="text-faint text-[10.5px] font-[650] tracking-[0.04em] uppercase">
-                      {task.project}
+                      {task.project?.name}
                     </span>
                     <p className="text-ink my-2 text-[13px] leading-normal font-semibold">{task.title}</p>
                     <div className="flex items-center justify-between">
-                      <span className="text-muted text-[11px]">{task.due}</span>
+                      <span className="text-muted text-[11px]">{formatDate(task.dueDate)}</span>
                       {member && (
                         <Avatar initials={member.initials} color={member.color} size={24} title={member.name} />
                       )}
@@ -67,7 +83,14 @@ export function Kanban() {
         ))}
       </div>
 
-      {activeTask && <TaskDetailPanel task={activeTask} onClose={() => setActiveTask(null)} />}
+      {activeTask && (
+        <TaskDetailPanel
+          key={activeTask.id}
+          task={activeTask}
+          onClose={() => setActiveTask(null)}
+          onChange={refetch}
+        />
+      )}
     </div>
   )
 }

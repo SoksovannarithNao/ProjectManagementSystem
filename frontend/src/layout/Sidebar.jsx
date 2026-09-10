@@ -12,7 +12,8 @@ import {
   X,
 } from 'lucide-react'
 import { Avatar } from '../components/ui/Avatar'
-import { currentUser } from '../data/mockData'
+import { useAuth } from '../auth/AuthContext'
+import { humanizeEnum, initialsFor } from '../api/format'
 import { useLayout } from './useLayout'
 
 const navItems = [
@@ -34,6 +35,9 @@ const itemActive =
 
 export function Sidebar() {
   const { mobileNavOpen, closeMobileNav } = useLayout()
+  const { profile, username, role } = useAuth()
+  const displayName = profile?.fullName || username || ''
+  const displayRole = humanizeEnum(profile?.role || role || '')
 
   return (
     <>
@@ -94,12 +98,12 @@ export function Sidebar() {
             <span>Help &amp; Support</span>
           </button>
           <div className="flex items-center gap-2.5 px-2 pt-2.5 pb-0.5">
-            <Avatar initials={currentUser.initials} color="var(--accent-purple)" size={36} />
+            <Avatar initials={initialsFor(displayName)} color="var(--accent-purple)" size={36} />
             <div className="flex min-w-0 flex-col">
               <span className="text-ink truncate text-[13px] font-semibold">
-                {currentUser.name}
+                {displayName}
               </span>
-              <span className="text-faint text-[11.5px]">{currentUser.role}</span>
+              <span className="text-faint text-[11.5px]">{displayRole}</span>
             </div>
           </div>
         </div>

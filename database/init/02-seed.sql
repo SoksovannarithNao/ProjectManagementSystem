@@ -5,27 +5,28 @@
 -- Purpose: give the app enough realistic-looking data to demo the main
 -- workflow end to end. Not meant as a fixture set for automated tests.
 --
--- Note: password_hash below is the well-known bcrypt sample hash for the
--- plaintext "secret" (cost 10) — it's a real, valid bcrypt hash, just not
--- tied to any account you should use. Replace it with a hash your own
--- registration flow produces if you need these accounts to actually log in.
+-- Note: password_hash below is a bcrypt hash (cost 10) of the plaintext
+-- "secret", generated fresh for this file and verified to actually match —
+-- the hash previously here was a commonly-copied "sample" value that does
+-- NOT verify against "secret" (confirmed independently with bcryptjs), so
+-- none of these seed accounts could log in. All seeded users share it.
 
 -- ==================== users ====================
 
 INSERT INTO users (full_name, username, email, password_hash, gender, date_of_birth, phone_number, position, department, role_id, account_status) VALUES
-('Alex Morgan',   'alex.admin',    'alex.morgan@taskflow.dev',  '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Female', '1988-03-14', '+1-555-0101', 'System Administrator', 'IT Operations', (SELECT id FROM roles WHERE name = 'ADMINISTRATOR'),   'ACTIVE'),
-('Nikky Sharma',  'nikky.sharma',  'nikky@taskflow.dev',        '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Female', '1990-07-22', '+1-555-0102', 'Product Manager',       'Product',       (SELECT id FROM roles WHERE name = 'PROJECT_MANAGER'), 'ACTIVE'),
-('Ana Torres',    'ana.torres',    'ana.torres@taskflow.dev',   '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Female', '1985-11-02', '+1-555-0103', 'Program Manager',       'Product',       (SELECT id FROM roles WHERE name = 'PROJECT_MANAGER'), 'ACTIVE'),
-('Owen Blake',    'owen.blake',    'owen@taskflow.dev',         '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Male',   '1993-05-18', '+1-555-0104', 'Frontend Team Lead',    'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_LEADER'),     'ACTIVE'),
-('Ben Carter',    'ben.carter',    'ben.carter@taskflow.dev',   '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Male',   '1991-09-09', '+1-555-0105', 'Backend Team Lead',     'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_LEADER'),     'ACTIVE'),
-('Maya Chen',     'maya.chen',     'maya@taskflow.dev',         '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Female', '1996-01-30', '+1-555-0106', 'UI / UX Designer',      'Design',        (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Ravi Patel',    'ravi.patel',    'ravi@taskflow.dev',         '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Male',   '1994-06-11', '+1-555-0107', 'Backend Engineer',      'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Sofia Ruiz',    'sofia.ruiz',    'sofia@taskflow.dev',        '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Female', '1995-12-25', '+1-555-0108', 'QA Engineer',           'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Leo Nguyen',    'leo.nguyen',    'leo@taskflow.dev',          '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Male',   '1992-08-08', '+1-555-0109', 'DevOps Engineer',       'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Chloe Kim',     'chloe.kim',     'chloe@taskflow.dev',        '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Female', '1997-04-17', '+1-555-0110', 'Frontend Engineer',     'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Daniel Osei',   'daniel.osei',   'daniel@taskflow.dev',       '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Male',   '1990-02-27', '+1-555-0111', 'Backend Engineer',      'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Emma Silva',    'emma.silva',    'emma@taskflow.dev',         '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Female', '1998-10-05', '+1-555-0112', 'Marketing Specialist',  'Marketing',     (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'INACTIVE'),
-('Frank Lee',     'frank.lee',     'frank@taskflow.dev',        '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Male',   '1989-01-19', '+1-555-0113', 'Support Engineer',      'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'SUSPENDED');
+('Alex Morgan',   'alex.admin',    'alex.morgan@taskflow.dev',  '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Female', '1988-03-14', '+1-555-0101', 'System Administrator', 'IT Operations', (SELECT id FROM roles WHERE name = 'ADMINISTRATOR'),   'ACTIVE'),
+('Nikky Sharma',  'nikky.sharma',  'nikky@taskflow.dev',        '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Female', '1990-07-22', '+1-555-0102', 'Product Manager',       'Product',       (SELECT id FROM roles WHERE name = 'PROJECT_MANAGER'), 'ACTIVE'),
+('Ana Torres',    'ana.torres',    'ana.torres@taskflow.dev',   '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Female', '1985-11-02', '+1-555-0103', 'Program Manager',       'Product',       (SELECT id FROM roles WHERE name = 'PROJECT_MANAGER'), 'ACTIVE'),
+('Owen Blake',    'owen.blake',    'owen@taskflow.dev',         '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Male',   '1993-05-18', '+1-555-0104', 'Frontend Team Lead',    'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_LEADER'),     'ACTIVE'),
+('Ben Carter',    'ben.carter',    'ben.carter@taskflow.dev',   '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Male',   '1991-09-09', '+1-555-0105', 'Backend Team Lead',     'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_LEADER'),     'ACTIVE'),
+('Maya Chen',     'maya.chen',     'maya@taskflow.dev',         '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Female', '1996-01-30', '+1-555-0106', 'UI / UX Designer',      'Design',        (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
+('Ravi Patel',    'ravi.patel',    'ravi@taskflow.dev',         '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Male',   '1994-06-11', '+1-555-0107', 'Backend Engineer',      'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
+('Sofia Ruiz',    'sofia.ruiz',    'sofia@taskflow.dev',        '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Female', '1995-12-25', '+1-555-0108', 'QA Engineer',           'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
+('Leo Nguyen',    'leo.nguyen',    'leo@taskflow.dev',          '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Male',   '1992-08-08', '+1-555-0109', 'DevOps Engineer',       'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
+('Chloe Kim',     'chloe.kim',     'chloe@taskflow.dev',        '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Female', '1997-04-17', '+1-555-0110', 'Frontend Engineer',     'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
+('Daniel Osei',   'daniel.osei',   'daniel@taskflow.dev',       '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Male',   '1990-02-27', '+1-555-0111', 'Backend Engineer',      'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
+('Emma Silva',    'emma.silva',    'emma@taskflow.dev',         '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Female', '1998-10-05', '+1-555-0112', 'Marketing Specialist',  'Marketing',     (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'INACTIVE'),
+('Frank Lee',     'frank.lee',     'frank@taskflow.dev',        '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Male',   '1989-01-19', '+1-555-0113', 'Support Engineer',      'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'SUSPENDED');
 
 -- ==================== projects ====================
 

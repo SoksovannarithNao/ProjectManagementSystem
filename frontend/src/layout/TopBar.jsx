@@ -1,10 +1,20 @@
-import { Menu, Search, Bell } from 'lucide-react'
+import { Menu, Search, Bell, LogOut } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Avatar } from '../components/ui/Avatar'
-import { currentUser } from '../data/mockData'
+import { useAuth } from '../auth/AuthContext'
+import { initialsFor } from '../api/format'
 import { useLayout } from './useLayout'
 
 export function TopBar({ title, subtitle, actions, showSearch = true }) {
   const { openMobileNav } = useLayout()
+  const { profile, username, logout } = useAuth()
+  const navigate = useNavigate()
+  const displayName = profile?.fullName || username || ''
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
@@ -40,7 +50,10 @@ export function TopBar({ title, subtitle, actions, showSearch = true }) {
           <Bell size={18} />
           <span className="bg-danger border-card absolute top-[9px] right-[10px] h-1.5 w-1.5 rounded-full border-[1.5px]" />
         </button>
-        <Avatar initials={currentUser.initials} color="var(--accent-purple)" size={40} />
+        <button className="icon-btn" aria-label="Log out" title="Log out" onClick={handleLogout}>
+          <LogOut size={18} />
+        </button>
+        <Avatar initials={initialsFor(displayName)} color="var(--accent-purple)" size={40} />
       </div>
     </header>
   )

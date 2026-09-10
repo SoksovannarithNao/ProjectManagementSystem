@@ -20,6 +20,8 @@ This starts a `postgres` container, creates the `taskmanager` database, and runs
 
 [`01-init.sql`](init/01-init.sql) is the schema; [`02-seed.sql`](init/02-seed.sql) loads placeholder demo data (~13 users, 6 projects, and everything under them) on top of it so there's something to look at without registering accounts by hand. It's demo data only, not a fixture set for automated tests — CI loads both files into its throwaway test database too (see [ci.yml](../.github/workflows/ci.yml)).
 
+Every seeded user shares the password **`secret`** — the bcrypt hash in the file is generated and verified specifically for that plaintext (a previously copied "well-known sample" hash in this file looked plausible but didn't actually verify against `secret`, so no seed account could log in until it was regenerated). `emma.silva` (`INACTIVE`) and `frank.lee` (`SUSPENDED`) are seeded to deliberately fail login regardless of password, to exercise `account_status` handling.
+
 Connection details (also the backend's defaults, in [backend/src/main/resources/application.properties](../backend/src/main/resources/application.properties)):
 
 | | |

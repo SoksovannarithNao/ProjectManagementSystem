@@ -1,4 +1,4 @@
-import { getMember } from '../../data/mockData'
+import { useMembers } from '../../data/UsersContext'
 
 export function Avatar({ initials, color, size = 32, title, style, className = '' }) {
   return (
@@ -19,6 +19,7 @@ export function Avatar({ initials, color, size = 32, title, style, className = '
 }
 
 export function AvatarGroup({ memberIds = [], size = 30, max = 3 }) {
+  const { getMember } = useMembers()
   const shown = memberIds.slice(0, max)
   const extra = memberIds.length - shown.length
   return (

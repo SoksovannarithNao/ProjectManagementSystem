@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
+import { useApi } from '../api/useApi'
+import { getTasks } from '../api/tasks'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const VIEWS = ['Month', 'Week', 'Day']
@@ -12,18 +14,10 @@ const eventTones = {
   info: 'bg-info-soft text-info',
 }
 
+const PRIORITY_TONE = { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', URGENT: 'danger' }
+
 const eventClass = (tone) =>
   `truncate rounded-[5px] px-1.5 py-[3px] text-[10.5px] font-semibold max-[900px]:text-[9.5px] ${eventTones[tone] ?? eventTones.info}`
-
-const sampleEvents = {
-  3: [{ title: 'Design settings page', tone: 'success' }],
-  5: [{ title: 'Sprint planning', tone: 'info' }],
-  10: [{ title: 'Fix login redirect bug', tone: 'danger' }],
-  14: [{ title: 'Usability testing', tone: 'warning' }, { title: 'Team sync', tone: 'info' }],
-  19: [{ title: 'Migrate user table', tone: 'danger' }],
-  22: [{ title: 'Client review', tone: 'info' }],
-  27: [{ title: 'Release v2.1', tone: 'success' }],
-}
 
 function buildMonthGrid(year, month) {
   const firstOfMonth = new Date(year, month, 1)
@@ -38,14 +32,31 @@ function buildMonthGrid(year, month) {
   return days
 }
 
+function dateKey(d) {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
 export function Calendar() {
-  const [cursor, setCursor] = useState(new Date(2026, 7, 1))
+  const { data: tasks } = useApi(getTasks)
+  const today = useMemo(() => new Date(), [])
+  const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
   const [view, setView] = useState('Month')
-  const today = new Date(2026, 7, 31)
 
   const days = useMemo(() => buildMonthGrid(cursor.getFullYear(), cursor.getMonth()), [cursor])
-
   const monthLabel = cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map()
+    for (const t of tasks ?? []) {
+      if (!t.dueDate) continue
+      const due = new Date(t.dueDate)
+      const key = dateKey(due)
+      const list = map.get(key) ?? []
+      list.push({ title: t.title, tone: PRIORITY_TONE[t.priority] ?? 'info' })
+      map.set(key, list)
+    }
+    return map
+  }, [tasks])
 
   const shiftMonth = (delta) => {
     setCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + delta, 1))
@@ -53,6 +64,16 @@ export function Calendar() {
 
   const isSameDay = (a, b) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+
+  const listEntries = useMemo(() => {
+    return [...eventsByDay.entries()]
+      .map(([key, events]) => {
+        const [y, m, d] = key.split('-').map(Number)
+        return { date: new Date(y, m, d), events }
+      })
+      .sort((a, b) => a.date - b.date)
+      .filter((entry) => entry.date >= today || isSameDay(entry.date, today))
+  }, [eventsByDay, today])
 
   return (
     <div>
@@ -78,7 +99,7 @@ export function Calendar() {
             </button>
             <button
               className="btn btn-secondary ml-1 px-3.5 py-2"
-              onClick={() => setCursor(new Date(2026, 7, 1))}
+              onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), 1))}
             >
               Today
             </button>
@@ -113,7 +134,7 @@ export function Calendar() {
             <div className="grid grid-cols-7 gap-1.5 max-[640px]:gap-[3px]">
               {days.map((d, i) => {
                 const inMonth = d.getMonth() === cursor.getMonth()
-                const events = inMonth ? sampleEvents[d.getDate()] : null
+                const events = inMonth ? eventsByDay.get(dateKey(d)) : null
                 const isToday = isSameDay(d, today)
                 return (
                   <div
@@ -145,12 +166,17 @@ export function Calendar() {
 
         {view !== 'Month' && (
           <div className="flex flex-col">
-            {Object.entries(sampleEvents).slice(0, view === 'Day' ? 1 : 5).map(([date, events]) => (
+            {listEntries.length === 0 && (
+              <p className="text-faint py-4 text-[12.5px]">No upcoming due dates.</p>
+            )}
+            {listEntries.slice(0, view === 'Day' ? 1 : 5).map(({ date, events }) => (
               <div
-                key={date}
+                key={date.toISOString()}
                 className="border-divider flex items-center gap-5 border-b px-1 py-3.5 last:border-b-0"
               >
-                <span className="w-[70px] shrink-0 text-[13px] font-[650]">Aug {date}</span>
+                <span className="w-[70px] shrink-0 text-[13px] font-[650]">
+                  {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
                 <div className="flex flex-wrap gap-2">
                   {events.map((ev, idx) => (
                     <span key={idx} className={eventClass(ev.tone)}>

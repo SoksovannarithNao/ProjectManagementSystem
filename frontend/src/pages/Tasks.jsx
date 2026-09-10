@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Plus,
   SlidersHorizontal,
@@ -7,13 +7,14 @@ import {
   Circle,
   MoreHorizontal,
   GripVertical,
-  Paperclip,
-  MessageSquare,
 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { AvatarGroup } from '../components/ui/Avatar'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
-import { allTasks, getMember } from '../data/mockData'
+import { useApi } from '../api/useApi'
+import { getTasks, toggleTaskCompletion } from '../api/tasks'
+import { getTaskAssignees } from '../api/taskAssignees'
+import { buildTaskAssigneeMap } from '../api/relations'
 
 function hashStr(str) {
   let h = 0
@@ -35,27 +36,30 @@ function pillColor(key) {
 }
 
 const SECTIONS = [
-  { key: 'todo', title: 'To do', match: (status) => status === 'To Do' },
-  { key: 'doing', title: 'Doing', match: (status) => status === 'In Progress' || status === 'Review' },
-  { key: 'done', title: 'Done', match: (status) => status === 'Done' },
+  { key: 'todo', title: 'To do', match: (status) => status === 'TO_DO' },
+  { key: 'doing', title: 'Doing', match: (status) => status === 'IN_PROGRESS' || status === 'IN_REVIEW' },
+  { key: 'done', title: 'Done', match: (status) => status === 'COMPLETED' || status === 'CANCELLED' },
 ]
 
 export function Tasks() {
-  const [tasks, setTasks] = useState(allTasks)
+  const { data: tasks, loading, refetch } = useApi(getTasks)
+  const { data: taskAssignees } = useApi(getTaskAssignees)
   const [activeTask, setActiveTask] = useState(null)
 
-  const toggleDone = (id, e) => {
+  const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
+  const list = tasks ?? []
+
+  const toggleDone = async (task, e) => {
     e.stopPropagation()
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done, status: !t.done ? 'Done' : 'To Do' } : t))
-    )
+    await toggleTaskCompletion(task)
+    refetch()
   }
 
   return (
     <div>
       <TopBar
         title="My Tasks"
-        subtitle={`${tasks.length} tasks across all your projects`}
+        subtitle={`${list.length} tasks across all your projects`}
         actions={
           <>
             <button className="btn btn-secondary">
@@ -73,7 +77,7 @@ export function Tasks() {
 
       <div className="flex flex-col gap-6">
         {SECTIONS.map((section) => {
-          const sectionTasks = tasks.filter((t) => section.match(t.status))
+          const sectionTasks = list.filter((t) => section.match(t.status))
           return (
             <div
               key={section.key}
@@ -91,30 +95,28 @@ export function Tasks() {
               </div>
 
               <div className="flex flex-col gap-2.5">
-                {sectionTasks.length === 0 && (
+                {!loading && sectionTasks.length === 0 && (
                   <p className="text-faint px-2 py-3 text-[12.5px]">No tasks here yet.</p>
                 )}
                 {sectionTasks.map((t) => {
-                  const member = getMember(t.assignee)
-                  const pill = pillColor(t.project)
-                  const hash = hashStr(t.id)
-                  const commentCount = (hash % 4) + 1
-                  const hasAttachment = hash % 3 === 0
+                  const assigneeIds = assigneeMap.get(t.id) ?? []
+                  const pill = pillColor(t.project?.name)
+                  const done = t.status === 'COMPLETED'
 
                   return (
                     <div
                       key={t.id}
-                      onClick={() => setActiveTask(t)}
+                      onClick={() => setActiveTask({ ...t, assigneeIds })}
                       className="group bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] flex cursor-pointer flex-wrap items-center gap-3 rounded-[13px] border px-4 py-3 transition hover:-translate-y-px sm:flex-nowrap"
                     >
                       <GripVertical size={14} className="text-faint hidden shrink-0 sm:block" />
 
                       <button
-                        onClick={(e) => toggleDone(t.id, e)}
+                        onClick={(e) => toggleDone(t, e)}
                         className="shrink-0"
-                        aria-label={t.done ? 'Mark as not done' : 'Mark as done'}
+                        aria-label={done ? 'Mark as not done' : 'Mark as done'}
                       >
-                        {t.done ? (
+                        {done ? (
                           <CheckCircle2 size={18} color="var(--status-success)" />
                         ) : (
                           <Circle size={18} className="text-faint" />
@@ -123,31 +125,24 @@ export function Tasks() {
 
                       <div className="min-w-[140px] flex-1">
                         <p
-                          className={`truncate text-[13.5px] font-semibold ${t.done ? 'text-faint line-through' : 'text-ink'}`}
+                          className={`truncate text-[13.5px] font-semibold ${done ? 'text-faint line-through' : 'text-ink'}`}
                         >
-                          {t.name}
+                          {t.title}
                         </p>
                         {t.description && (
                           <p className="text-muted mt-0.5 truncate text-[12px]">{t.description}</p>
                         )}
                       </div>
 
-                      <div className="text-faint hidden shrink-0 items-center justify-end gap-3 text-[12px] md:flex md:w-14">
-                        {hasAttachment && <Paperclip size={14} />}
-                        <span className="inline-flex items-center gap-1">
-                          <MessageSquare size={14} /> {commentCount}
-                        </span>
-                      </div>
-
                       <div className="flex shrink-0 items-center gap-3">
                         <div className="flex w-7 shrink-0 items-center justify-center">
-                          {member && <AvatarGroup memberIds={[t.assignee]} size={28} />}
+                          {assigneeIds.length > 0 && <AvatarGroup memberIds={assigneeIds} size={28} />}
                         </div>
                         <span
                           className="w-[110px] shrink-0 rounded-full px-2.5 py-1 text-center text-[11px] font-semibold whitespace-nowrap"
                           style={{ background: pill.bg, color: pill.text }}
                         >
-                          {t.project}
+                          {t.project?.name}
                         </span>
                         <button
                           className="icon-btn h-8 w-8"
@@ -166,7 +161,14 @@ export function Tasks() {
         })}
       </div>
 
-      {activeTask && <TaskDetailPanel task={activeTask} onClose={() => setActiveTask(null)} />}
+      {activeTask && (
+        <TaskDetailPanel
+          key={activeTask.id}
+          task={activeTask}
+          onClose={() => setActiveTask(null)}
+          onChange={refetch}
+        />
+      )}
     </div>
   )
 }

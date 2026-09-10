@@ -9,7 +9,8 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 - **Project & Task Management API**: full CRUD for projects, tasks, milestones, project members, task assignees, and task dependencies, with filtering by project/milestone/status
 - **Task Dependencies**: model "task X can't start until task Y is done," with database-level cycle prevention
 - **Database-enforced business rules**: auto-managed timestamps, date-range validation (task/milestone due dates constrained to their project's dates), case-insensitive username/email uniqueness
-- **Frontend UI** (React, currently built against mock data — not yet wired to the API): dashboard, Kanban board, calendar, project list, task list, team view, and reports/KPI charts
+- **Frontend UI** (React, wired to the live backend API): login, dashboard, Kanban board, calendar, project list, task list, team view, and reports/KPI charts — all fetching real data, with task status changes persisted back to the API
+- **Backend file logging**: errors and security/business events (validation failures, access-denied, failed logins, unhandled exceptions) are written to a rotating log file (`backend/logs/log.txt`), not just the console — see [Logging](backend/README.md#logging)
 
 ## Table of Contents
 
@@ -56,7 +57,7 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 - Recharts 3.10 — charts (Reports/Dashboard)
 - Tailwind CSS 4.3 (`@tailwindcss/vite`) — styling
 - lucide-react — icon set
-- React Context (`layout/LayoutContext.jsx`) — local UI state (sidebar, layout); no data-fetching/global state library yet, since the app isn't wired to the API
+- React Context — `layout/LayoutContext.jsx` (local UI state: sidebar/layout), `auth/AuthContext.jsx` (JWT + logged-in user), `data/UsersContext.jsx` (fetched user directory, for avatar/assignee lookups). No react-query/SWR/Redux — a small custom `useApi` hook (`api/useApi.js`) covers fetch-on-mount/refetch for a project this size
 
 ## Architecture Overview
 
@@ -78,13 +79,15 @@ backend/src/main/java/backend/
 
 ```
 frontend/src/
-├── main.jsx            # Entry point
-├── App.jsx             # Route definitions
-├── pages/               # One file per route (Dashboard, Projects, Tasks, Kanban, Team, Calendar, Reports)
+├── main.jsx            # Entry point — wraps App in AuthProvider + UsersProvider
+├── App.jsx             # Route definitions (/login public, everything else behind ProtectedRoute)
+├── pages/               # One file per route (Login, Dashboard, Projects, Tasks, Kanban, Team, Calendar, Reports)
 ├── components/          # Shared components (ProjectCard, StatCard, TaskDetailPanel)
 ├── components/ui/       # Small presentational primitives (Avatar, Badge, DonutChart, ProgressBar, ProgressRing)
 ├── layout/              # App shell — Sidebar, TopBar, layout state (React Context)
-├── data/mockData.js     # Hardcoded demo data every page currently renders from
+├── auth/                # AuthContext (JWT/login/logout) + ProtectedRoute
+├── api/                 # Fetch client + per-resource calls (projects, tasks, users, ...) + stats/format helpers
+├── data/UsersContext.jsx # Fetched user directory, exposes getMember(id) for avatar/assignee lookups
 └── styles/global.css    # Tailwind entry point
 ```
 
@@ -95,7 +98,8 @@ frontend/src/
 3. **DTOs on every endpoint, not raw entities** — prevents leaking fields like `passwordHash` through nested associations (e.g. a project's `manager`), and decouples the API shape from the JPA entity graph.
 4. **Schema owned by hand-written SQL, not Hibernate** — `ddl-auto=validate`, so the app fails fast if entities drift from the real schema instead of silently auto-migrating.
 5. **Business rules pushed into the database via triggers** where they're cross-row (cycle prevention on task dependencies, date-range checks) — Java-level validation only covers what's expressible per-request (Bean Validation).
-6. **Frontend built decoupled from the backend**, against static mock data — lets UI work proceed in parallel with backend API work; wiring them together is an explicit remaining step, not yet done.
+6. **Frontend calls the backend via relative `/api/...` paths, not an absolute URL** — nginx already reverse-proxies `/api/` to the backend container in the Docker build ([frontend/nginx.conf](frontend/nginx.conf)), and a matching Vite dev-server proxy (`frontend/vite.config.js`) makes the same code work under `npm run dev`. No frontend env var for the API base URL is needed.
+7. **Some frontend UI state has no backend entity to persist to** — task subtasks/comments in `TaskDetailPanel` are local-only per session (no `subtasks`/`comments` table is wired to a controller yet), and are shown as such in the UI rather than silently pretending to save.
 
 ## Prerequisites
 
@@ -136,7 +140,7 @@ frontend/src/
 | JWT_EXPIRATION_MS | Token lifetime in ms | 3600000 |
 | CORS_ALLOWED_ORIGINS | Comma-separated allowed origins | http://localhost:5173,http://localhost:80 |
 
-Frontend has no `.env` of its own yet — it doesn't call the API at all currently (see [Future Enhancements](#future-enhancements)).
+Frontend has no `.env` of its own — it calls the backend via relative `/api/...` paths (proxied by nginx in Docker, by Vite's dev server otherwise), so no API base URL needs configuring.
 
 ## Database Migrations
 
@@ -323,15 +327,17 @@ Not yet implemented: per-row ownership checks (see [Key Design Decisions](#key-d
 
 ## Testing the API
 
-No Postman collection or Swagger UI wired in yet — test manually with `curl` (or import [api/openapi.yaml](api/openapi.yaml) into Postman/Insomnia). Example:
+No Postman collection or Swagger UI wired in yet — test manually with `curl` (or import [api/openapi.yaml](api/openapi.yaml) into Postman/Insomnia). Every seeded user (`database/init/02-seed.sql`) shares the password `secret`. Example:
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"nikky.sharma","password":"<password>"}' | python3 -c "import json,sys;print(json.load(sys.stdin)['token'])")
+  -d '{"username":"nikky.sharma","password":"secret"}' | python3 -c "import json,sys;print(json.load(sys.stdin)['token'])")
 
 curl http://localhost:8080/api/projects -H "Authorization: Bearer $TOKEN"
 ```
+
+Or just log into the frontend directly at http://localhost:5173 with any seeded `ACTIVE` username (e.g. `alex.admin`, `nikky.sharma`) and password `secret`.
 
 Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgres matching the schema — currently 2 unit test classes, `UserServiceTest` and `GlobalExceptionHandlerTest`; no controller/integration tests yet). No frontend test suite exists yet (`npm test` isn't wired into `package.json`).
 
@@ -343,7 +349,9 @@ Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgre
 - 401 on every request except login/health — check the `Authorization: Bearer <token>` header is present and the token hasn't expired (`JWT_EXPIRATION_MS`, default 1 hour).
 
 **Frontend**
-- Nothing reflects real backend data no matter what you do — expected for now; every page reads from `src/data/mockData.js`, not the API (see [Future Enhancements](#future-enhancements)).
+- Login fails for every seeded user — check you're using the password `secret`; if it still fails, confirm the DB actually has the corrected seed hash (`docker compose down -v && docker compose up -d` reruns `database/init/02-seed.sql` from scratch, since `docker-entrypoint-initdb.d` only runs against an empty data volume).
+- Blank/stuck page after login, or data never loads — check `backend/logs/log.txt` (or `docker exec taskmanager-backend tail -f /app/logs/log.txt`) for the actual server-side error; the panel/page itself won't show a raw stack trace by design.
+- CORS or network errors calling `/api/*` in `npm run dev` — make sure the backend is actually running on `localhost:8080`; the Vite dev proxy (`frontend/vite.config.js`) forwards there and has nothing to proxy to otherwise.
 
 **Database**
 - `docker-entrypoint-initdb.d` scripts silently not applying — they only run the first time a container's data volume is created; `docker compose down -v` first if you've changed `database/init/*.sql`.
@@ -358,7 +366,6 @@ See [Contributing.md](Contributing.md) and [Role_Requirment.md](Role_Requirment.
 
 ## Future Enhancements
 
-- Wire the frontend to the real API (it currently runs entirely on mock data).
 - Per-row ownership authorization (e.g. a Team Member restricted to their own assigned tasks).
 - Entities/controllers for the remaining 7 tables: subtasks, checklist items, comments, attachments, work logs, notifications, activity logs.
 - Pagination and search/filtering on list endpoints.
@@ -366,3 +373,5 @@ See [Contributing.md](Contributing.md) and [Role_Requirment.md](Role_Requirment.
 - Application-level enforcement of task-dependency ordering ("can't start until depends-on is COMPLETED") and progress roll-up (task → milestone → project) — currently unenforced outside the DB's cycle-prevention trigger.
 - Broader automated test coverage (controller/integration tests, frontend tests).
 - An actual deploy target for the CD pipeline's built images (currently build-and-push only).
+- Persist task subtasks/comments to the backend (currently local-only in the UI — no `subtasks`/`comments` controller exists yet, see [Key Design Decisions](#key-design-decisions)).
+- A real per-user activity/audit feed on the Team page (removed the mock version — no `activity_logs` API exists yet to back it).

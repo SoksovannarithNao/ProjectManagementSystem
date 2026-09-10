@@ -1,26 +1,51 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { UserPlus, Mail, FolderKanban, ListChecks, Search } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
-import { projects, teamMembers, activityFeed } from '../data/mockData'
+import { useMembers } from '../data/UsersContext'
+import { useApi } from '../api/useApi'
+import { getProjects } from '../api/projects'
+import { getProjectMembers } from '../api/projectMembers'
+import { getTaskAssignees } from '../api/taskAssignees'
+import { buildProjectMemberMap, buildTaskAssigneeMap, countByValue } from '../api/relations'
 
 export function Team() {
-  const [selectedId, setSelectedId] = useState(teamMembers[0].id)
+  const { members } = useMembers()
+  const { data: projects } = useApi(getProjects)
+  const { data: projectMembers } = useApi(getProjectMembers)
+  const { data: taskAssignees } = useApi(getTaskAssignees)
+
+  const [selectedId, setSelectedId] = useState(null)
   const [query, setQuery] = useState('')
 
-  const selected = teamMembers.find((m) => m.id === selectedId)
-  const memberProjects = projects.filter((p) => p.members.includes(selectedId))
-  const memberActivity = activityFeed.filter((a) => a.user === selectedId)
+  const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
+  const taskAssigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
+  const projectCountByUser = useMemo(() => countByValue(projectMemberMap.values()), [projectMemberMap])
+  const taskCountByUser = useMemo(() => countByValue(taskAssigneeMap.values()), [taskAssigneeMap])
 
-  const filtered = teamMembers.filter((m) =>
-    m.name.toLowerCase().includes(query.toLowerCase()) || m.role.toLowerCase().includes(query.toLowerCase())
+  const activeId = selectedId ?? members[0]?.id
+  const selected = members.find((m) => m.id === activeId)
+
+  const memberProjects = useMemo(() => {
+    if (activeId == null) return []
+    const ids = []
+    for (const [projectId, userIds] of projectMemberMap.entries()) {
+      if (userIds.includes(activeId)) ids.push(projectId)
+    }
+    return (projects ?? []).filter((p) => ids.includes(p.id))
+  }, [projectMemberMap, projects, activeId])
+
+  const filtered = members.filter(
+    (m) =>
+      m.name?.toLowerCase().includes(query.toLowerCase()) ||
+      m.role?.toLowerCase().includes(query.toLowerCase())
   )
 
   return (
     <div>
       <TopBar
         title="Team"
-        subtitle={`${teamMembers.length} members collaborating across projects`}
+        subtitle={`${members.length} members collaborating across projects`}
         showSearch={false}
         actions={
           <button className="btn btn-primary">
@@ -46,7 +71,7 @@ export function Team() {
               <button
                 key={m.id}
                 className={`hover:bg-subtle duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-3 rounded-md border-none bg-none p-2.5 text-left transition-colors ${
-                  m.id === selectedId ? 'bg-subtle shadow-[inset_0_0_0_1px_var(--color-border)]' : ''
+                  m.id === activeId ? 'bg-subtle shadow-[inset_0_0_0_1px_var(--color-border)]' : ''
                 }`}
                 onClick={() => setSelectedId(m.id)}
               >
@@ -77,14 +102,14 @@ export function Team() {
               <div className="bg-subtle border-border text-muted flex flex-1 items-center gap-3 rounded-md border px-4 py-3.5">
                 <ListChecks size={16} />
                 <div>
-                  <span className="text-ink block text-lg font-bold">{selected.tasks}</span>
+                  <span className="text-ink block text-lg font-bold">{taskCountByUser.get(selected.id) ?? 0}</span>
                   <span className="text-faint mt-0.5 block text-[11.5px]">Assigned Tasks</span>
                 </div>
               </div>
               <div className="bg-subtle border-border text-muted flex flex-1 items-center gap-3 rounded-md border px-4 py-3.5">
                 <FolderKanban size={16} />
                 <div>
-                  <span className="text-ink block text-lg font-bold">{selected.projects}</span>
+                  <span className="text-ink block text-lg font-bold">{projectCountByUser.get(selected.id) ?? 0}</span>
                   <span className="text-faint mt-0.5 block text-[11.5px]">Projects</span>
                 </div>
               </div>
@@ -102,25 +127,7 @@ export function Team() {
                     className="border-divider flex items-center justify-between border-b py-2.5 text-[13px] font-semibold last:border-b-0"
                   >
                     <span>{p.name}</span>
-                    <span className="text-muted font-[650]">{p.progress}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mb-[22px]">
-              <h4 className="mb-3 text-[13px] font-[650]">Recent Activity</h4>
-              {memberActivity.length === 0 && (
-                <p className="text-faint text-[12.5px]">No recent activity.</p>
-              )}
-              <div className="flex flex-col gap-3">
-                {memberActivity.map((a) => (
-                  <div key={a.id} className="text-muted flex items-baseline gap-2.5 text-[12.5px]">
-                    <span className="bg-lavender mb-px h-1.5 w-1.5 shrink-0 rounded-full" />
-                    <p className="text-muted flex-1">
-                      {a.action} <strong className="text-ink font-[650]">{a.target}</strong>
-                    </p>
-                    <span className="text-faint text-[11.5px] whitespace-nowrap">{a.time}</span>
+                    <span className="text-muted font-[650]">{Math.round(Number(p.progress ?? 0))}%</span>
                   </div>
                 ))}
               </div>

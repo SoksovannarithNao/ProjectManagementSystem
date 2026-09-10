@@ -105,44 +105,19 @@ Connected to the schema owned by [database/init/01-init.sql](../database/init/01
 
 `spring.jpa.hibernate.ddl-auto=validate` — Hibernate checks the entity mappings against the real schema on startup and never alters it. See [database/README.md](../database/README.md) for the schema itself, seed data, business-rule triggers, and the Flyway migration setup.
 
+## Logging
+
+Errors and notable events are written to a rotating log file (`backend/logs/log.txt`), not just the console — configured via `logging.*` properties in `application.properties` (Spring Boot's default Logback setup, no separate config file). Rotation: 10MB per file, 14 days of history, 100MB total cap.
+
+`GlobalExceptionHandler` logs every handled failure path, not just unhandled ones: `WARN` for not-found, validation failures, DB constraint violations, access-denied, and failed logins; `ERROR` (with full stack trace) for anything unexpected (500s). SQL statements (`spring.jpa.show-sql=true`) and Spring Security debug output also land in the same file.
+
+In Docker, the file lives inside the `backend` container at `/app/logs/log.txt`; `docker-compose.yml` mounts `./backend/logs:/app/logs` so it's also visible on the host at `backend/logs/log.txt` (gitignored). Running via `./mvnw spring-boot:run` from `backend/` writes it to that same relative path directly.
+
 ## Frontend Integration
 
-The frontend team is currently developing and updating the frontend application.
+Done — the React frontend (`frontend/`) calls this API directly over HTTP for every page (login, dashboard, projects, tasks, kanban, team, reports, calendar). It calls relative `/api/...` paths: nginx reverse-proxies those to this backend in the Docker build ([frontend/nginx.conf](../frontend/nginx.conf)), and a matching Vite dev-server proxy does the same for `npm run dev` — so no CORS round-trip or hardcoded backend URL is needed in either environment. `app.cors.allowed-origins` still exists as a fallback for any direct cross-origin call.
 
-Backend/frontend integration will begin once the frontend API requirements and database schema are available.
-
-The integration will connect the React frontend to the Spring Boot REST API through HTTP requests.
-
-The API contract will define:
-
-* Endpoint URLs
-* HTTP methods
-* Request data
-* Response data
-* Authentication requirements
-* Validation rules
-* Error responses
-
-Planned integration flow:
-
-```text
-React Frontend
-      |
-      | HTTP / REST API
-      v
-Spring Boot Backend
-      |
-      v
-Service Layer
-      |
-      v
-Repository Layer
-      |
-      v
-PostgreSQL
-```
-
-The backend team will coordinate with the frontend team to ensure that frontend API requests match the implemented backend endpoints.
+Known integration gaps: task subtasks/comments have no backend entity, so they're local-only in the UI (not persisted); there's no per-user activity/audit-log endpoint, so the frontend's Team page doesn't show one anymore (previously mocked).
 
 ## Current Status
 
@@ -161,7 +136,8 @@ Role-based authorization     done — coarse, not per-row ownership (see Securit
 CORS                         done
 Password hashing             done
 Unit tests                   partial — UserService + GlobalExceptionHandler covered, no controller/repository tests yet
-Frontend/backend integration pending — frontend still runs entirely on mock data (see frontend/README.md)
+File logging                 done — errors/security events to a rotating backend/logs/log.txt (see Logging above)
+Frontend/backend integration done — see frontend/README.md
 ```
 
 ## Next Steps
@@ -174,7 +150,7 @@ Roughly in priority order:
 4. Business-rule enforcement in application logic that the requirements doc calls for but isn't implemented anywhere yet: task-dependency completion ordering ("can't start until depends-on is COMPLETED" — the DB only prevents *cycles*, not out-of-order starts) and progress roll-up (task → milestone → project).
 5. Broader test coverage — controller/integration tests, not just the two service-level unit test classes so far.
 6. Wire Flyway (see [database/README.md](../database/README.md#migrations)) so schema migrations apply automatically instead of via `docker-entrypoint-initdb.d`.
-7. Connect the React frontend to this API — see [frontend/README.md](../frontend/README.md) and [api/openapi.yaml](../api/openapi.yaml).
+7. Backend entities/controllers for subtasks and comments, so the frontend's local-only checklist/comment UI in `TaskDetailPanel` can actually persist (see [frontend/README.md](../frontend/README.md)).
 
 ## Contributing
 

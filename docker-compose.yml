@@ -28,6 +28,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - ./backend/logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy

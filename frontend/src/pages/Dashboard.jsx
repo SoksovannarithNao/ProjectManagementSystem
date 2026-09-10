@@ -1,12 +1,6 @@
-import { useState } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  ArrowUpRight,
-  ChevronDown,
-  CalendarDays,
-  Circle,
-  CheckCircle2,
-} from 'lucide-react'
+import { ArrowUpRight, ChevronDown, CalendarDays, Circle, CheckCircle2 } from 'lucide-react'
 import {
   LineChart,
   Line,
@@ -20,18 +14,18 @@ import { ProjectCard } from '../components/ProjectCard'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { DonutChart } from '../components/ui/DonutChart'
-import {
-  currentUser,
-  projects,
-  taskOverview,
-  upcomingTasks,
-  weeklyReport,
-  workDistribution,
-  kanbanColumns,
-  getMember,
-} from '../data/mockData'
+import { useAuth } from '../auth/AuthContext'
+import { useMembers } from '../data/UsersContext'
+import { useApi } from '../api/useApi'
+import { getProjects } from '../api/projects'
+import { getProjectMembers } from '../api/projectMembers'
+import { getTasks, toggleTaskCompletion } from '../api/tasks'
+import { getTaskAssignees } from '../api/taskAssignees'
+import { buildProjectMemberMap, buildTaskAssigneeMap, toProjectCard } from '../api/relations'
+import { computeTaskOverview, computeWeeklyTaskStats, groupTasksByStatus } from '../api/stats'
+import { formatDate, humanizeEnum } from '../api/format'
 
-const previewColumns = ['todo', 'inprogress', 'review', 'done']
+const OPEN_STATUSES = new Set(['TO_DO', 'IN_PROGRESS', 'IN_REVIEW'])
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
@@ -49,20 +43,55 @@ function ChartTooltip({ active, payload, label }) {
 }
 
 export function Dashboard() {
-  const [checked, setChecked] = useState(() => new Set(upcomingTasks.filter((t) => t.done).map((t) => t.id)))
-  const today = 'Fri'
+  const { profile, username } = useAuth()
+  const { getMember } = useMembers()
+  const { data: projects, loading: projectsLoading } = useApi(getProjects)
+  const { data: projectMembers } = useApi(getProjectMembers)
+  const { data: tasks, loading: tasksLoading, refetch: refetchTasks } = useApi(getTasks)
+  const { data: taskAssignees } = useApi(getTaskAssignees)
 
-  const toggle = (id) => {
-    setChecked((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+  const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
+  const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
+  const taskOverview = useMemo(() => computeTaskOverview(tasks), [tasks])
+  const weeklyReport = useMemo(() => computeWeeklyTaskStats(tasks), [tasks])
+  const kanbanColumns = useMemo(() => groupTasksByStatus(tasks), [tasks])
+  const todayLabel = weeklyReport[weeklyReport.length - 1]?.day
+
+  const topProjects = useMemo(() => {
+    return [...(projects ?? [])]
+      .sort((a, b) => new Date(a.endDate ?? 0) - new Date(b.endDate ?? 0))
+      .slice(0, 2)
+      .map((p) => toProjectCard(p, projectMemberMap.get(p.id) ?? []))
+  }, [projects, projectMemberMap])
+
+  const upcomingTasks = useMemo(() => {
+    return (tasks ?? [])
+      .filter((t) => OPEN_STATUSES.has(t.status) && t.dueDate)
+      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+      .slice(0, 5)
+  }, [tasks])
+
+  const workDistribution = useMemo(() => {
+    const total = tasks?.length ?? 0
+    const completed = (tasks ?? []).filter((t) => t.status === 'COMPLETED').length
+    return {
+      completedPercent: total ? Math.round((completed / total) * 100) : 0,
+      tasks: total,
+      projectsCount: projects?.length ?? 0,
+      completed,
+    }
+  }, [tasks, projects])
+
+  const firstName = (profile?.fullName || username || '').split(' ')[0] || ''
+
+  const handleToggle = async (task) => {
+    await toggleTaskCompletion(task)
+    refetchTasks()
   }
 
   return (
     <div>
-      <TopBar title={`Hello, ${currentUser.firstName}`} subtitle="Welcome back!" />
+      <TopBar title={`Hello, ${firstName}`} subtitle="Welcome back!" />
 
       {/* Hero */}
       <section className="bg-card rounded-hero mb-6 flex min-h-[148px] items-center justify-between gap-6 overflow-hidden px-10 py-[30px] max-sm:flex-col max-sm:items-start max-sm:p-6">
@@ -96,36 +125,37 @@ export function Dashboard() {
           <section className="card px-6 py-[22px]">
             <div className="mb-[18px] flex items-center justify-between">
               <h3 className="section-title">Task Overview</h3>
-              <span className="text-faint text-[12.5px] font-medium">48 tasks</span>
+              <span className="text-faint text-[12.5px] font-medium">{tasks?.length ?? 0} tasks</span>
             </div>
             <div className="flex flex-col">
-              {taskOverview.map((t) => (
-                <div
-                  key={t.key}
-                  className="border-divider flex items-center gap-3.5 border-b py-3 first:pt-0 last:border-b-0 last:pb-0"
-                >
-                  <div>
-                    <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90">
-                      <circle className="stroke-divider fill-none" cx="20" cy="20" r="16" strokeWidth="5" />
-                      <circle
-                        className="ease-[var(--ease-standard)] fill-none transition-[stroke-dashoffset] duration-700 [stroke-linecap:round]"
-                        cx="20"
-                        cy="20"
-                        r="16"
-                        strokeWidth="5"
-                        stroke={t.color}
-                        strokeDasharray={2 * Math.PI * 16}
-                        strokeDashoffset={2 * Math.PI * 16 * (1 - t.percent / 100)}
-                      />
-                    </svg>
+              {!tasksLoading &&
+                taskOverview.map((t) => (
+                  <div
+                    key={t.key}
+                    className="border-divider flex items-center gap-3.5 border-b py-3 first:pt-0 last:border-b-0 last:pb-0"
+                  >
+                    <div>
+                      <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90">
+                        <circle className="stroke-divider fill-none" cx="20" cy="20" r="16" strokeWidth="5" />
+                        <circle
+                          className="ease-[var(--ease-standard)] fill-none transition-[stroke-dashoffset] duration-700 [stroke-linecap:round]"
+                          cx="20"
+                          cy="20"
+                          r="16"
+                          strokeWidth="5"
+                          stroke={t.color}
+                          strokeDasharray={2 * Math.PI * 16}
+                          strokeDashoffset={2 * Math.PI * 16 * (1 - t.percent / 100)}
+                        />
+                      </svg>
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-ink text-[13.5px] font-semibold">{t.label}</span>
+                      <span className="text-faint mt-0.5 text-[11.5px]">{t.percent}% of total</span>
+                    </div>
+                    <span className="text-ink text-[17px] font-bold">{t.count}</span>
                   </div>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-ink text-[13.5px] font-semibold">{t.label}</span>
-                    <span className="text-faint mt-0.5 text-[11.5px]">{t.percent}% of total</span>
-                  </div>
-                  <span className="text-ink text-[17px] font-bold">{t.count}</span>
-                </div>
-              ))}
+                ))}
             </div>
           </section>
 
@@ -137,9 +167,7 @@ export function Dashboard() {
               </Link>
             </div>
             <div className="flex flex-col gap-4">
-              {projects.slice(0, 2).map((p) => (
-                <ProjectCard key={p.id} project={p} />
-              ))}
+              {!projectsLoading && topProjects.map((p) => <ProjectCard key={p.id} project={p} />)}
             </div>
           </section>
 
@@ -151,9 +179,13 @@ export function Dashboard() {
               </Link>
             </div>
             <div className="flex flex-col">
+              {!tasksLoading && upcomingTasks.length === 0 && (
+                <p className="text-faint py-3 text-[12.5px]">Nothing due soon.</p>
+              )}
               {upcomingTasks.map((t) => {
-                const member = getMember(t.assignee)
-                const isChecked = checked.has(t.id)
+                const assigneeId = assigneeMap.get(t.id)?.[0]
+                const member = getMember(assigneeId)
+                const isChecked = t.status === 'COMPLETED'
                 return (
                   <div
                     key={t.id}
@@ -163,7 +195,7 @@ export function Dashboard() {
                   >
                     <button
                       className="text-faint duration-[var(--duration-fast)] ease-[var(--ease-standard)] inline-flex border-none bg-none p-0 transition-colors hover:scale-[1.08] hover:text-charcoal"
-                      onClick={() => toggle(t.id)}
+                      onClick={() => handleToggle(t)}
                       aria-label="toggle task"
                     >
                       {isChecked ? (
@@ -176,13 +208,13 @@ export function Dashboard() {
                       <span
                         className={`text-ink truncate text-[13.5px] font-semibold ${isChecked ? 'line-through' : ''}`}
                       >
-                        {t.name}
+                        {t.title}
                       </span>
-                      <span className="text-faint text-xs">{t.project}</span>
+                      <span className="text-faint text-xs">{t.project?.name}</span>
                     </div>
-                    <Badge tone={t.priority}>{t.priority}</Badge>
+                    <Badge tone={t.priority}>{humanizeEnum(t.priority)}</Badge>
                     <span className="text-muted hidden items-center gap-1.5 text-xs whitespace-nowrap min-[900px]:inline-flex">
-                      <CalendarDays size={13} /> {t.due}
+                      <CalendarDays size={13} /> {formatDate(t.dueDate)}
                     </span>
                     {member && <Avatar initials={member.initials} color={member.color} size={28} title={member.name} />}
                   </div>
@@ -198,7 +230,7 @@ export function Dashboard() {
             <div className="mb-[18px] flex items-center justify-between">
               <h3 className="section-title">Reports</h3>
               <button className="dash-dropdown">
-                This Month <ChevronDown size={14} />
+                This Week <ChevronDown size={14} />
               </button>
             </div>
             <div className="-mx-1.5">
@@ -216,9 +248,9 @@ export function Dashboard() {
             <div className="flex justify-between px-0.5 pt-1">
               {weeklyReport.map((d) => (
                 <span
-                  key={d.day}
+                  key={d.date.toISOString()}
                   className={`rounded-full px-[9px] py-[5px] text-[11px] font-medium ${
-                    d.day === today ? 'bg-charcoal font-[650] text-white' : 'text-faint'
+                    d.day === todayLabel ? 'bg-charcoal font-[650] text-white' : 'text-faint'
                   }`}
                 >
                   {d.day}
@@ -285,39 +317,38 @@ export function Dashboard() {
           </Link>
         </div>
         <div className="scroll-x flex gap-4 pb-1">
-          {kanbanColumns
-            .filter((c) => previewColumns.includes(c.id))
-            .map((col) => (
-              <div
-                key={col.id}
-                className="bg-subtle flex w-60 shrink-0 flex-col gap-2.5 rounded-md p-3.5"
-              >
-                <div className="text-ink flex items-center justify-between px-0.5 pb-1 text-[12.5px] font-[650]">
-                  <span>{col.title}</span>
-                  <span className="text-faint bg-card rounded-full px-[7px] text-[11px]">
-                    {col.tasks.length}
-                  </span>
-                </div>
-                {col.tasks.slice(0, 2).map((task) => {
-                  const member = getMember(task.assignee)
-                  return (
-                    <div
-                      key={task.id}
-                      className="bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] rounded-xl border p-3 transition hover:-translate-y-px"
-                    >
-                      <span className="text-faint text-[10.5px] font-[650] tracking-[0.04em] uppercase">
-                        {task.project}
-                      </span>
-                      <p className="text-ink my-2 text-[13px] leading-normal font-semibold">{task.title}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted text-[11px]">{task.due}</span>
-                        {member && <Avatar initials={member.initials} color={member.color} size={22} />}
-                      </div>
-                    </div>
-                  )
-                })}
+          {kanbanColumns.map((col) => (
+            <div
+              key={col.id}
+              className="bg-subtle flex w-60 shrink-0 flex-col gap-2.5 rounded-md p-3.5"
+            >
+              <div className="text-ink flex items-center justify-between px-0.5 pb-1 text-[12.5px] font-[650]">
+                <span>{col.title}</span>
+                <span className="text-faint bg-card rounded-full px-[7px] text-[11px]">
+                  {col.tasks.length}
+                </span>
               </div>
-            ))}
+              {col.tasks.slice(0, 2).map((task) => {
+                const assigneeId = assigneeMap.get(task.id)?.[0]
+                const member = getMember(assigneeId)
+                return (
+                  <div
+                    key={task.id}
+                    className="bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] rounded-xl border p-3 transition hover:-translate-y-px"
+                  >
+                    <span className="text-faint text-[10.5px] font-[650] tracking-[0.04em] uppercase">
+                      {task.project?.name}
+                    </span>
+                    <p className="text-ink my-2 text-[13px] leading-normal font-semibold">{task.title}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted text-[11px]">{formatDate(task.dueDate)}</span>
+                      {member && <Avatar initials={member.initials} color={member.color} size={22} />}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
         </div>
       </section>
     </div>
