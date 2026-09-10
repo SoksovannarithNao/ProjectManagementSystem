@@ -56,6 +56,14 @@ export function AuthProvider({ children }) {
     return user
   }, [])
 
+  // Re-fetches the profile after a self-service edit (Settings page) so the
+  // sidebar/topbar name and other cached fields update without a re-login.
+  const refreshProfile = useCallback(async () => {
+    if (!auth?.username) return
+    const user = await getUserByUsername(auth.username)
+    setProfile(user)
+  }, [auth])
+
   const value = {
     token: auth?.token ?? null,
     username: auth?.username ?? null,
@@ -65,6 +73,7 @@ export function AuthProvider({ children }) {
     loading,
     login,
     logout,
+    refreshProfile,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

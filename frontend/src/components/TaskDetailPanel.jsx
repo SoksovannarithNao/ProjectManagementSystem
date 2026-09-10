@@ -7,19 +7,30 @@ import {
   CheckSquare,
   Square,
   Send,
+  Pencil,
+  Trash2,
 } from 'lucide-react'
 import { Avatar } from './ui/Avatar'
 import { Badge } from './ui/Badge'
+import { useToast } from './ui/Toast'
+import { ConfirmDialog } from './ui/ConfirmDialog'
+import { TaskFormModal } from './TaskFormModal'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
-import { setTaskStatus } from '../api/tasks'
+import { canManageTask } from '../api/permissions'
+import { setTaskStatus, deleteTask } from '../api/tasks'
 import { formatDate, humanizeEnum, initialsFor } from '../api/format'
 
 const STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
 
 export function TaskDetailPanel({ task, onClose, onChange }) {
   const { getMember } = useMembers()
-  const { profile, username } = useAuth()
+  const { profile, username, role } = useAuth()
+  const notify = useToast()
+  const canManage = canManageTask(role)
+  const [editing, setEditing] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   // Subtasks/comments have no backend entity — a local-only, empty-by-default
   // checklist per task (not the same fake seed data for every task). The
   // parent gives this component `key={task.id}` so switching tasks remounts
@@ -62,16 +73,30 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
     try {
       await setTaskStatus(task, nextStatus)
       onChange?.()
-    } catch {
+    } catch (err) {
       setStatus(previous)
+      notify(err.message || 'Failed to update status', { tone: 'error' })
     } finally {
       setSavingStatus(false)
     }
   }
 
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      await deleteTask(task.id)
+      notify(`Task "${task.title}" deleted`, { tone: 'success' })
+      onChange?.()
+      onClose()
+    } catch (err) {
+      notify(err.message || 'Failed to delete task', { tone: 'error' })
+      setDeleting(false)
+    }
+  }
+
   return (
     <div
-      className="animate-fade-in fixed inset-0 z-[60] flex justify-end bg-[rgba(20,20,22,.32)]"
+      className="animate-fade-in fixed inset-0 z-[60] flex justify-end bg-[rgba(20,20,22,.4)] backdrop-blur-[2px]"
       onClick={onClose}
     >
       <aside
@@ -82,9 +107,25 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
           <span className="text-faint text-[11.5px] font-[650] tracking-[0.05em] uppercase">
             Task
           </span>
-          <button className="icon-btn" onClick={onClose} aria-label="Close panel">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            {canManage && (
+              <>
+                <button className="icon-btn" onClick={() => setEditing(true)} aria-label="Edit task">
+                  <Pencil size={16} />
+                </button>
+                <button
+                  className="icon-btn hover:text-danger"
+                  onClick={() => setConfirmingDelete(true)}
+                  aria-label="Delete task"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </>
+            )}
+            <button className="icon-btn" onClick={onClose} aria-label="Close panel">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-[22px] pt-5 pb-6">
@@ -226,6 +267,29 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
           </button>
         </form>
       </aside>
+
+      {editing && (
+        <TaskFormModal
+          task={task}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false)
+            onChange?.()
+            onClose()
+          }}
+        />
+      )}
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete task"
+          message={`Delete "${task.title}"? This can't be undone.`}
+          confirmLabel="Delete"
+          loading={deleting}
+          onConfirm={handleDelete}
+          onClose={() => setConfirmingDelete(false)}
+        />
+      )}
     </div>
   )
 }

@@ -21,14 +21,17 @@ public class TaskAssigneeService {
     private final TaskAssigneeRepository taskAssigneeRepository;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public TaskAssigneeService(
             TaskAssigneeRepository taskAssigneeRepository,
             TaskRepository taskRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            NotificationService notificationService) {
         this.taskAssigneeRepository = taskAssigneeRepository;
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     @Transactional(readOnly = true)
@@ -76,7 +79,9 @@ public class TaskAssigneeService {
         taskAssignee.setTask(task);
         taskAssignee.setUser(user);
 
-        return new TaskAssigneeResponse(taskAssigneeRepository.save(taskAssignee));
+        TaskAssignee saved = taskAssigneeRepository.save(taskAssignee);
+        notificationService.notifyTaskAssigned(task, user);
+        return new TaskAssigneeResponse(saved);
     }
 
     public void deleteTaskAssignee(Long id) {

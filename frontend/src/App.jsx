@@ -9,6 +9,7 @@ import { Kanban } from './pages/Kanban'
 import { Calendar } from './pages/Calendar'
 import { Reports } from './pages/Reports'
 import { Team } from './pages/Team'
+import { Settings } from './pages/Settings'
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
           <Route path="/kanban" element={<Kanban />} />
           <Route path="/team" element={<Team />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Route>
     </Routes>

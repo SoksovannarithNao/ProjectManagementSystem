@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, ChevronDown, CalendarDays, Circle, CheckCircle2 } from 'lucide-react'
+import { ArrowUpRight, ChevronDown, Check, CalendarDays, Circle, CheckCircle2 } from 'lucide-react'
 import {
   LineChart,
   Line,
@@ -14,6 +14,9 @@ import { ProjectCard } from '../components/ProjectCard'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { DonutChart } from '../components/ui/DonutChart'
+import { Skeleton } from '../components/ui/Skeleton'
+import { Dropdown } from '../components/ui/Dropdown'
+import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
 import { useMembers } from '../data/UsersContext'
 import { useApi } from '../api/useApi'
@@ -22,7 +25,7 @@ import { getProjectMembers } from '../api/projectMembers'
 import { getTasks, toggleTaskCompletion } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { buildProjectMemberMap, buildTaskAssigneeMap, toProjectCard } from '../api/relations'
-import { computeTaskOverview, computeWeeklyTaskStats, groupTasksByStatus } from '../api/stats'
+import { computeTaskOverview, computePeriodTaskStats, PERIOD_OPTIONS, groupTasksByStatus } from '../api/stats'
 import { formatDate, humanizeEnum } from '../api/format'
 
 const OPEN_STATUSES = new Set(['TO_DO', 'IN_PROGRESS', 'IN_REVIEW'])
@@ -44,18 +47,20 @@ function ChartTooltip({ active, payload, label }) {
 
 export function Dashboard() {
   const { profile, username } = useAuth()
+  const notify = useToast()
   const { getMember } = useMembers()
   const { data: projects, loading: projectsLoading } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
   const { data: tasks, loading: tasksLoading, refetch: refetchTasks } = useApi(getTasks)
   const { data: taskAssignees } = useApi(getTaskAssignees)
+  const [period, setPeriod] = useState(PERIOD_OPTIONS[0])
 
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
   const taskOverview = useMemo(() => computeTaskOverview(tasks), [tasks])
-  const weeklyReport = useMemo(() => computeWeeklyTaskStats(tasks), [tasks])
+  const periodReport = useMemo(() => computePeriodTaskStats(tasks, period.days), [tasks, period])
   const kanbanColumns = useMemo(() => groupTasksByStatus(tasks), [tasks])
-  const todayLabel = weeklyReport[weeklyReport.length - 1]?.day
+  const todayLabel = periodReport[periodReport.length - 1]?.day
 
   const topProjects = useMemo(() => {
     return [...(projects ?? [])]
@@ -85,8 +90,12 @@ export function Dashboard() {
   const firstName = (profile?.fullName || username || '').split(' ')[0] || ''
 
   const handleToggle = async (task) => {
-    await toggleTaskCompletion(task)
-    refetchTasks()
+    try {
+      await toggleTaskCompletion(task)
+      refetchTasks()
+    } catch (err) {
+      notify(err.message || 'Failed to update task', { tone: 'error' })
+    }
   }
 
   return (
@@ -128,6 +137,20 @@ export function Dashboard() {
               <span className="text-faint text-[12.5px] font-medium">{tasks?.length ?? 0} tasks</span>
             </div>
             <div className="flex flex-col">
+              {tasksLoading &&
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="border-divider flex items-center gap-3.5 border-b py-3 first:pt-0 last:border-b-0 last:pb-0"
+                  >
+                    <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                      <Skeleton className="h-3 w-24" />
+                      <Skeleton className="h-2.5 w-16" />
+                    </div>
+                    <Skeleton className="h-4 w-6" />
+                  </div>
+                ))}
               {!tasksLoading &&
                 taskOverview.map((t) => (
                   <div
@@ -167,6 +190,8 @@ export function Dashboard() {
               </Link>
             </div>
             <div className="flex flex-col gap-4">
+              {projectsLoading &&
+                Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-[132px] rounded-card" />)}
               {!projectsLoading && topProjects.map((p) => <ProjectCard key={p.id} project={p} />)}
             </div>
           </section>
@@ -179,6 +204,20 @@ export function Dashboard() {
               </Link>
             </div>
             <div className="flex flex-col">
+              {tasksLoading &&
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="border-divider flex items-center gap-3.5 border-b py-3 first:pt-0 last:border-b-0 last:pb-0"
+                  >
+                    <Skeleton className="h-[19px] w-[19px] shrink-0 rounded-full" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                      <Skeleton className="h-3 w-32" />
+                      <Skeleton className="h-2.5 w-20" />
+                    </div>
+                    <Skeleton className="h-6 w-16 rounded-full" />
+                  </div>
+                ))}
               {!tasksLoading && upcomingTasks.length === 0 && (
                 <p className="text-faint py-3 text-[12.5px]">Nothing due soon.</p>
               )}
@@ -229,13 +268,39 @@ export function Dashboard() {
           <section className="card px-6 py-[22px]">
             <div className="mb-[18px] flex items-center justify-between">
               <h3 className="section-title">Reports</h3>
-              <button className="dash-dropdown">
-                This Week <ChevronDown size={14} />
-              </button>
+              <Dropdown
+                button={({ toggle }) => (
+                  <button className="dash-dropdown" onClick={toggle}>
+                    {period.label} <ChevronDown size={14} />
+                  </button>
+                )}
+                align="right"
+              >
+                {({ close }) => (
+                  <div className="flex flex-col gap-0.5 p-1">
+                    {PERIOD_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        className={`hover:bg-subtle flex items-center justify-between gap-4 rounded-sm px-2 py-1.5 text-left text-[13px] ${
+                          period.id === opt.id ? 'text-ink font-semibold' : 'text-muted'
+                        }`}
+                        onClick={() => {
+                          setPeriod(opt)
+                          close()
+                        }}
+                      >
+                        {opt.label}
+                        {period.id === opt.id && <Check size={14} />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </Dropdown>
             </div>
             <div className="-mx-1.5">
               <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={weeklyReport} margin={{ top: 6, right: 4, left: -22, bottom: 0 }}>
+                <LineChart data={periodReport} margin={{ top: 6, right: 4, left: -22, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke="var(--border-divider)" />
                   <XAxis dataKey="day" hide />
                   <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-light)' }} />
@@ -246,7 +311,7 @@ export function Dashboard() {
               </ResponsiveContainer>
             </div>
             <div className="flex justify-between px-0.5 pt-1">
-              {weeklyReport.map((d) => (
+              {period.days <= 7 && periodReport.map((d) => (
                 <span
                   key={d.date.toISOString()}
                   className={`rounded-full px-[9px] py-[5px] text-[11px] font-medium ${

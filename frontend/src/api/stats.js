@@ -9,38 +9,52 @@ function startOfDay(value) {
   return d
 }
 
-// Derives the last-7-days completed/created/overdue counts straight from
-// real task timestamps — replaces the fully-fake `weeklyReport` mock array.
-export function computeWeeklyTaskStats(tasks) {
+// Derives completed/created/overdue counts per day, over the last N days,
+// straight from real task timestamps — replaces the fully-fake `weeklyReport`
+// mock array. Weekday names only stay legible for a 7-day window; anything
+// longer switches to M/D labels so points don't collide.
+export function computePeriodTaskStats(tasks, days = 7) {
   const today = startOfDay(new Date())
-  const days = []
-  for (let i = 6; i >= 0; i--) {
+  const useWeekdayLabel = days <= 7
+  const points = []
+  for (let i = days - 1; i >= 0; i--) {
     const date = new Date(today.getTime() - i * DAY_MS)
-    days.push({ date, day: WEEKDAY_LABELS[date.getDay()], completed: 0, created: 0, overdue: 0 })
+    const label = useWeekdayLabel ? WEEKDAY_LABELS[date.getDay()] : `${date.getMonth() + 1}/${date.getDate()}`
+    points.push({ date, day: label, completed: 0, created: 0, overdue: 0 })
   }
 
   for (const t of tasks ?? []) {
     if (t.createdAt) {
       const created = startOfDay(t.createdAt)
-      const match = days.find((d) => d.date.getTime() === created.getTime())
+      const match = points.find((p) => p.date.getTime() === created.getTime())
       if (match) match.created += 1
     }
     if (t.completedAt) {
       const completed = startOfDay(t.completedAt)
-      const match = days.find((d) => d.date.getTime() === completed.getTime())
+      const match = points.find((p) => p.date.getTime() === completed.getTime())
       if (match) match.completed += 1
     }
   }
 
-  for (const day of days) {
-    day.overdue = (tasks ?? []).filter((t) => {
+  for (const point of points) {
+    point.overdue = (tasks ?? []).filter((t) => {
       if (!t.dueDate || !OPEN_STATUSES.has(t.status)) return false
-      return startOfDay(t.dueDate).getTime() < day.date.getTime()
+      return startOfDay(t.dueDate).getTime() < point.date.getTime()
     }).length
   }
 
-  return days
+  return points
 }
+
+export function computeWeeklyTaskStats(tasks) {
+  return computePeriodTaskStats(tasks, 7)
+}
+
+export const PERIOD_OPTIONS = [
+  { id: 'week', label: 'This Week', days: 7 },
+  { id: 'month', label: 'This Month', days: 30 },
+  { id: 'quarter', label: 'This Quarter', days: 90 },
+]
 
 const STATUS_META = [
   { status: 'TO_DO', label: 'To Do', color: 'var(--text-muted)' },

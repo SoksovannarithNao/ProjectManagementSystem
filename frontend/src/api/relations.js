@@ -36,6 +36,11 @@ export function countByValue(idLists) {
   return counts
 }
 
+export function filterTasksByProject(tasks, projectId) {
+  if (!projectId) return tasks ?? []
+  return (tasks ?? []).filter((t) => String(t.project?.id) === String(projectId))
+}
+
 export function toProjectCard(project, memberIds = []) {
   return {
     id: project.id,

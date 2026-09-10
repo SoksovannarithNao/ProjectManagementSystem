@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react'
-import { UserPlus, Mail, FolderKanban, ListChecks, Search } from 'lucide-react'
+import { UserPlus, Mail, FolderKanban, ListChecks, Search, UsersRound } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
+import { Skeleton } from '../components/ui/Skeleton'
+import { EmptyState } from '../components/ui/EmptyState'
+import { AddMemberModal } from '../components/AddMemberModal'
 import { useMembers } from '../data/UsersContext'
+import { useAuth } from '../auth/AuthContext'
+import { canManageUsers } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
@@ -10,13 +15,16 @@ import { getTaskAssignees } from '../api/taskAssignees'
 import { buildProjectMemberMap, buildTaskAssigneeMap, countByValue } from '../api/relations'
 
 export function Team() {
-  const { members } = useMembers()
+  const { role } = useAuth()
+  const { members, loading: membersLoading, refetch: refetchMembers } = useMembers()
   const { data: projects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
   const { data: taskAssignees } = useApi(getTaskAssignees)
 
   const [selectedId, setSelectedId] = useState(null)
   const [query, setQuery] = useState('')
+  const [showInvite, setShowInvite] = useState(false)
+  const canInvite = canManageUsers(role)
 
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
   const taskAssigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
@@ -46,11 +54,12 @@ export function Team() {
       <TopBar
         title="Team"
         subtitle={`${members.length} members collaborating across projects`}
-        showSearch={false}
         actions={
-          <button className="btn btn-primary">
-            <UserPlus size={16} /> Invite Member
-          </button>
+          canInvite && (
+            <button className="btn btn-primary" onClick={() => setShowInvite(true)}>
+              <UserPlus size={16} /> Invite Member
+            </button>
+          )
         }
       />
 
@@ -67,21 +76,35 @@ export function Team() {
             />
           </div>
           <div className="flex flex-col gap-0.5">
-            {filtered.map((m) => (
-              <button
-                key={m.id}
-                className={`hover:bg-subtle duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-3 rounded-md border-none bg-none p-2.5 text-left transition-colors ${
-                  m.id === activeId ? 'bg-subtle shadow-[inset_0_0_0_1px_var(--color-border)]' : ''
-                }`}
-                onClick={() => setSelectedId(m.id)}
-              >
-                <Avatar initials={m.initials} color={m.color} size={38} />
-                <span className="flex min-w-0 flex-col">
-                  <span className="text-ink truncate text-[13.5px] font-[650]">{m.name}</span>
-                  <span className="text-faint text-[11.5px]">{m.role}</span>
-                </span>
-              </button>
-            ))}
+            {membersLoading &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 p-2.5">
+                  <Skeleton className="h-[38px] w-[38px] shrink-0 rounded-full" />
+                  <div className="flex flex-1 flex-col gap-1.5">
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-2.5 w-16" />
+                  </div>
+                </div>
+              ))}
+            {!membersLoading &&
+              filtered.map((m) => (
+                <button
+                  key={m.id}
+                  className={`hover:bg-subtle duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-3 rounded-md border-none bg-none p-2.5 text-left transition-colors ${
+                    m.id === activeId ? 'bg-subtle shadow-[inset_0_0_0_1px_var(--color-border)]' : ''
+                  }`}
+                  onClick={() => setSelectedId(m.id)}
+                >
+                  <Avatar initials={m.initials} color={m.color} size={38} />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-ink truncate text-[13.5px] font-[650]">{m.name}</span>
+                    <span className="text-faint text-[11.5px]">{m.role}</span>
+                  </span>
+                </button>
+              ))}
+            {!membersLoading && filtered.length === 0 && (
+              <EmptyState icon={UsersRound} title="No members found" subtitle="Try a different search." />
+            )}
           </div>
         </section>
 
@@ -135,6 +158,10 @@ export function Team() {
           </section>
         )}
       </div>
+
+      {showInvite && (
+        <AddMemberModal onClose={() => setShowInvite(false)} onCreated={refetchMembers} />
+      )}
     </div>
   )
 }

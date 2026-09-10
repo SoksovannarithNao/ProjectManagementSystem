@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, CalendarX2 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
+import { EmptyState } from '../components/ui/EmptyState'
+import { TaskFormModal } from '../components/TaskFormModal'
+import { useAuth } from '../auth/AuthContext'
+import { canCreateTask } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getTasks } from '../api/tasks'
 
@@ -32,18 +36,35 @@ function buildMonthGrid(year, month) {
   return days
 }
 
+function startOfWeek(date) {
+  const d = new Date(date)
+  const offset = (d.getDay() + 6) % 7 // Monday = 0
+  d.setDate(d.getDate() - offset)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
 function dateKey(d) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
+function toISODate(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function Calendar() {
-  const { data: tasks } = useApi(getTasks)
+  const { role } = useAuth()
+  const canAdd = canCreateTask(role)
+  const { data: tasks, refetch } = useApi(getTasks)
   const today = useMemo(() => new Date(), [])
-  const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
+  const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()))
   const [view, setView] = useState('Month')
+  const [newTaskDate, setNewTaskDate] = useState(null)
 
   const days = useMemo(() => buildMonthGrid(cursor.getFullYear(), cursor.getMonth()), [cursor])
-  const monthLabel = cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 
   const eventsByDay = useMemo(() => {
     const map = new Map()
@@ -58,22 +79,47 @@ export function Calendar() {
     return map
   }, [tasks])
 
-  const shiftMonth = (delta) => {
-    setCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + delta, 1))
+  const shiftPeriod = (delta) => {
+    setCursor((prev) => {
+      if (view === 'Month') return new Date(prev.getFullYear(), prev.getMonth() + delta, 1)
+      if (view === 'Week') return new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + delta * 7)
+      return new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + delta)
+    })
   }
 
   const isSameDay = (a, b) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 
-  const listEntries = useMemo(() => {
-    return [...eventsByDay.entries()]
-      .map(([key, events]) => {
-        const [y, m, d] = key.split('-').map(Number)
-        return { date: new Date(y, m, d), events }
+  const periodLabel = useMemo(() => {
+    if (view === 'Month') return cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    if (view === 'Day') {
+      return cursor.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
+    }
+    const start = startOfWeek(cursor)
+    const end = new Date(start)
+    end.setDate(start.getDate() + 6)
+    const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    return `${startStr} – ${endStr}`
+  }, [cursor, view])
+
+  const rangeEntries = useMemo(() => {
+    if (view === 'Day') return [{ date: cursor, events: eventsByDay.get(dateKey(cursor)) ?? [] }]
+    if (view === 'Week') {
+      const start = startOfWeek(cursor)
+      return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(start)
+        d.setDate(start.getDate() + i)
+        return { date: d, events: eventsByDay.get(dateKey(d)) ?? [] }
       })
-      .sort((a, b) => a.date - b.date)
-      .filter((entry) => entry.date >= today || isSameDay(entry.date, today))
-  }, [eventsByDay, today])
+    }
+    return []
+  }, [view, cursor, eventsByDay])
+
+  const openNewTask = (date) => {
+    if (!canAdd) return
+    setNewTaskDate(toISODate(date))
+  }
 
   return (
     <div>
@@ -81,25 +127,27 @@ export function Calendar() {
         title="Calendar"
         subtitle="Plan and track deadlines across your projects"
         actions={
-          <button className="btn btn-primary">
-            <Plus size={16} /> New Event
-          </button>
+          canAdd && (
+            <button className="btn btn-primary" onClick={() => openNewTask(cursor)}>
+              <Plus size={16} /> New Event
+            </button>
+          )
         }
       />
 
       <div className="card px-[22px] pt-5 pb-6">
         <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3.5">
           <div className="flex items-center gap-2.5">
-            <button className="icon-btn" onClick={() => shiftMonth(-1)} aria-label="Previous month">
+            <button className="icon-btn" onClick={() => shiftPeriod(-1)} aria-label={`Previous ${view.toLowerCase()}`}>
               <ChevronLeft size={16} />
             </button>
-            <span className="min-w-[148px] text-center text-[15px] font-[650]">{monthLabel}</span>
-            <button className="icon-btn" onClick={() => shiftMonth(1)} aria-label="Next month">
+            <span className="min-w-[190px] text-center text-[15px] font-[650]">{periodLabel}</span>
+            <button className="icon-btn" onClick={() => shiftPeriod(1)} aria-label={`Next ${view.toLowerCase()}`}>
               <ChevronRight size={16} />
             </button>
             <button
               className="btn btn-secondary ml-1 px-3.5 py-2"
-              onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), 1))}
+              onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), today.getDate()))}
             >
               Today
             </button>
@@ -139,8 +187,9 @@ export function Calendar() {
                 return (
                   <div
                     key={i}
+                    onClick={() => inMonth && openNewTask(d)}
                     className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex min-h-24 flex-col gap-1.5 rounded-sm border p-2 transition-colors max-[900px]:min-h-[68px] max-[900px]:p-1.5 ${
-                      inMonth ? 'bg-card hover:bg-subtle' : 'bg-subtle'
+                      inMonth ? `bg-card hover:bg-subtle${canAdd ? ' cursor-pointer' : ''}` : 'bg-subtle'
                     } ${isToday ? 'border-charcoal' : 'border-divider'}`}
                   >
                     <span
@@ -166,29 +215,44 @@ export function Calendar() {
 
         {view !== 'Month' && (
           <div className="flex flex-col">
-            {listEntries.length === 0 && (
-              <p className="text-faint py-4 text-[12.5px]">No upcoming due dates.</p>
+            {rangeEntries.every((e) => e.events.length === 0) && (
+              <EmptyState icon={CalendarX2} title="No due dates in this range" />
             )}
-            {listEntries.slice(0, view === 'Day' ? 1 : 5).map(({ date, events }) => (
+            {rangeEntries.map(({ date, events }) => (
               <div
                 key={date.toISOString()}
-                className="border-divider flex items-center gap-5 border-b px-1 py-3.5 last:border-b-0"
+                onClick={() => openNewTask(date)}
+                className={`border-divider flex items-center gap-5 border-b px-1 py-3.5 last:border-b-0 ${canAdd ? 'hover:bg-subtle cursor-pointer' : ''}`}
               >
-                <span className="w-[70px] shrink-0 text-[13px] font-[650]">
-                  {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                <span
+                  className={`w-[92px] shrink-0 text-[13px] font-[650] ${isSameDay(date, today) ? 'text-ink' : 'text-muted'}`}
+                >
+                  {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
-                <div className="flex flex-wrap gap-2">
-                  {events.map((ev, idx) => (
-                    <span key={idx} className={eventClass(ev.tone)}>
-                      {ev.title}
-                    </span>
-                  ))}
-                </div>
+                {events.length === 0 ? (
+                  <span className="text-faint text-[12px]">No tasks due</span>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {events.map((ev, idx) => (
+                      <span key={idx} className={eventClass(ev.tone)}>
+                        {ev.title}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {newTaskDate && (
+        <TaskFormModal
+          defaultDueDate={newTaskDate}
+          onClose={() => setNewTaskDate(null)}
+          onSaved={refetch}
+        />
+      )}
     </div>
   )
 }

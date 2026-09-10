@@ -27,8 +27,19 @@ export function Login() {
   }
 
   return (
-    <div className="bg-canvas flex min-h-svh items-center justify-center px-4">
-      <div className="card w-full max-w-[380px] px-8 py-9">
+    <div className="bg-canvas relative flex min-h-svh items-center justify-center overflow-hidden px-4">
+      <div
+        className="pointer-events-none absolute -top-32 -left-24 h-[420px] w-[420px] rounded-full opacity-60 blur-3xl"
+        style={{ background: 'radial-gradient(circle, var(--accent-lavender), transparent 70%)' }}
+        aria-hidden="true"
+      />
+      <div
+        className="pointer-events-none absolute -right-24 -bottom-32 h-[420px] w-[420px] rounded-full opacity-50 blur-3xl"
+        style={{ background: 'radial-gradient(circle, var(--accent-purple), transparent 70%)' }}
+        aria-hidden="true"
+      />
+
+      <div className="card animate-scale-in relative w-full max-w-[380px] px-8 py-9">
         <div className="mb-7 flex items-center gap-2.5">
           <span className="inline-flex" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none">

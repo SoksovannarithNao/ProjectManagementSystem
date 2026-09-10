@@ -59,6 +59,9 @@
 
   --animate-fade-in: fadeIn var(--duration-med) var(--ease-standard);
   --animate-slide-in: slideIn var(--duration-med) var(--ease-standard);
+  --animate-scale-in: scaleIn var(--duration-med) var(--ease-standard);
+  --animate-toast-in: toastIn var(--duration-med) var(--ease-standard);
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
 }
 
 @keyframes fadeIn {
@@ -78,6 +81,37 @@
   to {
     transform: translateX(0);
     opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.96) translateY(4px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toastIn {
+  from {
+    transform: translateY(8px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
   }
 }
 
@@ -231,5 +265,20 @@
 
   .scroll-x {
     @apply max-w-full overflow-x-auto;
+  }
+
+  .skeleton {
+    @apply rounded-sm bg-[length:200%_100%];
+    background-image: linear-gradient(
+      90deg,
+      var(--color-divider) 25%,
+      var(--color-border) 50%,
+      var(--color-divider) 75%
+    );
+    animation: var(--animate-shimmer);
+  }
+
+  .empty-state {
+    @apply text-faint flex flex-col items-center gap-2 px-4 py-8 text-center [&_svg]:opacity-60;
   }
 }

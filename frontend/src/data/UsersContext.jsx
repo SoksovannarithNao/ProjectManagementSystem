@@ -14,7 +14,7 @@ export function UsersProvider({ children }) {
     () => (isAuthenticated ? getUsers() : Promise.resolve([])),
     [isAuthenticated]
   )
-  const { data, loading, error } = useApi(fetcher)
+  const { data, loading, error, refetch } = useApi(fetcher)
 
   const value = useMemo(() => {
     const members = (data ?? []).map((u) => ({
@@ -30,9 +30,10 @@ export function UsersProvider({ children }) {
       members,
       loading,
       error,
+      refetch,
       getMember: (id) => (id == null ? undefined : byId.get(String(id))),
     }
-  }, [data, loading, error])
+  }, [data, loading, error, refetch])
 
   return <UsersContext.Provider value={value}>{children}</UsersContext.Provider>
 }

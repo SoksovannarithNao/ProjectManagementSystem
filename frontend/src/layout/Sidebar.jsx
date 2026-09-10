@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -12,6 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { Avatar } from '../components/ui/Avatar'
+import { HelpModal } from '../components/HelpModal'
 import { useAuth } from '../auth/AuthContext'
 import { humanizeEnum, initialsFor } from '../api/format'
 import { useLayout } from './useLayout'
@@ -38,6 +40,7 @@ export function Sidebar() {
   const { profile, username, role } = useAuth()
   const displayName = profile?.fullName || username || ''
   const displayRole = humanizeEnum(profile?.role || role || '')
+  const [showHelp, setShowHelp] = useState(false)
 
   return (
     <>
@@ -89,11 +92,15 @@ export function Sidebar() {
         </nav>
 
         <div className="border-divider mt-auto flex flex-col gap-[3px] border-t pt-3.5">
-          <button className={`${itemBase} ${itemInactive}`}>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => `${itemBase} ${isActive ? itemActive : itemInactive}`}
+            onClick={closeMobileNav}
+          >
             <Settings size={18} strokeWidth={2} />
             <span>Settings</span>
-          </button>
-          <button className={`${itemBase} ${itemInactive}`}>
+          </NavLink>
+          <button className={`${itemBase} ${itemInactive}`} onClick={() => setShowHelp(true)}>
             <HelpCircle size={18} strokeWidth={2} />
             <span>Help &amp; Support</span>
           </button>
@@ -108,6 +115,8 @@ export function Sidebar() {
           </div>
         </div>
       </aside>
+
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </>
   )
 }

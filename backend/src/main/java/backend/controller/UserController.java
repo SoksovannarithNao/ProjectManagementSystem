@@ -1,5 +1,6 @@
 package backend.controller;
 
+import backend.dto.SelfProfileUpdateRequest;
 import backend.dto.UserCreateRequest;
 import backend.dto.UserResponse;
 import backend.dto.UserUpdateRequest;
@@ -7,6 +8,7 @@ import backend.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -41,6 +43,17 @@ public class UserController {
     @PostMapping
     public UserResponse createUser(@Valid @RequestBody UserCreateRequest request) {
         return userService.createUser(request);
+    }
+
+    // Any authenticated user updating their own profile — no role gate
+    // beyond being logged in. Spring matches this static "/me" segment ahead
+    // of the "/{id}" pattern below, so there's no path-variable collision.
+    @PutMapping("/me")
+    public UserResponse updateOwnProfile(
+            Authentication authentication,
+            @Valid @RequestBody SelfProfileUpdateRequest request
+    ) {
+        return userService.updateOwnProfile(authentication.getName(), request);
     }
 
     @PreAuthorize("hasRole('ADMINISTRATOR')")
