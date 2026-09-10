@@ -22,6 +22,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NotFoundException ex) {
+        log.warn("Not found: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "Not Found", ex.getMessage()));
     }
@@ -32,6 +33,7 @@ public class GlobalExceptionHandler {
         for (FieldError fieldError : ex.getBindingResult().getFieldErrors()) {
             fieldErrors.put(fieldError.getField(), fieldError.getDefaultMessage());
         }
+        log.warn("Validation failed: {}", fieldErrors);
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ErrorResponse(
@@ -49,13 +51,31 @@ public class GlobalExceptionHandler {
         // due-date-within-project, etc.) — all surface here as a 400 instead
         // of an unhandled 500 with a raw stack trace.
         String rootMessage = ex.getMostSpecificCause().getMessage();
+        String cleanMessage = cleanPostgresMessage(rootMessage);
+        log.warn("Data integrity violation: {}", cleanMessage);
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Data Integrity Violation", rootMessage));
+                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Data Integrity Violation", cleanMessage));
+    }
+
+    // The trigger-raised messages in database/init/01-init.sql (RAISE
+    // EXCEPTION '...') are already clear, specific sentences written for a
+    // human — e.g. "Task due_date (2026-09-18) cannot be later than its
+    // project end_date (2026-07-01)". The JDBC driver just wraps that first
+    // line in an "ERROR: " prefix and appends a "Where: PL/pgSQL function
+    // ..." line pointing at the trigger internals, which isn't meaningful to
+    // an end user — strip both so only the actual reason reaches the client.
+    private String cleanPostgresMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "One or more fields are invalid";
+        }
+        String firstLine = message.split("\\r?\\n", 2)[0].trim();
+        return firstLine.startsWith("ERROR: ") ? firstLine.substring("ERROR: ".length()) : firstLine;
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "Forbidden", "You do not have permission to perform this action"));
     }
@@ -66,6 +86,7 @@ public class GlobalExceptionHandler {
     // proper 401.
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ErrorResponse> handleAuthenticationException(AuthenticationException ex) {
+        log.warn("Authentication failed: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized", "Invalid username or password"));
     }

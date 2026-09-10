@@ -20,6 +20,8 @@ This starts a `postgres` container, creates the `taskmanager` database, and runs
 
 [`01-init.sql`](init/01-init.sql) is the schema; [`02-seed.sql`](init/02-seed.sql) loads placeholder demo data (~13 users, 6 projects, and everything under them) on top of it so there's something to look at without registering accounts by hand. It's demo data only, not a fixture set for automated tests — CI loads both files into its throwaway test database too (see [ci.yml](../.github/workflows/ci.yml)).
 
+Every seeded user shares the password **`secret`** — the bcrypt hash in the file is generated and verified specifically for that plaintext (a previously copied "well-known sample" hash in this file looked plausible but didn't actually verify against `secret`, so no seed account could log in until it was regenerated). `emma.silva` (`INACTIVE`) and `frank.lee` (`SUSPENDED`) are seeded to deliberately fail login regardless of password, to exercise `account_status` handling.
+
 Connection details (also the backend's defaults, in [backend/src/main/resources/application.properties](../backend/src/main/resources/application.properties)):
 
 | | |
@@ -101,6 +103,8 @@ A few rules from the requirements doc are cross-row or cross-table, so a column 
 - **`tasks.due_date` can't be later than its project's `end_date`** (`trg_tasks_due_date_within_project`).
 - **`milestones.due_date` must fall within its project's `start_date`/`end_date`** (`trg_milestones_due_date_within_project`).
 - **`task_dependencies` can't form a cycle** (`trg_task_dependencies_no_cycle`) — A depends-on B depends-on A (or any longer loop) would mean none of those tasks could ever start, since a dependency requires the depended-on task to be `COMPLETED` first.
+
+Every `RAISE EXCEPTION` in these three triggers sets `USING ERRCODE = '23514'` (check_violation) explicitly. Without it, Postgres defaults to `P0001`, which isn't in the SQLSTATE class (`23`) that Hibernate/Spring translate into a clean `DataIntegrityViolationException` — the error instead fell through the backend's exception handling as an unclassified 500 with no useful message, which is exactly what happened before this was added. **If you add a new cross-row/cross-table check as a trigger, set this on its `RAISE EXCEPTION` too**, or its violations won't surface as a proper 400 to API clients.
 
 ## Migrations
 

@@ -1,5 +1,6 @@
 package backend.service;
 
+import backend.dto.SelfProfileUpdateRequest;
 import backend.dto.UserCreateRequest;
 import backend.dto.UserResponse;
 import backend.dto.UserUpdateRequest;
@@ -104,6 +105,26 @@ public class UserService {
         if (request.getAccountStatus() != null) {
             user.setAccountStatus(request.getAccountStatus());
         }
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        }
+
+        return new UserResponse(userRepository.save(user));
+    }
+
+    // Self-service variant of updateUser: no roleId/accountStatus (a user
+    // can't change their own role or activation status) and no username.
+    public UserResponse updateOwnProfile(String username, SelfProfileUpdateRequest request) {
+        User user = getUserEntityByUsername(username);
+
+        user.setFullName(request.getFullName());
+        user.setEmail(request.getEmail());
+        user.setGender(request.getGender());
+        user.setDateOfBirth(request.getDateOfBirth());
+        user.setPhoneNumber(request.getPhoneNumber());
+        user.setProfilePhotoUrl(request.getProfilePhotoUrl());
+        user.setPosition(request.getPosition());
+        user.setDepartment(request.getDepartment());
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         }
