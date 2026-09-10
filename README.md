@@ -9,7 +9,10 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 - **Project & Task Management API**: full CRUD for projects, tasks, milestones, project members, task assignees, and task dependencies, with filtering by project/milestone/status
 - **Task Dependencies**: model "task X can't start until task Y is done," with database-level cycle prevention
 - **Database-enforced business rules**: auto-managed timestamps, date-range validation (task/milestone due dates constrained to their project's dates), case-insensitive username/email uniqueness
-- **Frontend UI** (React, wired to the live backend API): login, dashboard, Kanban board, calendar, project list, task list, team view, and reports/KPI charts — all fetching real data, with task status changes persisted back to the API
+- **Frontend UI** (React, wired to the live backend API): login, dashboard, Kanban board, calendar, project list, task list, team view, reports/KPI charts, and account settings — all fetching real data, with working sort/search/filter and a task create/edit/delete flow (not just reads)
+- **Task workflow**: a task's status advances one stage per click (To Do → Doing → Done) instead of jumping straight to done, matching the intended Kanban flow
+- **Notifications**: real per-user notifications (not mocked) — created automatically on task assignment and task status change, with a read/unread bell dropdown in the UI — see [Notifications](backend/README.md#notifications)
+- **Self-service account settings**: any authenticated user can update their own profile and password (`PUT /api/users/me`) without needing an Administrator
 - **Backend file logging**: errors and security/business events (validation failures, access-denied, failed logins, unhandled exceptions) are written to a rotating log file (`backend/logs/log.txt`), not just the console — see [Logging](backend/README.md#logging)
 
 ## Table of Contents
@@ -57,7 +60,8 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 - Recharts 3.10 — charts (Reports/Dashboard)
 - Tailwind CSS 4.3 (`@tailwindcss/vite`) — styling
 - lucide-react — icon set
-- React Context — `layout/LayoutContext.jsx` (local UI state: sidebar/layout), `auth/AuthContext.jsx` (JWT + logged-in user), `data/UsersContext.jsx` (fetched user directory, for avatar/assignee lookups). No react-query/SWR/Redux — a small custom `useApi` hook (`api/useApi.js`) covers fetch-on-mount/refetch for a project this size
+- React Context — `layout/LayoutContext.jsx` (local UI state: sidebar/layout), `auth/AuthContext.jsx` (JWT + logged-in user), `data/UsersContext.jsx` (fetched user directory, for avatar/assignee lookups), `data/NotificationsContext.jsx` (unread count + list, backing the top-bar bell). No react-query/SWR/Redux — a small custom `useApi` hook (`api/useApi.js`) covers fetch-on-mount/refetch for a project this size
+- Small reusable UI primitives (`components/ui/`) — `Modal`, `Dropdown` (generic popover, used for filter/sort menus, the notifications bell, and per-row action menus), `ConfirmDialog`, `Toast`, `Skeleton`, `EmptyState` — built once and reused rather than one-off per page
 
 ## Architecture Overview
 
@@ -68,7 +72,7 @@ backend/src/main/java/backend/
 ├── BackendApplication.java   # Entry point
 ├── controller/                # REST controllers — bind/validate requests, delegate to services
 ├── service/                   # Business logic, transaction boundaries, DTO <-> entity mapping
-├── entity/                    # JPA entities (8 of 15 database tables mapped so far)
+├── entity/                    # JPA entities (9 of 15 database tables mapped so far)
 ├── repository/                # Spring Data JPA repositories
 ├── dto/                       # Request/response DTOs — no controller binds/returns raw entities
 ├── exception/                 # NotFoundException + GlobalExceptionHandler (@RestControllerAdvice)
@@ -79,15 +83,15 @@ backend/src/main/java/backend/
 
 ```
 frontend/src/
-├── main.jsx            # Entry point — wraps App in AuthProvider + UsersProvider
+├── main.jsx            # Entry point — wraps App in AuthProvider + UsersProvider + NotificationsProvider + ToastProvider
 ├── App.jsx             # Route definitions (/login public, everything else behind ProtectedRoute)
-├── pages/               # One file per route (Login, Dashboard, Projects, Tasks, Kanban, Team, Calendar, Reports)
-├── components/          # Shared components (ProjectCard, StatCard, TaskDetailPanel)
-├── components/ui/       # Small presentational primitives (Avatar, Badge, DonutChart, ProgressBar, ProgressRing)
-├── layout/              # App shell — Sidebar, TopBar, layout state (React Context)
-├── auth/                # AuthContext (JWT/login/logout) + ProtectedRoute
-├── api/                 # Fetch client + per-resource calls (projects, tasks, users, ...) + stats/format helpers
-├── data/UsersContext.jsx # Fetched user directory, exposes getMember(id) for avatar/assignee lookups
+├── pages/               # One file per route (Login, Dashboard, Projects, Tasks, Kanban, Team, Calendar, Reports, Settings)
+├── components/          # Shared components (ProjectCard, StatCard, TaskDetailPanel, TaskFormModal, NewProjectModal, AddMemberModal, HelpModal)
+├── components/ui/       # Presentational primitives (Avatar, Badge, DonutChart, ProgressBar, ProgressRing, Modal, Dropdown, ConfirmDialog, Toast, Skeleton, EmptyState)
+├── layout/              # App shell — Sidebar, TopBar (search/filter/notifications bell), layout state (React Context)
+├── auth/                # AuthContext (JWT/login/logout/refreshProfile) + ProtectedRoute
+├── api/                 # Fetch client + per-resource calls (projects, tasks, users, roles, notifications, ...) + stats/format/permissions helpers
+├── data/                # UsersContext.jsx (getMember(id) for avatar/assignee lookups), NotificationsContext.jsx (unread count + list)
 └── styles/global.css    # Tailwind entry point
 ```
 
@@ -97,9 +101,11 @@ frontend/src/
 2. **Coarse role-based authorization, not per-row ownership** — `@PreAuthorize` gates by role (e.g. only Administrator/Project Manager can create projects), but there's no row-level check yet — a Team Member can currently update any task, not just their own.
 3. **DTOs on every endpoint, not raw entities** — prevents leaking fields like `passwordHash` through nested associations (e.g. a project's `manager`), and decouples the API shape from the JPA entity graph.
 4. **Schema owned by hand-written SQL, not Hibernate** — `ddl-auto=validate`, so the app fails fast if entities drift from the real schema instead of silently auto-migrating.
-5. **Business rules pushed into the database via triggers** where they're cross-row (cycle prevention on task dependencies, date-range checks) — Java-level validation only covers what's expressible per-request (Bean Validation).
-6. **Frontend calls the backend via relative `/api/...` paths, not an absolute URL** — nginx already reverse-proxies `/api/` to the backend container in the Docker build ([frontend/nginx.conf](frontend/nginx.conf)), and a matching Vite dev-server proxy (`frontend/vite.config.js`) makes the same code work under `npm run dev`. No frontend env var for the API base URL is needed.
-7. **Some frontend UI state has no backend entity to persist to** — task subtasks/comments in `TaskDetailPanel` are local-only per session (no `subtasks`/`comments` table is wired to a controller yet), and are shown as such in the UI rather than silently pretending to save.
+5. **Business rules pushed into the database via triggers** where they're cross-row (cycle prevention on task dependencies, date-range checks) — Java-level validation only covers what's expressible per-request (Bean Validation). Each `RAISE EXCEPTION` explicitly sets `ERRCODE = '23514'` (check_violation) — without it, Postgres's default error code isn't in the SQLSTATE class Hibernate treats as a constraint violation, so the error would fall through to a generic unhandled 500 instead of a clean 400 with the actual reason.
+6. **Notifications are created by application code, not database triggers** (`NotificationService`, called from `TaskAssigneeService`/`TaskService`) — unlike the cross-row rules above, "who should be notified" already requires looking up related rows (assignees) that the service layer has on hand anyway, and keeping it in Java keeps the notification text/type logic in one reusable place instead of duplicated PL/pgSQL.
+7. **First use of `Authentication` as a controller parameter** (`UserController.updateOwnProfile`, `NotificationController`) — every other endpoint operates on an explicit `{id}` path variable; self-service endpoints instead resolve "who is this?" from `authentication.getName()` (the JWT's `sub` claim), so a user can only ever act on their own row.
+8. **Frontend calls the backend via relative `/api/...` paths, not an absolute URL** — nginx already reverse-proxies `/api/` to the backend container in the Docker build ([frontend/nginx.conf](frontend/nginx.conf)), and a matching Vite dev-server proxy (`frontend/vite.config.js`) makes the same code work under `npm run dev`. No frontend env var for the API base URL is needed.
+9. **Some frontend UI state has no backend entity to persist to** — task subtasks/comments in `TaskDetailPanel` are local-only per session (no `subtasks`/`comments` table is wired to a controller yet), and are shown as such in the UI rather than silently pretending to save.
 
 ## Prerequisites
 
@@ -217,11 +223,23 @@ Response:
 
 Send the token on every other request: `Authorization: Bearer <token>`.
 
+Any authenticated user can also update their own profile/password without Administrator rights:
+
+```
+PUT /api/users/me
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "fullName": "...", "email": "...", "password": "..." }
+```
+
+(`password` optional — omit/blank to leave it unchanged; no `roleId`/`accountStatus`/`username` — see [Key Design Decisions](#key-design-decisions).)
+
 ### Resources
 
 | Resource | Base path | Write access |
 |---|---|---|
-| Users | `/api/users` | Administrator only |
+| Users | `/api/users` | Administrator only (except `PUT /api/users/me`, see above — any authenticated user) |
 | Roles | `/api/roles` | Administrator only |
 | Projects | `/api/projects` | Administrator, Project Manager |
 | Milestones | `/api/milestones` | Administrator, Project Manager, Team Leader |
@@ -229,8 +247,9 @@ Send the token on every other request: `Authorization: Bearer <token>`.
 | Project Members | `/api/project-members` | Administrator, Project Manager, Team Leader |
 | Task Assignees | `/api/task-assignees` | Administrator, Project Manager, Team Leader |
 | Task Dependencies | `/api/task-dependencies` | Administrator, Project Manager, Team Leader |
+| Notifications | `/api/notifications` | Any authenticated user — always scoped to "your own" by JWT identity, not by role |
 
-All `GET` endpoints require only a valid token (any role). Not yet implemented: comments, attachments, work logs, notifications, activity logs, subtasks/checklists — these have database tables but no API.
+All `GET` endpoints require only a valid token (any role). Not yet implemented: comments, attachments, work logs, activity logs, subtasks/checklists — these have database tables but no API.
 
 ### Status Codes
 
@@ -312,6 +331,14 @@ Data models as returned by the API (full column-level detail, including tables w
 - task: Task
 - dependsOnTask: Task — `task` can't start until `dependsOnTask` is `COMPLETED` (enforced in application logic, not the DB); cycles are rejected at the database level
 
+**Notification**
+- id: Long
+- type: String — TASK_ASSIGNED | TASK_STATUS_CHANGED | COMMENT_ADDED | PROJECT_UPDATED | DEADLINE_REMINDER | OVERDUE_TASK | MILESTONE_UPDATED (only the first two are actually ever created by the app today — see [Key Design Decisions](#key-design-decisions))
+- title, message: String
+- project: Project (optional), task: Task (optional) — what the notification is about, if anything
+- read: boolean
+- createdAt: OffsetDateTime
+
 ## Security Features
 
 1. Passwords hashed with BCrypt on create/update — never stored or returned in plaintext.
@@ -322,8 +349,10 @@ Data models as returned by the API (full column-level detail, including tables w
 6. No raw JPA entities in request/response bodies — a DTO layer on every endpoint, which also means nested associations (e.g. a project's `manager`) never leak `passwordHash`.
 7. Errors don't leak internals — a global exception handler returns clean JSON for 404/400/401/403; unexpected exceptions are logged server-side and returned as a generic 500 with no stack trace sent to the client.
 8. Database-level integrity: case-insensitive unique username/email, `CHECK` constraints on enum-like columns, and triggers preventing task-dependency cycles and out-of-range dates.
+9. Self-service profile updates (`PUT /api/users/me`) can only ever touch the caller's own row — the target user comes from the JWT (`authentication.getName()`), never a client-supplied id, and the request DTO has no `roleId`/`accountStatus` field for a user to escalate themselves with.
+10. Notification endpoints are ownership-checked, not just role-gated — `GET /api/notifications` scopes to the caller's own rows, and marking one read verifies it actually belongs to the caller (404, not 403, if not — so a client can't probe which ids exist).
 
-Not yet implemented: per-row ownership checks (see [Key Design Decisions](#key-design-decisions)), refresh tokens, rate limiting on login.
+Not yet implemented: per-row ownership checks on tasks/projects (see [Key Design Decisions](#key-design-decisions)), refresh tokens, rate limiting on login.
 
 ## Testing the API
 
@@ -367,7 +396,8 @@ See [Contributing.md](Contributing.md) and [Role_Requirment.md](Role_Requirment.
 ## Future Enhancements
 
 - Per-row ownership authorization (e.g. a Team Member restricted to their own assigned tasks).
-- Entities/controllers for the remaining 7 tables: subtasks, checklist items, comments, attachments, work logs, notifications, activity logs.
+- Entities/controllers for the remaining 6 tables: subtasks, checklist items, comments, attachments, work logs, activity logs.
+- The remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `DEADLINE_REMINDER`, `OVERDUE_TASK`, `MILESTONE_UPDATED`) — only `TASK_ASSIGNED`/`TASK_STATUS_CHANGED` are wired up so far; the rest need a comment feature and/or a scheduled job (deadline/overdue reminders aren't triggered by any user action, so they can't just hang off an existing service method).
 - Pagination and search/filtering on list endpoints.
 - Wire Flyway into the actual startup path instead of the current plain-SQL `docker-entrypoint-initdb.d` bootstrap.
 - Application-level enforcement of task-dependency ordering ("can't start until depends-on is COMPLETED") and progress roll-up (task → milestone → project) — currently unenforced outside the DB's cycle-prevention trigger.
