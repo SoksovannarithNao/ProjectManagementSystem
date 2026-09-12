@@ -197,7 +197,7 @@ Both services build as Docker images ([backend/Dockerfile](backend/Dockerfile), 
 
 CI/CD is GitHub Actions:
 
-- [ci.yml](.github/workflows/ci.yml) — every PR into `dev`/`main`: frontend lint + build, backend `mvn verify` against a throwaway Postgres instance (schema loaded from `database/init/*.sql` first), and a Docker build check for both images.
+- [ci.yml](.github/workflows/ci.yml) — every PR into `dev`/`main`: frontend lint + build; backend job loads `database/init/*.sql` into a throwaway Postgres instance, runs `database/verify_invariants.sql` and fails the build if any check returns rows, then runs `mvn verify`; plus a Docker build check for both images.
 - [cd.yml](.github/workflows/cd.yml) — on push to `dev`/`main` (i.e. after a merge): builds and pushes both images to GitHub Container Registry (`ghcr.io`) — `main` → tag `latest`, `dev` → tag `dev`.
 
 There's no automated deploy step yet (a commented-out SSH-deploy example sits in `cd.yml`) — getting the built images onto wherever the demo actually runs is still manual.
