@@ -148,6 +148,8 @@ Nothing in the backend consumes this yet (confirmed: all current authorization i
 
 [`verify_invariants.sql`](verify_invariants.sql) is a standalone script of 7 read-only queries — each expected to return **zero rows** on a healthy database — that double-check the rules above actually hold (missing dates, an active task with an incomplete dependency, a non-member/suspended assignee, a cross-project milestone link, stale project/milestone progress). Run it any time with `psql -f database/verify_invariants.sql`, especially after a schema or seed change.
 
+**Wired into CI**: [ci.yml](../.github/workflows/ci.yml)'s backend job runs this script (via `psql -t -A`, which prints nothing when every query is empty) right after loading the schema/seed, and fails the build if it prints anything at all — so a PR that introduces one of these violations (in a trigger, in seed data, wherever) is caught before `mvn verify` even runs.
+
 ### Business rules enforced at the DB level
 
 A few rules from the requirements doc are cross-row or cross-table, so a column `CHECK` can't express them — these are enforced with triggers instead:

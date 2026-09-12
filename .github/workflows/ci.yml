@@ -72,6 +72,22 @@ jobs:
             psql -h localhost -U postgres -d taskmanager_test -f "$f"
           done
 
+      # database/verify_invariants.sql is a set of queries each expected to
+      # return zero rows. -t -A (tuples-only, unaligned) suppresses headers
+      # and row-count footers, so it prints nothing at all when every query
+      # is empty — any output at all means a real invariant violation.
+      - name: Verify database invariants
+        env:
+          PGPASSWORD: postgres
+        run: |
+          output=$(psql -h localhost -U postgres -d taskmanager_test -t -A -f "${{ github.workspace }}/database/verify_invariants.sql")
+          if [ -n "$output" ]; then
+            echo "::error::Database invariant check failed — one or more queries in database/verify_invariants.sql returned rows:"
+            echo "$output"
+            exit 1
+          fi
+          echo "All database invariants hold."
+
       - name: Build & test
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/taskmanager_test
