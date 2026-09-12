@@ -8,7 +8,9 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 - **Role-Based Authorization**: four roles (Administrator, Project Manager, Team Leader, Team Member), enforced via Spring Security method security on every write endpoint
 - **Project & Task Management API**: full CRUD for projects, tasks, milestones, project members, task assignees, and task dependencies, with filtering by project/milestone/status
 - **Task Dependencies**: model "task X can't start until task Y is done," with database-level cycle prevention
-- **Database-enforced business rules**: auto-managed timestamps, date-range validation (task/milestone due dates constrained to their project's dates), case-insensitive username/email uniqueness
+- **Database-enforced business rules**: auto-managed timestamps, date-range validation (task/milestone due dates constrained to their project's dates), case-insensitive username/email uniqueness, task-dependency ordering (a task can't go active while a dependency is incomplete, checked from both directions), assignment integrity (assignee must be an active project member), task/milestone/project consistency, and project/milestone progress auto-derived from task completion (writable but not authoritative — recomputed on every relevant change)
+- **Role-level permissions**: a `permissions`/`role_permissions` matrix models the View/Create/Edit/Delete/Assign/Approve/Generate Reports action set per role — not yet consumed by the backend, which still authorizes by role name directly (see [database/README.md](database/README.md#authorization--permissions))
+- **Overdue detection**: a `v_overdue_tasks` view plus a `fn_generate_overdue_notifications()` DB function generate `OVERDUE_TASK` notifications, deduped per task/assignee/day — not yet wired to a scheduler (see [Future Enhancements](#future-enhancements))
 - **Frontend UI** (React, wired to the live backend API): login, dashboard, Kanban board, calendar, project list, task list, team view, reports/KPI charts, and account settings — all fetching real data, with working sort/search/filter and a task create/edit/delete flow (not just reads)
 - **Task workflow**: a task's status advances one stage per click (To Do → Doing → Done) instead of jumping straight to done, matching the intended Kanban flow
 - **Notifications**: real per-user notifications (not mocked) — created automatically on task assignment and task status change, with a read/unread bell dropdown in the UI — see [Notifications](backend/README.md#notifications)
@@ -72,7 +74,7 @@ backend/src/main/java/backend/
 ├── BackendApplication.java   # Entry point
 ├── controller/                # REST controllers — bind/validate requests, delegate to services
 ├── service/                   # Business logic, transaction boundaries, DTO <-> entity mapping
-├── entity/                    # JPA entities (9 of 15 database tables mapped so far)
+├── entity/                    # JPA entities (9 of 19 database tables mapped so far)
 ├── repository/                # Spring Data JPA repositories
 ├── dto/                       # Request/response DTOs — no controller binds/returns raw entities
 ├── exception/                 # NotFoundException + GlobalExceptionHandler (@RestControllerAdvice)
@@ -101,7 +103,7 @@ frontend/src/
 2. **Coarse role-based authorization, not per-row ownership** — `@PreAuthorize` gates by role (e.g. only Administrator/Project Manager can create projects), but there's no row-level check yet — a Team Member can currently update any task, not just their own.
 3. **DTOs on every endpoint, not raw entities** — prevents leaking fields like `passwordHash` through nested associations (e.g. a project's `manager`), and decouples the API shape from the JPA entity graph.
 4. **Schema owned by hand-written SQL, not Hibernate** — `ddl-auto=validate`, so the app fails fast if entities drift from the real schema instead of silently auto-migrating.
-5. **Business rules pushed into the database via triggers** where they're cross-row (cycle prevention on task dependencies, date-range checks) — Java-level validation only covers what's expressible per-request (Bean Validation). Each `RAISE EXCEPTION` explicitly sets `ERRCODE = '23514'` (check_violation) — without it, Postgres's default error code isn't in the SQLSTATE class Hibernate treats as a constraint violation, so the error would fall through to a generic unhandled 500 instead of a clean 400 with the actual reason.
+5. **Business rules pushed into the database via triggers** where they're cross-row (cycle prevention and ordering on task dependencies, date-range checks, assignee/project-membership integrity, task/milestone/project consistency, project/milestone progress kept in sync with task completion) — Java-level validation only covers what's expressible per-request (Bean Validation). Each `RAISE EXCEPTION` explicitly sets `ERRCODE = '23514'` (check_violation) — without it, Postgres's default error code isn't in the SQLSTATE class Hibernate treats as a constraint violation, so the error would fall through to a generic unhandled 500 instead of a clean 400 with the actual reason. Full list: [database/README.md](database/README.md#business-rules-enforced-at-the-db-level).
 6. **Notifications are created by application code, not database triggers** (`NotificationService`, called from `TaskAssigneeService`/`TaskService`) — unlike the cross-row rules above, "who should be notified" already requires looking up related rows (assignees) that the service layer has on hand anyway, and keeping it in Java keeps the notification text/type logic in one reusable place instead of duplicated PL/pgSQL.
 7. **First use of `Authentication` as a controller parameter** (`UserController.updateOwnProfile`, `NotificationController`) — every other endpoint operates on an explicit `{id}` path variable; self-service endpoints instead resolve "who is this?" from `authentication.getName()` (the JWT's `sub` claim), so a user can only ever act on their own row.
 8. **Frontend calls the backend via relative `/api/...` paths, not an absolute URL** — nginx already reverse-proxies `/api/` to the backend container in the Docker build ([frontend/nginx.conf](frontend/nginx.conf)), and a matching Vite dev-server proxy (`frontend/vite.config.js`) makes the same code work under `npm run dev`. No frontend env var for the API base URL is needed.
@@ -150,9 +152,9 @@ Frontend has no `.env` of its own — it calls the backend via relative `/api/..
 
 ## Database Migrations
 
-Schema currently lives in [database/init/01-init.sql](database/init/01-init.sql), applied automatically by Postgres (`docker-entrypoint-initdb.d`) the first time the container's data volume is created, or manually via `psql -f database/init/01-init.sql`. A parallel Flyway project ([database/taskmanager/](database/taskmanager/)) tracks the same schema as versioned migrations (`V1__initial_schema.sql` onward) for when Flyway gets wired into the actual startup path — see [database/README.md](database/README.md#migrations).
+Schema currently lives in [database/init/01-init.sql](database/init/01-init.sql), applied automatically by Postgres (`docker-entrypoint-initdb.d`) the first time the container's data volume is created, or manually via `psql -f database/init/01-init.sql`. A parallel Flyway project ([database/taskmanager/](database/taskmanager/)) tracks the same schema as versioned migrations (`V1__initial_schema.sql`, `V2__add_permissions_progress_and_integrity_rules.sql`) for when Flyway gets wired into the actual startup path — see [database/README.md](database/README.md#migrations). [database/verify_invariants.sql](database/verify_invariants.sql) has a standalone set of zero-rows-expected sanity checks for the business rules below.
 
-Main tables: `roles`, `users`, `projects`, `project_members`, `milestones`, `tasks`, `task_assignees`, `task_dependencies`, `subtasks`, `checklist_items`, `comments`, `attachments`, `work_logs`, `notifications`, `activity_logs`.
+Main tables: `roles`, `permissions`, `role_permissions`, `users`, `projects`, `project_members`, `milestones`, `tasks`, `task_assignees`, `task_dependencies`, `subtasks`, `checklist_items`, `comments`, `attachments`, `work_logs`, `notifications`, `activity_logs`, `report_exports`, `kpi_snapshots` — plus derived reporting views (`v_overdue_tasks`, `v_project_status_summary`, `v_task_completion_by_project`, `v_team_performance`, `v_team_workload`).
 
 ## Running the Application
 
@@ -249,7 +251,7 @@ Content-Type: application/json
 | Task Dependencies | `/api/task-dependencies` | Administrator, Project Manager, Team Leader |
 | Notifications | `/api/notifications` | Any authenticated user — always scoped to "your own" by JWT identity, not by role |
 
-All `GET` endpoints require only a valid token (any role). Not yet implemented: comments, attachments, work logs, activity logs, subtasks/checklists — these have database tables but no API.
+All `GET` endpoints require only a valid token (any role). Not yet implemented: comments, attachments, work logs, activity logs, subtasks/checklists, permissions/role_permissions, report_exports/kpi_snapshots, and the reporting views — these have database tables/views but no API (see [database/README.md](database/README.md#api--backend-coverage) for the full DB-only list).
 
 ### Status Codes
 
@@ -333,7 +335,7 @@ Data models as returned by the API (full column-level detail, including tables w
 
 **Notification**
 - id: Long
-- type: String — TASK_ASSIGNED | TASK_STATUS_CHANGED | COMMENT_ADDED | PROJECT_UPDATED | DEADLINE_REMINDER | OVERDUE_TASK | MILESTONE_UPDATED (only the first two are actually ever created by the app today — see [Key Design Decisions](#key-design-decisions))
+- type: String — TASK_ASSIGNED | TASK_STATUS_CHANGED | COMMENT_ADDED | PROJECT_UPDATED | DEADLINE_REMINDER | OVERDUE_TASK | MILESTONE_UPDATED (only the first two are ever created by *application* code today — see [Key Design Decisions](#key-design-decisions); `OVERDUE_TASK` can additionally be generated by calling the DB function `fn_generate_overdue_notifications()` directly, but nothing schedules that call yet)
 - title, message: String
 - project: Project (optional), task: Task (optional) — what the notification is about, if anything
 - read: boolean
@@ -396,12 +398,16 @@ See [Contributing.md](Contributing.md) and [Role_Requirment.md](Role_Requirment.
 ## Future Enhancements
 
 - Per-row ownership authorization (e.g. a Team Member restricted to their own assigned tasks).
-- Entities/controllers for the remaining 6 tables: subtasks, checklist items, comments, attachments, work logs, activity logs.
-- The remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `DEADLINE_REMINDER`, `OVERDUE_TASK`, `MILESTONE_UPDATED`) — only `TASK_ASSIGNED`/`TASK_STATUS_CHANGED` are wired up so far; the rest need a comment feature and/or a scheduled job (deadline/overdue reminders aren't triggered by any user action, so they can't just hang off an existing service method).
+- Entities/controllers for the remaining 6 core tables: subtasks, checklist items, comments, attachments, work logs, activity logs.
+- Wire the backend to check `role_permissions` (View/Create/Edit/Delete/Assign/Approve/Generate Reports) instead of hardcoded role names — the permission model exists in the database ([database/README.md](database/README.md#authorization--permissions)) but nothing in the backend consults it yet.
+- A scheduled job (Spring `@Scheduled`, or `pg_cron`) to actually call `fn_generate_overdue_notifications()` on a cadence — the DB-side detection/generation logic exists, it just isn't invoked automatically yet.
+- The remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `DEADLINE_REMINDER`, `MILESTONE_UPDATED`) — only `TASK_ASSIGNED`/`TASK_STATUS_CHANGED` are wired up in application code so far; the rest need a comment feature and/or a scheduled job.
 - Pagination and search/filtering on list endpoints.
 - Wire Flyway into the actual startup path instead of the current plain-SQL `docker-entrypoint-initdb.d` bootstrap.
-- Application-level enforcement of task-dependency ordering ("can't start until depends-on is COMPLETED") and progress roll-up (task → milestone → project) — currently unenforced outside the DB's cycle-prevention trigger.
+- Endpoints over the reporting views (`v_project_status_summary`, `v_task_completion_by_project`, `v_team_performance`, `v_team_workload`) and over `report_exports`/`kpi_snapshots` — all exist in the database with no API yet.
 - Broader automated test coverage (controller/integration tests, frontend tests).
 - An actual deploy target for the CD pipeline's built images (currently build-and-push only).
 - Persist task subtasks/comments to the backend (currently local-only in the UI — no `subtasks`/`comments` controller exists yet, see [Key Design Decisions](#key-design-decisions)).
 - A real per-user activity/audit feed on the Team page (removed the mock version — no `activity_logs` API exists yet to back it).
+
+Note: task-dependency ordering ("can't go active until every dependency is COMPLETED") and progress roll-up (task → milestone → project) are **already enforced at the database level** via triggers (not merely the cycle-prevention check) — see [database/README.md](database/README.md#task-integrity-rules). What's still missing is any *application-level* pre-check that surfaces a friendlier error before the request round-trips to the database.
