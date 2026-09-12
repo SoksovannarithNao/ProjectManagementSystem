@@ -138,7 +138,10 @@ BEGIN
     SELECT start_date, end_date INTO v_start, v_end FROM projects WHERE id = NEW.project_id;
     IF NEW.due_date < v_start OR NEW.due_date > v_end THEN
         RAISE EXCEPTION 'Milestone due_date (%) must fall within its project''s start_date (%) and end_date (%)',
-            NEW.due_date, v_start, v_end;
+            NEW.due_date, v_start, v_end
+            USING ERRCODE = '23514'; -- check_violation, so it's classified as a
+                                      -- constraint violation (not a generic
+                                      -- error) by the JDBC/Hibernate layer
     END IF;
     RETURN NEW;
 END;
@@ -211,7 +214,8 @@ BEGIN
         SELECT end_date INTO v_project_end_date FROM projects WHERE id = NEW.project_id;
         IF NEW.due_date > v_project_end_date THEN
             RAISE EXCEPTION 'Task due_date (%) cannot be later than its project end_date (%)',
-                NEW.due_date, v_project_end_date;
+                NEW.due_date, v_project_end_date
+                USING ERRCODE = '23514'; -- check_violation — see the milestone trigger above
         END IF;
     END IF;
     RETURN NEW;
@@ -269,7 +273,8 @@ BEGIN
         SELECT 1 FROM chain WHERE task_id = NEW.task_id
     ) THEN
         RAISE EXCEPTION 'Adding this dependency would create a cycle: task % already (transitively) depends on task %',
-            NEW.depends_on_task_id, NEW.task_id;
+            NEW.depends_on_task_id, NEW.task_id
+            USING ERRCODE = '23514'; -- check_violation — see the milestone trigger above
     END IF;
     RETURN NEW;
 END;

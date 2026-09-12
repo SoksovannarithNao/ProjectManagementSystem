@@ -33,10 +33,10 @@ public class Task {
     @Column(nullable = false, length = 20)
     private String status = "TO_DO";
 
-    @Column(name = "start_date")
+    @Column(name = "start_date", nullable = false)
     private LocalDate startDate;
 
-    @Column(name = "due_date")
+    @Column(name = "due_date", nullable = false)
     private LocalDate dueDate;
 
     @Column(name = "estimated_hours", precision = 6, scale = 2)

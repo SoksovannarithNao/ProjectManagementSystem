@@ -29,14 +29,17 @@ INSERT INTO users (full_name, username, email, password_hash, gender, date_of_bi
 ('Frank Lee',     'frank.lee',     'frank@taskflow.dev',        '$2b$10$RK7GKnRPd9BXyVwFe0VSdeLKPt6spo2pBsbDD.KKo.8cFZQN21eW6', 'Male',   '1989-01-19', '+1-555-0113', 'Support Engineer',      'Engineering',   (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'SUSPENDED');
 
 -- ==================== projects ====================
+-- progress is intentionally omitted here (defaults to 0) — it's now fully
+-- derived from task completion by a DB trigger (see 01-init.sql), and
+-- self-corrects as tasks are seeded below.
 
-INSERT INTO projects (project_code, name, description, start_date, end_date, manager_id, priority, status, progress) VALUES
-('PRJ-1001', 'Website Redesign',           'Marketing website redesign and rebrand',        '2026-06-01', '2026-10-15', (SELECT id FROM users WHERE username = 'nikky.sharma'), 'HIGH',     'IN_PROGRESS', 72),
-('PRJ-1002', 'Mobile Application',         'Build the new mobile customer experience',       '2026-05-15', '2026-11-30', (SELECT id FROM users WHERE username = 'ana.torres'),   'HIGH',     'IN_PROGRESS', 48),
-('PRJ-1003', 'Backend System Migration',   'Migrate the core API platform to v2',            '2026-04-01', '2026-09-30', (SELECT id FROM users WHERE username = 'nikky.sharma'), 'CRITICAL', 'IN_PROGRESS', 31),
-('PRJ-1004', 'Design System Unification',  'Unify UI components across every product',       '2026-03-01', '2026-07-01', (SELECT id FROM users WHERE username = 'ana.torres'),   'MEDIUM',   'COMPLETED',   100),
-('PRJ-1005', 'Internal Ops Dashboard',     'Internal reporting and operations tooling',      '2026-07-01', '2026-12-15', (SELECT id FROM users WHERE username = 'nikky.sharma'), 'MEDIUM',   'PLANNING',    5),
-('PRJ-1006', 'Customer Support Portal',    'Self-service support portal for customers',      '2026-02-01', '2026-09-30', (SELECT id FROM users WHERE username = 'ana.torres'),   'LOW',      'ON_HOLD',     40);
+INSERT INTO projects (project_code, name, description, start_date, end_date, manager_id, priority, status) VALUES
+('PRJ-1001', 'Website Redesign',           'Marketing website redesign and rebrand',        '2026-06-01', '2026-10-15', (SELECT id FROM users WHERE username = 'nikky.sharma'), 'HIGH',     'IN_PROGRESS'),
+('PRJ-1002', 'Mobile Application',         'Build the new mobile customer experience',       '2026-05-15', '2026-11-30', (SELECT id FROM users WHERE username = 'ana.torres'),   'HIGH',     'IN_PROGRESS'),
+('PRJ-1003', 'Backend System Migration',   'Migrate the core API platform to v2',            '2026-04-01', '2026-09-30', (SELECT id FROM users WHERE username = 'nikky.sharma'), 'CRITICAL', 'IN_PROGRESS'),
+('PRJ-1004', 'Design System Unification',  'Unify UI components across every product',       '2026-03-01', '2026-07-01', (SELECT id FROM users WHERE username = 'ana.torres'),   'MEDIUM',   'COMPLETED'),
+('PRJ-1005', 'Internal Ops Dashboard',     'Internal reporting and operations tooling',      '2026-07-01', '2026-12-15', (SELECT id FROM users WHERE username = 'nikky.sharma'), 'MEDIUM',   'PLANNING'),
+('PRJ-1006', 'Customer Support Portal',    'Self-service support portal for customers',      '2026-02-01', '2026-09-30', (SELECT id FROM users WHERE username = 'ana.torres'),   'LOW',      'ON_HOLD');
 -- end_date pushed out from the original 2026-08-01 — being on hold slipped
 -- the timeline, and both of this project's tasks (below) are due after that
 -- date. Kept in sync with the new "task due_date <= project end_date" trigger.
@@ -73,49 +76,64 @@ INSERT INTO project_members (project_id, user_id, project_role) VALUES
 ((SELECT id FROM projects WHERE project_code = 'PRJ-1006'), (SELECT id FROM users WHERE username = 'frank.lee'),    'TEAM_MEMBER');
 
 -- ==================== milestones ====================
+-- progress is intentionally omitted here (defaults to 0) — it's now fully
+-- derived from the tasks linked to each milestone by a DB trigger (see
+-- 01-init.sql), and self-corrects as tasks are seeded below.
 
-INSERT INTO milestones (project_id, title, description, due_date, status, progress) VALUES
-((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), 'Discovery & Wireframes',      'User research and low-fidelity wireframes',       '2026-06-20', 'COMPLETED',   100),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), 'Visual Design Approved',      'Final visual design signed off by stakeholders',  '2026-08-01', 'COMPLETED',   100),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), 'Launch Ready',                'Site built, tested, and ready to ship',            '2026-10-10', 'IN_PROGRESS', 60),
+INSERT INTO milestones (project_id, title, description, due_date, status) VALUES
+((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), 'Discovery & Wireframes',      'User research and low-fidelity wireframes',       '2026-06-20', 'COMPLETED'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), 'Visual Design Approved',      'Final visual design signed off by stakeholders',  '2026-08-01', 'COMPLETED'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), 'Launch Ready',                'Site built, tested, and ready to ship',            '2026-10-10', 'IN_PROGRESS'),
 
-((SELECT id FROM projects WHERE project_code = 'PRJ-1002'), 'MVP Feature Freeze',          'Core feature set locked for the first release',   '2026-08-15', 'IN_PROGRESS', 55),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1002'), 'Beta Release',                'Public beta available in app stores',              '2026-10-15', 'PENDING',     0),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1002'), 'MVP Feature Freeze',          'Core feature set locked for the first release',   '2026-08-15', 'IN_PROGRESS'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1002'), 'Beta Release',                'Public beta available in app stores',              '2026-10-15', 'PENDING'),
 
-((SELECT id FROM projects WHERE project_code = 'PRJ-1003'), 'API v2 Contract Finalized',   'Endpoint contracts reviewed and frozen',           '2026-06-15', 'COMPLETED',   100),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1003'), 'Data Migration Complete',     'All production data moved to the new schema',     '2026-09-15', 'IN_PROGRESS', 40),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1003'), 'API v2 Contract Finalized',   'Endpoint contracts reviewed and frozen',           '2026-06-15', 'COMPLETED'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1003'), 'Data Migration Complete',     'All production data moved to the new schema',     '2026-09-15', 'IN_PROGRESS'),
 
-((SELECT id FROM projects WHERE project_code = 'PRJ-1004'), 'Component Audit',             'Inventory of every component in use today',       '2026-04-01', 'COMPLETED',   100),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1004'), 'Library v1 Shipped',         'Unified component library published',              '2026-07-01', 'COMPLETED',   100),
- 
-((SELECT id FROM projects WHERE project_code = 'PRJ-1005'), 'Requirements Sign-off',       'Stakeholder requirements gathered and approved',   '2026-08-01', 'PENDING',     0),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1004'), 'Component Audit',             'Inventory of every component in use today',       '2026-04-01', 'COMPLETED'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1004'), 'Library v1 Shipped',         'Unified component library published',              '2026-07-01', 'COMPLETED'),
 
-((SELECT id FROM projects WHERE project_code = 'PRJ-1006'), 'Vendor Evaluation',           'Compare ticketing/support platform vendors',       '2026-03-15', 'COMPLETED',   100),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1006'), 'Integration Spike',           'Prototype integration with the chosen vendor',     '2026-06-01', 'PENDING',     10);
+((SELECT id FROM projects WHERE project_code = 'PRJ-1005'), 'Requirements Sign-off',       'Stakeholder requirements gathered and approved',   '2026-08-01', 'PENDING'),
+
+((SELECT id FROM projects WHERE project_code = 'PRJ-1006'), 'Vendor Evaluation',           'Compare ticketing/support platform vendors',       '2026-03-15', 'COMPLETED'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1006'), 'Integration Spike',           'Prototype integration with the chosen vendor',     '2026-06-01', 'PENDING');
 
 -- ==================== tasks ====================
 
+-- start_date is now required (Role_Requirment.md: "Each task should have a
+-- Start Date and Due Date") — every row below has one, including the 8 rows
+-- that previously left it NULL.
+--
+-- 'QA pass on checkout flow' and 'Migrate user table schema' are seeded as
+-- TO_DO/0 progress rather than their original IN_REVIEW/IN_PROGRESS: both
+-- depend on a task that isn't COMPLETED yet ('Fix login redirect bug' and
+-- 'Review API documentation' respectively), and the new dependency-status
+-- trigger blocks an active status while a dependency is incomplete. Reopening
+-- them to TO_DO (rather than completing their dependencies) keeps 'Fix login
+-- redirect bug' genuinely overdue-and-incomplete for the overdue-detection
+-- demo below.
 INSERT INTO tasks (project_id, milestone_id, title, description, priority, status, start_date, due_date, estimated_hours, progress, completed_at, created_by) VALUES
 ((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), (SELECT id FROM milestones WHERE title = 'Launch Ready'),              'Finalize homepage design',        'Lock the hero, nav, and footer treatments',        'HIGH',   'IN_PROGRESS', '2026-09-01', '2026-09-12', 16, 70, NULL,                      (SELECT id FROM users WHERE username = 'nikky.sharma')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), (SELECT id FROM milestones WHERE title = 'Launch Ready'),              'Write onboarding copy',           'Copy for the first-run welcome flow',              'LOW',    'TO_DO',        NULL,         '2026-09-20', 6,  0,  NULL,                      (SELECT id FROM users WHERE username = 'nikky.sharma')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), NULL,                                                                  'Design empty states',             'Empty/error states for key list views',            'MEDIUM', 'TO_DO',        NULL,         '2026-09-18', 8,  0,  NULL,                      (SELECT id FROM users WHERE username = 'owen.blake')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), (SELECT id FROM milestones WHERE title = 'Launch Ready'),              'Write onboarding copy',           'Copy for the first-run welcome flow',              'LOW',    'TO_DO',        '2026-09-16', '2026-09-20', 6,  0,  NULL,                      (SELECT id FROM users WHERE username = 'nikky.sharma')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1001'), NULL,                                                                  'Design empty states',             'Empty/error states for key list views',            'MEDIUM', 'TO_DO',        '2026-09-14', '2026-09-18', 8,  0,  NULL,                      (SELECT id FROM users WHERE username = 'owen.blake')),
 
-((SELECT id FROM projects WHERE project_code = 'PRJ-1002'), (SELECT id FROM milestones WHERE title = 'MVP Feature Freeze'),        'QA pass on checkout flow',        'Full regression pass on checkout',                 'HIGH',   'IN_REVIEW',    '2026-09-05', '2026-09-11', 12, 80, NULL,                      (SELECT id FROM users WHERE username = 'ben.carter')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1002'), (SELECT id FROM milestones WHERE title = 'MVP Feature Freeze'),        'QA pass on checkout flow',        'Full regression pass on checkout',                 'HIGH',   'TO_DO',        '2026-09-05', '2026-09-11', 12, 0,  NULL,                      (SELECT id FROM users WHERE username = 'ben.carter')),
 ((SELECT id FROM projects WHERE project_code = 'PRJ-1002'), (SELECT id FROM milestones WHERE title = 'MVP Feature Freeze'),        'Fix login redirect bug',          'Users land on the wrong screen after SSO login',   'HIGH',   'IN_PROGRESS',  '2026-09-02', '2026-09-10', 4,  50, NULL,                      (SELECT id FROM users WHERE username = 'owen.blake')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1002'), (SELECT id FROM milestones WHERE title = 'Beta Release'),              'Set up push notifications',       'Wire up push for order status updates',            'MEDIUM', 'TO_DO',        NULL,         '2026-10-01', 10, 0,  NULL,                      (SELECT id FROM users WHERE username = 'ben.carter')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1002'), (SELECT id FROM milestones WHERE title = 'Beta Release'),              'Set up push notifications',       'Wire up push for order status updates',            'MEDIUM', 'TO_DO',        '2026-09-20', '2026-10-01', 10, 0,  NULL,                      (SELECT id FROM users WHERE username = 'ben.carter')),
 
-((SELECT id FROM projects WHERE project_code = 'PRJ-1003'), (SELECT id FROM milestones WHERE title = 'Data Migration Complete'),   'Migrate user table schema',       'Backfill and cut over the users table',            'URGENT', 'IN_PROGRESS',  '2026-09-01', '2026-09-15', 20, 40, NULL,                      (SELECT id FROM users WHERE username = 'ravi.patel')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1003'), (SELECT id FROM milestones WHERE title = 'Data Migration Complete'),   'Review API documentation',        'Bring API docs in line with the v2 contract',      'MEDIUM', 'TO_DO',        NULL,         '2026-09-13', 5,  0,  NULL,                      (SELECT id FROM users WHERE username = 'ravi.patel')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1003'), (SELECT id FROM milestones WHERE title = 'Data Migration Complete'),   'Migrate user table schema',       'Backfill and cut over the users table',            'URGENT', 'TO_DO',        '2026-09-01', '2026-09-15', 20, 0,  NULL,                      (SELECT id FROM users WHERE username = 'ravi.patel')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1003'), (SELECT id FROM milestones WHERE title = 'Data Migration Complete'),   'Review API documentation',        'Bring API docs in line with the v2 contract',      'MEDIUM', 'TO_DO',        '2026-09-10', '2026-09-13', 5,  0,  NULL,                      (SELECT id FROM users WHERE username = 'ravi.patel')),
 ((SELECT id FROM projects WHERE project_code = 'PRJ-1003'), NULL,                                                                  'Set up CI pipeline',              'Automated build/test pipeline for the new service','MEDIUM', 'COMPLETED',    '2026-08-01', '2026-08-20', 8,  100, '2026-08-19 16:00:00+00', (SELECT id FROM users WHERE username = 'leo.nguyen')),
 
 ((SELECT id FROM projects WHERE project_code = 'PRJ-1004'), (SELECT id FROM milestones WHERE title = 'Library v1 Shipped'),        'Publish component storybook',     'Public Storybook instance for the design system',  'MEDIUM', 'COMPLETED',    '2026-06-01', '2026-06-25', 14, 100, '2026-06-24 10:00:00+00', (SELECT id FROM users WHERE username = 'maya.chen')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1004'), (SELECT id FROM milestones WHERE title = 'Component Audit'),           'Audit legacy button variants',    'Catalogue every button style in production',       'LOW',    'COMPLETED',    NULL,         '2026-03-25', 6,  100, '2026-03-24 09:00:00+00', (SELECT id FROM users WHERE username = 'maya.chen')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1004'), (SELECT id FROM milestones WHERE title = 'Component Audit'),           'Audit legacy button variants',    'Catalogue every button style in production',       'LOW',    'COMPLETED',    '2026-03-18', '2026-03-25', 6,  100, '2026-03-24 09:00:00+00', (SELECT id FROM users WHERE username = 'maya.chen')),
 
-((SELECT id FROM projects WHERE project_code = 'PRJ-1005'), (SELECT id FROM milestones WHERE title = 'Requirements Sign-off'),     'Draft Q3 roadmap',                'First pass at the Q3 ops roadmap',                 'LOW',    'TO_DO',        NULL,         '2026-09-25', 4,  0,  NULL,                      (SELECT id FROM users WHERE username = 'nikky.sharma')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1005'), NULL,                                                                  'Explore competitor dashboards',   'Survey how similar tools present ops data',        'LOW',    'TO_DO',        NULL,         '2026-09-22', 6,  0,  NULL,                      (SELECT id FROM users WHERE username = 'nikky.sharma')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1005'), (SELECT id FROM milestones WHERE title = 'Requirements Sign-off'),     'Draft Q3 roadmap',                'First pass at the Q3 ops roadmap',                 'LOW',    'TO_DO',        '2026-09-18', '2026-09-25', 4,  0,  NULL,                      (SELECT id FROM users WHERE username = 'nikky.sharma')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-1005'), NULL,                                                                  'Explore competitor dashboards',   'Survey how similar tools present ops data',        'LOW',    'TO_DO',        '2026-09-15', '2026-09-22', 6,  0,  NULL,                      (SELECT id FROM users WHERE username = 'nikky.sharma')),
 
 ((SELECT id FROM projects WHERE project_code = 'PRJ-1006'), (SELECT id FROM milestones WHERE title = 'Integration Spike'),         'Evaluate ticketing vendors',      'Score vendors against integration requirements',   'MEDIUM', 'IN_REVIEW',    '2026-09-01', '2026-09-14', 10, 65, NULL,                      (SELECT id FROM users WHERE username = 'ana.torres')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-1006'), NULL,                                                                  'Prepare project presentation',    'Status update deck for stakeholders',              'LOW',    'TO_DO',        NULL,         '2026-09-19', 3,  0,  NULL,                      (SELECT id FROM users WHERE username = 'ana.torres'));
+((SELECT id FROM projects WHERE project_code = 'PRJ-1006'), NULL,                                                                  'Prepare project presentation',    'Status update deck for stakeholders',              'LOW',    'TO_DO',        '2026-09-12', '2026-09-19', 3,  0,  NULL,                      (SELECT id FROM users WHERE username = 'ana.torres'));
 
 -- ==================== task_assignees ====================
 
@@ -135,7 +153,11 @@ INSERT INTO task_assignees (task_id, user_id) VALUES
 ((SELECT id FROM tasks WHERE title = 'Audit legacy button variants'),  (SELECT id FROM users WHERE username = 'maya.chen')),
 ((SELECT id FROM tasks WHERE title = 'Draft Q3 roadmap'),              (SELECT id FROM users WHERE username = 'nikky.sharma')),
 ((SELECT id FROM tasks WHERE title = 'Explore competitor dashboards'), (SELECT id FROM users WHERE username = 'chloe.kim')),
-((SELECT id FROM tasks WHERE title = 'Evaluate ticketing vendors'),    (SELECT id FROM users WHERE username = 'frank.lee')),
+-- Reassigned from frank.lee (SUSPENDED) to sofia.ruiz (an active PRJ-1006
+-- team lead) — a suspended user must not receive an active task assignment.
+-- frank.lee stays a PRJ-1006 project_member so the SUSPENDED account-status
+-- case is still demonstrated, just without a live assignment.
+((SELECT id FROM tasks WHERE title = 'Evaluate ticketing vendors'),    (SELECT id FROM users WHERE username = 'sofia.ruiz')),
 ((SELECT id FROM tasks WHERE title = 'Prepare project presentation'),  (SELECT id FROM users WHERE username = 'sofia.ruiz'));
 
 -- ==================== task_dependencies ====================
@@ -208,7 +230,7 @@ INSERT INTO work_logs (task_id, user_id, work_date, hours_worked, description) V
 INSERT INTO notifications (user_id, type, title, message, project_id, task_id, is_read) VALUES
 ((SELECT id FROM users WHERE username = 'maya.chen'),   'TASK_ASSIGNED',       'New task assigned',          'You were assigned "Finalize homepage design"',        NULL, (SELECT id FROM tasks WHERE title = 'Finalize homepage design'),  true),
 ((SELECT id FROM users WHERE username = 'chloe.kim'),   'TASK_ASSIGNED',       'New task assigned',          'You were assigned "Write onboarding copy"',            NULL, (SELECT id FROM tasks WHERE title = 'Write onboarding copy'),     false),
-((SELECT id FROM users WHERE username = 'owen.blake'),  'TASK_STATUS_CHANGED', 'Task moved to In Review',    '"QA pass on checkout flow" is now In Review',          NULL, (SELECT id FROM tasks WHERE title = 'QA pass on checkout flow'),  false),
+((SELECT id FROM users WHERE username = 'owen.blake'),  'TASK_STATUS_CHANGED', 'Task blocked',               '"QA pass on checkout flow" was reopened to To Do — its dependency "Fix login redirect bug" isn''t complete yet', NULL, (SELECT id FROM tasks WHERE title = 'QA pass on checkout flow'),  false),
 ((SELECT id FROM users WHERE username = 'nikky.sharma'),'DEADLINE_REMINDER',   'Task due tomorrow',          '"Finalize homepage design" is due tomorrow',           NULL, (SELECT id FROM tasks WHERE title = 'Finalize homepage design'),  false),
 ((SELECT id FROM users WHERE username = 'ana.torres'),  'PROJECT_UPDATED',     'Project status changed',     '"Customer Support Portal" timeline was extended',      (SELECT id FROM projects WHERE project_code = 'PRJ-1006'), NULL, true),
 ((SELECT id FROM users WHERE username = 'owen.blake'),  'COMMENT_ADDED',       'New comment on your task',   'Ben Carter commented on "Fix login redirect bug"',     NULL, (SELECT id FROM tasks WHERE title = 'Fix login redirect bug'),    false);
@@ -224,3 +246,11 @@ INSERT INTO activity_logs (user_id, action, project_id, task_id, description) VA
 ((SELECT id FROM users WHERE username = 'leo.nguyen'),   'TASK_COMPLETED',       (SELECT id FROM projects WHERE project_code = 'PRJ-1003'), (SELECT id FROM tasks WHERE title = 'Set up CI pipeline'), 'Marked "Set up CI pipeline" as Completed'),
 ((SELECT id FROM users WHERE username = 'maya.chen'),    'MILESTONE_COMPLETED',  (SELECT id FROM projects WHERE project_code = 'PRJ-1004'), NULL, 'Completed milestone "Library v1 Shipped"'),
 ((SELECT id FROM users WHERE username = 'ben.carter'),   'COMMENT_ADDED',        (SELECT id FROM projects WHERE project_code = 'PRJ-1002'), (SELECT id FROM tasks WHERE title = 'Fix login redirect bug'), 'Commented on "Fix login redirect bug"');
+
+-- ==================== overdue notifications ====================
+-- As of the seed data's "today" (2026-09-12), 'Fix login redirect bug'
+-- (due 2026-09-10) and 'QA pass on checkout flow' (due 2026-09-11) are both
+-- overdue and not completed. Generate their OVERDUE_TASK notifications here
+-- rather than hand-inserting them, so this stays correct if task dates or
+-- assignees above ever change.
+SELECT fn_generate_overdue_notifications();

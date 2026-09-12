@@ -31,8 +31,10 @@ public class TaskRequest {
     @Pattern(regexp = "TO_DO|IN_PROGRESS|IN_REVIEW|COMPLETED|CANCELLED")
     private String status;
 
+    @NotNull
     private LocalDate startDate;
 
+    @NotNull
     private LocalDate dueDate;
 
     @DecimalMin("0")

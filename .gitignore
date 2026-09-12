@@ -115,7 +115,7 @@ prometheus/data/
 logs/
 *.log
 log/
-
+Project_requirement_plan.md
 ### ==================== Misc ==================== ###
 *.tmp
 *.temp
