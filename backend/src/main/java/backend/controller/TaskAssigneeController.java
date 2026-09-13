@@ -6,6 +6,7 @@ import backend.service.TaskAssigneeService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,8 +22,8 @@ public class TaskAssigneeController {
     }
 
     @GetMapping
-    public List<TaskAssigneeResponse> getAllTaskAssignees() {
-        return taskAssigneeService.getAllTaskAssignees();
+    public List<TaskAssigneeResponse> getAllTaskAssignees(Authentication authentication) {
+        return taskAssigneeService.getAllTaskAssignees(authentication.getName());
     }
 
     @GetMapping("/{id}")

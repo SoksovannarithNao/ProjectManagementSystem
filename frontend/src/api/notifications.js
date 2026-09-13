@@ -15,3 +15,7 @@ export function markNotificationRead(id) {
 export function markAllNotificationsRead() {
   return apiFetch('/notifications/read-all', { method: 'POST' })
 }
+
+export function deleteNotification(id) {
+  return apiFetch(`/notifications/${id}`, { method: 'DELETE' })
+}

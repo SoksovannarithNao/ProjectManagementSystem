@@ -4,6 +4,7 @@ import { useToast } from './ui/Toast'
 import { useApi } from '../api/useApi'
 import { getRoles } from '../api/roles'
 import { createUser } from '../api/users'
+import { PASSWORD_REQUIREMENTS_MESSAGE, isPasswordComplex } from '../api/validation'
 
 // There's no email-invite flow on the backend — this creates the account
 // directly (POST /api/users, Administrator-only) with a temporary password
@@ -25,6 +26,10 @@ export function AddMemberModal({ onClose, onCreated }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!fullName.trim() || !username.trim() || !email.trim() || !password || !effectiveRoleId) return
+    if (!isPasswordComplex(password)) {
+      setError(PASSWORD_REQUIREMENTS_MESSAGE)
+      return
+    }
     setSubmitting(true)
     setError('')
     try {
@@ -91,11 +96,11 @@ export function AddMemberModal({ onClose, onCreated }) {
             type="text"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            minLength={8}
             placeholder="At least 8 characters"
             className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
             required
           />
+          <span className="text-faint text-[11.5px]">{PASSWORD_REQUIREMENTS_MESSAGE}</span>
         </label>
 
         <div className="flex gap-3">

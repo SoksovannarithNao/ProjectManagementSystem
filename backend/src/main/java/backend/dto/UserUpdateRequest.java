@@ -23,8 +23,12 @@ public class UserUpdateRequest {
     @Size(max = 255)
     private String email;
 
-    /** Optional — null/blank leaves the existing password hash untouched. */
-    @Size(min = 8, max = 255)
+    /**
+     * Optional — null/blank leaves the existing password hash untouched.
+     * Not annotated with @Pattern here since that would reject blank (bean
+     * validation only exempts null) — UserService.updateUser checks
+     * complexity manually, only when a non-blank value is actually present.
+     */
     private String password;
 
     @Size(max = 20)

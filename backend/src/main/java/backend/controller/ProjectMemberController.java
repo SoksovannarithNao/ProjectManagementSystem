@@ -6,6 +6,7 @@ import backend.service.ProjectMemberService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,8 +22,8 @@ public class ProjectMemberController {
     }
 
     @GetMapping
-    public List<ProjectMemberResponse> getAllProjectMembers() {
-        return projectMemberService.getAllProjectMembers();
+    public List<ProjectMemberResponse> getAllProjectMembers(Authentication authentication) {
+        return projectMemberService.getAllProjectMembers(authentication.getName());
     }
 
     @GetMapping("/{id}")

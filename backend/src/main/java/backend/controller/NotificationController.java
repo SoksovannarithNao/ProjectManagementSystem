@@ -42,4 +42,10 @@ public class NotificationController {
     public void markAllAsRead(Authentication authentication) {
         notificationService.markAllAsRead(authentication.getName());
     }
+
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @DeleteMapping("/{id}")
+    public void deleteNotification(@PathVariable Long id, Authentication authentication) {
+        notificationService.deleteNotification(id, authentication.getName());
+    }
 }

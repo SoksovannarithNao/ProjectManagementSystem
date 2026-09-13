@@ -10,10 +10,15 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/tasks")
 public class TaskController {
+
+    // Mirrors the @Pattern on TaskRequest.status — kept in sync with it.
+    private static final Set<String> VALID_STATUSES =
+            Set.of("TO_DO", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "CANCELLED");
 
     private final TaskService taskService;
 
@@ -22,8 +27,8 @@ public class TaskController {
     }
 
     @GetMapping
-    public List<TaskResponse> getAllTasks() {
-        return taskService.getAllTasks();
+    public List<TaskResponse> getAllTasks(Authentication authentication) {
+        return taskService.getAllTasks(authentication.getName());
     }
 
     @GetMapping("/{id}")
@@ -43,6 +48,9 @@ public class TaskController {
 
     @GetMapping("/status/{status}")
     public List<TaskResponse> getTasksByStatus(@PathVariable String status) {
+        if (!VALID_STATUSES.contains(status)) {
+            throw new IllegalArgumentException("Invalid status: " + status);
+        }
         return taskService.getTasksByStatus(status);
     }
 

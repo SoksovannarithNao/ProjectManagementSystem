@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Plus, CalendarX2 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { EmptyState } from '../components/ui/EmptyState'
+import { Skeleton } from '../components/ui/Skeleton'
 import { TaskFormModal } from '../components/TaskFormModal'
 import { useAuth } from '../auth/AuthContext'
 import { canCreateTask } from '../api/permissions'
@@ -58,7 +59,7 @@ function toISODate(d) {
 export function Calendar() {
   const { role } = useAuth()
   const canAdd = canCreateTask(role)
-  const { data: tasks, refetch } = useApi(getTasks)
+  const { data: tasks, loading, refetch } = useApi(getTasks)
   const today = useMemo(() => new Date(), [])
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()))
   const [view, setView] = useState('Month')
@@ -167,7 +168,15 @@ export function Calendar() {
           </div>
         </div>
 
-        {view === 'Month' && (
+        {loading && (
+          <div className="grid grid-cols-7 gap-1.5 max-[640px]:gap-[3px]">
+            {Array.from({ length: 35 }).map((_, i) => (
+              <Skeleton key={i} className="min-h-24 rounded-sm max-[900px]:min-h-[68px]" />
+            ))}
+          </div>
+        )}
+
+        {!loading && view === 'Month' && (
           <>
             <div className="grid grid-cols-7 px-0.5 pb-2">
               {WEEKDAYS.map((w) => (
@@ -213,7 +222,7 @@ export function Calendar() {
           </>
         )}
 
-        {view !== 'Month' && (
+        {!loading && view !== 'Month' && (
           <div className="flex flex-col">
             {rangeEntries.every((e) => e.events.length === 0) && (
               <EmptyState icon={CalendarX2} title="No due dates in this range" />

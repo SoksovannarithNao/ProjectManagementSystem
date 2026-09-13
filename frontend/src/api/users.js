@@ -15,3 +15,11 @@ export function createUser(request) {
 export function updateOwnProfile(request) {
   return apiFetch('/users/me', { method: 'PUT', body: request })
 }
+
+export function changeOwnPassword(request) {
+  return apiFetch('/users/me/password', { method: 'PUT', body: request })
+}
+
+export function updateOwnPreferences(request) {
+  return apiFetch('/users/me/preferences', { method: 'PUT', body: request })
+}

@@ -7,6 +7,7 @@ on:
   pull_request:
     branches: [dev, main]
 
+    
 jobs:
   frontend:
     runs-on: ubuntu-latest
@@ -103,7 +104,8 @@ jobs:
               GRANT USAGE ON SCHEMA public TO taskmanager_app;
               GRANT SELECT, INSERT, UPDATE, DELETE ON
                   roles, users, projects, project_members, milestones,
-                  tasks, task_assignees, task_dependencies, notifications
+                  tasks, task_assignees, task_dependencies, notifications,
+                  otp_verifications
                   TO taskmanager_app;
               GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO taskmanager_app;
               GRANT EXECUTE ON FUNCTION fn_compute_project_progress(BIGINT) TO taskmanager_app;

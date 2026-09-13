@@ -1,26 +1,36 @@
 import { useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { useAuth } from '../auth/AuthContext'
+import { Link, useNavigate } from 'react-router-dom'
+import { register } from '../api/auth'
+import { PASSWORD_REQUIREMENTS_MESSAGE, isPasswordComplex } from '../api/validation'
 
-export function Login() {
-  const { login } = useAuth()
+export function Register() {
   const navigate = useNavigate()
-  const location = useLocation()
   const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+
+    if (!isPasswordComplex(password)) {
+      setError(PASSWORD_REQUIREMENTS_MESSAGE)
+      return
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+
     setSubmitting(true)
     try {
-      await login(username, password)
-      const redirectTo = location.state?.from?.pathname || '/'
-      navigate(redirectTo, { replace: true })
+      const result = await register({ username: username.trim(), email: email.trim(), password, confirmPassword })
+      navigate('/verify-otp', { state: { username: result.username, email: result.email } })
     } catch (err) {
-      setError(err.message || 'Invalid username or password')
+      setError(err.message || 'Failed to create account')
     } finally {
       setSubmitting(false)
     }
@@ -51,8 +61,8 @@ export function Login() {
           </span>
           <span className="text-ink text-[18px] font-bold tracking-[-0.02em]">TaskFlow</span>
         </div>
-        <h1 className="text-ink mb-1 text-xl font-bold tracking-[-0.015em]">Sign in</h1>
-        <p className="text-muted mb-6 text-[13px]">Use your TaskFlow account to continue.</p>
+        <h1 className="text-ink mb-1 text-xl font-bold tracking-[-0.015em]">Create Account</h1>
+        <p className="text-muted mb-6 text-[13px]">Set up a new TaskFlow account.</p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
@@ -63,6 +73,21 @@ export function Login() {
               onChange={(e) => setUsername(e.target.value)}
               className="bg-subtle border-border focus:border-lavender h-11 rounded-md border px-3.5 text-[13.5px] outline-none"
               autoComplete="username"
+              minLength={3}
+              maxLength={50}
+              pattern="[A-Za-z0-9._-]+"
+              title="Letters, numbers, dots, underscores, and hyphens only"
+              required
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-muted text-[12.5px] font-semibold">Email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="bg-subtle border-border focus:border-lavender h-11 rounded-md border px-3.5 text-[13.5px] outline-none"
+              autoComplete="email"
               required
             />
           </label>
@@ -73,20 +98,32 @@ export function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="bg-subtle border-border focus:border-lavender h-11 rounded-md border px-3.5 text-[13.5px] outline-none"
-              autoComplete="current-password"
+              autoComplete="new-password"
+              required
+            />
+            <span className="text-faint text-[11.5px]">{PASSWORD_REQUIREMENTS_MESSAGE}</span>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-muted text-[12.5px] font-semibold">Confirm Password</span>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="bg-subtle border-border focus:border-lavender h-11 rounded-md border px-3.5 text-[13.5px] outline-none"
+              autoComplete="new-password"
               required
             />
           </label>
           {error && <p className="text-danger text-[12.5px] font-semibold">{error}</p>}
           <button type="submit" className="btn btn-primary mt-2 justify-center py-[11px]" disabled={submitting}>
-            {submitting ? 'Signing in…' : 'Sign in'}
+            {submitting ? 'Creating account…' : 'Create Account'}
           </button>
         </form>
 
         <p className="text-muted mt-5 text-center text-[12.5px]">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-ink font-semibold hover:underline">
-            Create account
+          Already have an account?{' '}
+          <Link to="/login" className="text-ink font-semibold hover:underline">
+            Sign in
           </Link>
         </p>
       </div>

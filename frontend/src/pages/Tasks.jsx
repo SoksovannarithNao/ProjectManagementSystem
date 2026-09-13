@@ -75,7 +75,7 @@ export function Tasks() {
   const { role } = useAuth()
   const notify = useToast()
   const { data: tasks, loading, refetch } = useApi(getTasks)
-  const { data: taskAssignees } = useApi(getTaskAssignees)
+  const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects } = useApi(getProjects)
   const [activeTask, setActiveTask] = useState(null)
   const [showNewTask, setShowNewTask] = useState(false)
@@ -105,6 +105,11 @@ export function Tasks() {
       return true
     })
   }, [list, search, priorityFilter, projectFilter])
+
+  const refetchAll = () => {
+    refetch()
+    refetchAssignees()
+  }
 
   const togglePriorityFilter = (p) => {
     setPriorityFilter((prev) => {
@@ -369,7 +374,7 @@ export function Tasks() {
                                   type="button"
                                   className="hover:bg-subtle flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px]"
                                   onClick={() => {
-                                    setEditingTask(t)
+                                    setEditingTask({ ...t, assigneeIds })
                                     close()
                                   }}
                                 >
@@ -404,14 +409,14 @@ export function Tasks() {
           key={activeTask.id}
           task={activeTask}
           onClose={() => setActiveTask(null)}
-          onChange={refetch}
+          onChange={refetchAll}
         />
       )}
 
-      {showNewTask && <TaskFormModal onClose={() => setShowNewTask(false)} onSaved={refetch} />}
+      {showNewTask && <TaskFormModal onClose={() => setShowNewTask(false)} onSaved={refetchAll} />}
 
       {editingTask && (
-        <TaskFormModal task={editingTask} onClose={() => setEditingTask(null)} onSaved={refetch} />
+        <TaskFormModal task={editingTask} onClose={() => setEditingTask(null)} onSaved={refetchAll} />
       )}
 
       {deletingTask && (

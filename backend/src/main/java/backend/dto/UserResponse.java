@@ -20,6 +20,8 @@ public class UserResponse {
     private String role;
     private String roleDescription;
     private String accountStatus;
+    private String themePreference;
+    private boolean taskNotificationsEnabled;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 
@@ -37,6 +39,8 @@ public class UserResponse {
         this.role = user.getRole().getName();
         this.roleDescription = user.getRole().getDescription();
         this.accountStatus = user.getAccountStatus();
+        this.themePreference = user.getThemePreference();
+        this.taskNotificationsEnabled = user.isTaskNotificationsEnabled();
         this.createdAt = user.getCreatedAt();
         this.updatedAt = user.getUpdatedAt();
     }
@@ -91,6 +95,14 @@ public class UserResponse {
 
     public String getAccountStatus() {
         return accountStatus;
+    }
+
+    public String getThemePreference() {
+        return themePreference;
+    }
+
+    public boolean isTaskNotificationsEnabled() {
+        return taskNotificationsEnabled;
     }
 
     public OffsetDateTime getCreatedAt() {

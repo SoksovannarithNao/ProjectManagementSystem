@@ -9,6 +9,7 @@ import backend.entity.User;
 import backend.entity.TaskAssignee;
 import backend.exception.NotFoundException;
 import backend.repository.MilestoneRepository;
+import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.TaskAssigneeRepository;
 import backend.repository.TaskRepository;
@@ -33,6 +34,7 @@ public class TaskService {
 
     private final TaskRepository taskRepository;
     private final ProjectRepository projectRepository;
+    private final ProjectMemberRepository projectMemberRepository;
     private final MilestoneRepository milestoneRepository;
     private final UserRepository userRepository;
     private final TaskAssigneeRepository taskAssigneeRepository;
@@ -41,24 +43,41 @@ public class TaskService {
     public TaskService(
             TaskRepository taskRepository,
             ProjectRepository projectRepository,
+            ProjectMemberRepository projectMemberRepository,
             MilestoneRepository milestoneRepository,
             UserRepository userRepository,
             TaskAssigneeRepository taskAssigneeRepository,
             NotificationService notificationService) {
         this.taskRepository = taskRepository;
         this.projectRepository = projectRepository;
+        this.projectMemberRepository = projectMemberRepository;
         this.milestoneRepository = milestoneRepository;
         this.userRepository = userRepository;
         this.taskAssigneeRepository = taskAssigneeRepository;
         this.notificationService = notificationService;
     }
 
+    // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
+    // §28: "Users should only view Projects and Tasks for which they have
+    // permission") — ADMINISTRATOR retains full visibility; everyone else
+    // only sees tasks in projects they're a member of. A task's assignee is
+    // always already a project member (trg_task_assignees_project_member
+    // enforces this), so project membership alone is a strict superset of
+    // "tasks assigned to me" — no separate assignee-based clause is needed.
     @Transactional(readOnly = true)
-    public List<TaskResponse> getAllTasks() {
-        return taskRepository.findAll()
-                .stream()
-                .map(TaskResponse::new)
-                .toList();
+    public List<TaskResponse> getAllTasks(String username) {
+        User caller = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+
+        List<Task> tasks;
+        if ("ADMINISTRATOR".equals(caller.getRole().getName())) {
+            tasks = taskRepository.findAll();
+        } else {
+            List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
+            tasks = taskRepository.findByProjectIdIn(visibleProjectIds);
+        }
+
+        return tasks.stream().map(TaskResponse::new).toList();
     }
 
     @Transactional(readOnly = true)

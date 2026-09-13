@@ -31,12 +31,23 @@ public class ProjectMemberService {
         this.userRepository = userRepository;
     }
 
+    // Scoped the same way as TaskService.getAllTasks — otherwise this
+    // endpoint would leak the membership/existence of projects a caller
+    // can't see via GET /api/projects.
     @Transactional(readOnly = true)
-    public List<ProjectMemberResponse> getAllProjectMembers() {
-        return projectMemberRepository.findAll()
-                .stream()
-                .map(ProjectMemberResponse::new)
-                .toList();
+    public List<ProjectMemberResponse> getAllProjectMembers(String username) {
+        User caller = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+
+        List<ProjectMember> members;
+        if ("ADMINISTRATOR".equals(caller.getRole().getName())) {
+            members = projectMemberRepository.findAll();
+        } else {
+            List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
+            members = projectMemberRepository.findByProjectIdIn(visibleProjectIds);
+        }
+
+        return members.stream().map(ProjectMemberResponse::new).toList();
     }
 
     @Transactional(readOnly = true)

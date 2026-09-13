@@ -116,6 +116,50 @@
 }
 
 /*
+ * Dark theme — same custom properties from @theme above, different values.
+ * Charcoal/dark-gray/lavender/purple/status hues are left alone (they
+ * already read fine on both a light and dark canvas); only backgrounds,
+ * borders, and text tokens actually invert.
+ *
+ * [data-theme="dark"] applies when the user explicitly picks Dark in
+ * Settings; the prefers-color-scheme block applies when they picked System
+ * (no data-theme attribute at all) and the OS is in dark mode — see
+ * frontend/src/theme/ThemeContext.jsx, the single place that sets/clears
+ * this attribute. Do not hardcode theme overrides into individual pages.
+ */
+:root[data-theme='dark'] {
+  --color-canvas: #1c1c1e;
+  --color-subtle: #29292c;
+  --color-card: #232326;
+  --color-border: #38383c;
+  --color-divider: #333336;
+  --color-ink: #f2f2f3;
+  --color-muted: #a7a8ac;
+  --color-faint: #77787c;
+  --color-success-soft: rgba(120, 168, 138, 0.16);
+  --color-warning-soft: rgba(210, 168, 90, 0.16);
+  --color-danger-soft: rgba(200, 121, 121, 0.18);
+  --color-info-soft: rgba(126, 159, 196, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --color-canvas: #1c1c1e;
+    --color-subtle: #29292c;
+    --color-card: #232326;
+    --color-border: #38383c;
+    --color-divider: #333336;
+    --color-ink: #f2f2f3;
+    --color-muted: #a7a8ac;
+    --color-faint: #77787c;
+    --color-success-soft: rgba(120, 168, 138, 0.16);
+    --color-warning-soft: rgba(210, 168, 90, 0.16);
+    --color-danger-soft: rgba(200, 121, 121, 0.18);
+    --color-info-soft: rgba(126, 159, 196, 0.18);
+  }
+}
+
+/*
  * Legacy token aliases. Recharts/SVG props and a few dynamic inline styles
  * take raw `var(--x)` strings and can't consume Tailwind utility classes, so
  * the old variable names are kept here pointing at the tokens above instead

@@ -97,8 +97,17 @@ CREATE TABLE users (
     position         VARCHAR(100),
     department       VARCHAR(100),
     role_id          BIGINT NOT NULL REFERENCES roles (id) ON DELETE RESTRICT,
+    -- PENDING_VERIFICATION is the state a self-registered account starts in
+    -- (see otp_verifications below) — CustomUserDetailsService only treats
+    -- ACTIVE as enabled, so a pending account already can't log in without
+    -- any extra gating logic.
     account_status   VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
-                     CHECK (account_status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')),
+                     CHECK (account_status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION')),
+    -- Appearance/notification preferences: per-user application settings,
+    -- distinct from the personal-info fields above (see database/README.md).
+    theme_preference VARCHAR(10) NOT NULL DEFAULT 'SYSTEM'
+                     CHECK (theme_preference IN ('LIGHT', 'DARK', 'SYSTEM')),
+    task_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -113,6 +122,29 @@ CREATE INDEX idx_users_role_id ON users (role_id);
 CREATE TRIGGER trg_users_updated_at
     BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ==================== otp_verifications ==================== --
+-- One-time codes for self-registration email verification. Only a bcrypt
+-- hash of the code is ever stored (same PasswordEncoder bean used for user
+-- passwords) — never the plaintext code, matching password-storage practice
+-- elsewhere in this schema.
+CREATE TABLE otp_verifications (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id      BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    purpose      VARCHAR(30) NOT NULL DEFAULT 'REGISTRATION'
+                 CHECK (purpose IN ('REGISTRATION')),
+    otp_hash     VARCHAR(255) NOT NULL,
+    expires_at   TIMESTAMPTZ NOT NULL,
+    attempts     INT NOT NULL DEFAULT 0,
+    max_attempts INT NOT NULL DEFAULT 5,
+    consumed_at  TIMESTAMPTZ,
+    last_sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (attempts <= max_attempts)
+);
+
+-- Looked up by user_id on every verify/resend call.
+CREATE INDEX idx_otp_verifications_user_id ON otp_verifications (user_id);
 
 -- ==================== projects ==================== --
 

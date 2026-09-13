@@ -1,30 +1,35 @@
 import { useMemo, useState } from 'react'
-import { UserPlus, Mail, FolderKanban, ListChecks, Search, UsersRound } from 'lucide-react'
+import { UserPlus, Mail, FolderKanban, ListChecks, Search, UsersRound, X } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
+import { useToast } from '../components/ui/Toast'
 import { AddMemberModal } from '../components/AddMemberModal'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
-import { canManageUsers } from '../api/permissions'
+import { canManageUsers, canManageProjectMembers } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
-import { getProjectMembers } from '../api/projectMembers'
+import { getProjectMembers, createProjectMember, deleteProjectMember } from '../api/projectMembers'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { buildProjectMemberMap, buildTaskAssigneeMap, countByValue } from '../api/relations'
 
 export function Team() {
   const { role } = useAuth()
+  const notify = useToast()
   const { members, loading: membersLoading, refetch: refetchMembers } = useMembers()
   const { data: projects } = useApi(getProjects)
-  const { data: projectMembers } = useApi(getProjectMembers)
+  const { data: projectMembers, refetch: refetchProjectMembers } = useApi(getProjectMembers)
   const { data: taskAssignees } = useApi(getTaskAssignees)
 
   const [selectedId, setSelectedId] = useState(null)
   const [query, setQuery] = useState('')
   const [showInvite, setShowInvite] = useState(false)
+  const [addProjectId, setAddProjectId] = useState('')
+  const [addingProject, setAddingProject] = useState(false)
   const canInvite = canManageUsers(role)
+  const canManageMembership = canManageProjectMembers(role)
 
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
   const taskAssigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
@@ -42,6 +47,52 @@ export function Team() {
     }
     return (projects ?? []).filter((p) => ids.includes(p.id))
   }, [projectMemberMap, projects, activeId])
+
+  const availableProjects = useMemo(() => {
+    if (activeId == null) return []
+    const memberIds = new Set(memberProjects.map((p) => p.id))
+    return (projects ?? []).filter((p) => !memberIds.has(p.id))
+  }, [projects, memberProjects, activeId])
+
+  const isAddProjectIdValid = availableProjects.some((p) => String(p.id) === addProjectId)
+  const effectiveAddProjectId = isAddProjectIdValid
+    ? addProjectId
+    : availableProjects[0]
+      ? String(availableProjects[0].id)
+      : ''
+
+  const handleAddToProject = async () => {
+    if (!effectiveAddProjectId || activeId == null) return
+    setAddingProject(true)
+    try {
+      await createProjectMember({
+        projectId: Number(effectiveAddProjectId),
+        userId: activeId,
+        projectRole: 'TEAM_MEMBER',
+      })
+      setAddProjectId('')
+      refetchProjectMembers()
+      notify('Added to project', { tone: 'success' })
+    } catch (err) {
+      notify(err.message || 'Failed to add member to project', { tone: 'error' })
+    } finally {
+      setAddingProject(false)
+    }
+  }
+
+  const handleRemoveFromProject = async (projectId) => {
+    const row = (projectMembers ?? []).find(
+      (pm) => pm.project?.id === projectId && pm.user?.id === activeId
+    )
+    if (!row) return
+    try {
+      await deleteProjectMember(row.id)
+      refetchProjectMembers()
+      notify('Removed from project', { tone: 'success' })
+    } catch (err) {
+      notify(err.message || 'Failed to remove member from project', { tone: 'error' })
+    }
+  }
 
   const filtered = members.filter(
     (m) =>
@@ -150,10 +201,46 @@ export function Team() {
                     className="border-divider flex items-center justify-between border-b py-2.5 text-[13px] font-semibold last:border-b-0"
                   >
                     <span>{p.name}</span>
-                    <span className="text-muted font-[650]">{Math.round(Number(p.progress ?? 0))}%</span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-muted font-[650]">{Math.round(Number(p.progress ?? 0))}%</span>
+                      {canManageMembership && (
+                        <button
+                          type="button"
+                          className="icon-btn h-7 w-7 hover:text-danger"
+                          aria-label={`Remove from ${p.name}`}
+                          onClick={() => handleRemoveFromProject(p.id)}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </span>
                   </div>
                 ))}
               </div>
+
+              {canManageMembership && availableProjects.length > 0 && (
+                <div className="mt-3 flex items-center gap-2">
+                  <select
+                    value={effectiveAddProjectId}
+                    onChange={(e) => setAddProjectId(e.target.value)}
+                    className="bg-subtle border-border h-9 flex-1 rounded-md border px-2.5 text-[12.5px] outline-none"
+                  >
+                    {availableProjects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-secondary px-3 py-2 text-[12px]"
+                    disabled={addingProject}
+                    onClick={handleAddToProject}
+                  >
+                    {addingProject ? 'Adding…' : 'Add to project'}
+                  </button>
+                </div>
+              )}
             </div>
           </section>
         )}

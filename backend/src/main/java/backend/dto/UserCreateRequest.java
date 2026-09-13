@@ -24,7 +24,7 @@ public class UserCreateRequest {
     private String email;
 
     @NotBlank
-    @Size(min = 8, max = 255)
+    @Pattern(regexp = PasswordPolicy.REGEX, message = PasswordPolicy.MESSAGE)
     private String password;
 
     @Size(max = 20)

@@ -8,7 +8,10 @@ import java.time.LocalDate;
 // Deliberately narrower than UserUpdateRequest: no roleId/accountStatus (a
 // user can't promote or (de)activate themselves) and no username (renaming
 // yourself would outlive the JWT already issued for the old username, since
-// the token's "sub" claim doesn't change until the next login).
+// the token's "sub" claim doesn't change until the next login). Also no
+// password — changing a password now goes through ChangePasswordRequest,
+// which requires the current password rather than accepting a bare
+// replacement from anyone holding a still-valid JWT.
 public class SelfProfileUpdateRequest {
 
     @NotBlank
@@ -36,10 +39,6 @@ public class SelfProfileUpdateRequest {
 
     @Size(max = 100)
     private String department;
-
-    // Optional — null/blank leaves the existing password hash untouched.
-    @Size(min = 8, max = 255)
-    private String password;
 
     public String getFullName() {
         return fullName;
@@ -103,13 +102,5 @@ public class SelfProfileUpdateRequest {
 
     public void setDepartment(String department) {
         this.department = department;
-    }
-
-    public String getPassword() {
-        return password;
-    }
-
-    public void setPassword(String password) {
-        this.password = password;
     }
 }

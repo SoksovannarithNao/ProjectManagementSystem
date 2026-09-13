@@ -50,6 +50,17 @@ public class NotificationService {
         return new NotificationResponse(notificationRepository.save(notification));
     }
 
+    public void deleteNotification(Long id, String username) {
+        Notification notification = notificationRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Notification not found"));
+        // Same "404, not 403" reasoning as markAsRead — don't confirm to the
+        // caller that a given id belongs to someone else.
+        if (!notification.getUser().getUsername().equals(username)) {
+            throw new NotFoundException("Notification not found");
+        }
+        notificationRepository.delete(notification);
+    }
+
     public void markAllAsRead(String username) {
         User user = userService.getUserEntityByUsername(username);
         List<Notification> unread = notificationRepository.findByUserIdAndReadFalse(user.getId());
@@ -59,6 +70,9 @@ public class NotificationService {
 
     // Called by TaskAssigneeService right after a new assignment is saved.
     public void notifyTaskAssigned(Task task, User assignee) {
+        if (!assignee.isTaskNotificationsEnabled()) {
+            return;
+        }
         Notification notification = new Notification();
         notification.setUser(assignee);
         notification.setType("TASK_ASSIGNED");
@@ -73,6 +87,9 @@ public class NotificationService {
     public void notifyTaskStatusChanged(Task task, List<User> assignees) {
         String humanizedStatus = humanizeStatus(task.getStatus());
         for (User assignee : assignees) {
+            if (!assignee.isTaskNotificationsEnabled()) {
+                continue;
+            }
             Notification notification = new Notification();
             notification.setUser(assignee);
             notification.setType("TASK_STATUS_CHANGED");

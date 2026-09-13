@@ -1,7 +1,11 @@
 package backend.service;
 
+import backend.dto.ChangePasswordRequest;
+import backend.dto.PasswordPolicy;
+import backend.dto.RegisterRequest;
 import backend.dto.SelfProfileUpdateRequest;
 import backend.dto.UserCreateRequest;
+import backend.dto.UserPreferencesRequest;
 import backend.dto.UserResponse;
 import backend.dto.UserUpdateRequest;
 import backend.entity.Role;
@@ -106,6 +110,9 @@ public class UserService {
             user.setAccountStatus(request.getAccountStatus());
         }
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            if (!request.getPassword().matches(PasswordPolicy.REGEX)) {
+                throw new IllegalArgumentException(PasswordPolicy.MESSAGE);
+            }
             user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         }
 
@@ -125,15 +132,81 @@ public class UserService {
         user.setProfilePhotoUrl(request.getProfilePhotoUrl());
         user.setPosition(request.getPosition());
         user.setDepartment(request.getDepartment());
-        if (request.getPassword() != null && !request.getPassword().isBlank()) {
-            user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+
+        return new UserResponse(userRepository.save(user));
+    }
+
+    // Requires the current password (unlike updateOwnProfile before this),
+    // so a stolen-but-still-valid JWT alone isn't enough to lock the real
+    // owner out of their account.
+    public void changeOwnPassword(String username, ChangePasswordRequest request) {
+        User user = getUserEntityByUsername(username);
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            // IllegalArgumentException (not AccessDeniedException) because
+            // GlobalExceptionHandler's AccessDeniedException handler always
+            // returns a generic "no permission" message to the client —
+            // this needs the specific message to actually reach the user.
+            throw new IllegalArgumentException("Current password is incorrect");
+        }
+        if (!request.getNewPassword().equals(request.getConfirmNewPassword())) {
+            throw new IllegalArgumentException("New password and confirmation do not match");
         }
 
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+    }
+
+    // Appearance/notification preferences — separate from updateOwnProfile
+    // so the Settings page (app preferences) never touches personal-info
+    // fields and vice versa.
+    public UserResponse updateOwnPreferences(String username, UserPreferencesRequest request) {
+        User user = getUserEntityByUsername(username);
+        user.setThemePreference(request.getThemePreference());
+        user.setTaskNotificationsEnabled(request.getTaskNotificationsEnabled());
         return new UserResponse(userRepository.save(user));
     }
 
     public void deleteUser(Long id) {
         User user = getUserEntityById(id);
         userRepository.delete(user);
+    }
+
+    // Self-registration: unlike createUser (admin-only, full field set),
+    // this only collects username/email/password. fullName defaults to the
+    // username — the user fills in the rest later via Profile. Always
+    // TEAM_MEMBER (the lowest-privilege role) and PENDING_VERIFICATION
+    // (CustomUserDetailsService already treats anything but ACTIVE as
+    // disabled, so this account can't log in until OtpService.verify flips
+    // it to ACTIVE — see AuthService.verifyOtp).
+    public User registerSelfServiceUser(RegisterRequest request) {
+        if (userRepository.existsByUsernameIgnoreCase(request.getUsername())) {
+            throw new IllegalArgumentException("Username is already taken");
+        }
+        if (userRepository.existsByEmailIgnoreCase(request.getEmail())) {
+            throw new IllegalArgumentException("Email is already registered");
+        }
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new IllegalArgumentException("Password and confirmation do not match");
+        }
+
+        Role role = roleRepository.findByName("TEAM_MEMBER")
+                .orElseThrow(() -> new IllegalStateException("Default TEAM_MEMBER role is not configured"));
+
+        User user = new User();
+        user.setFullName(request.getUsername());
+        user.setUsername(request.getUsername());
+        user.setEmail(request.getEmail());
+        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setRole(role);
+        user.setAccountStatus("PENDING_VERIFICATION");
+
+        return userRepository.save(user);
+    }
+
+    public void activateUser(String username) {
+        User user = getUserEntityByUsername(username);
+        user.setAccountStatus("ACTIVE");
+        userRepository.save(user);
     }
 }

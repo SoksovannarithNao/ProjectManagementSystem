@@ -1,4 +1,4 @@
-import { Menu, Search, Bell, BellOff, LogOut } from 'lucide-react'
+import { Menu, Search, Bell, BellOff, LogOut, User, Settings, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Avatar } from '../components/ui/Avatar'
 import { Dropdown } from '../components/ui/Dropdown'
@@ -14,7 +14,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
   const showSearch = Boolean(onSearchChange)
   const { openMobileNav } = useLayout()
   const { profile, username, logout } = useAuth()
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
+  const { notifications, unreadCount, markRead, markAllRead, dismiss } = useNotifications()
   const navigate = useNavigate()
   const displayName = profile?.fullName || username || ''
 
@@ -84,30 +84,86 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
               <div className="flex-1 overflow-y-auto p-1.5">
                 {notifications.length === 0 && <EmptyState icon={BellOff} title="No notifications yet" />}
                 {notifications.map((n) => (
-                  <button
+                  <div
                     key={n.id}
-                    type="button"
-                    className={`hover:bg-subtle flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left ${
+                    className={`hover:bg-subtle group flex w-full items-start gap-1 rounded-md px-2.5 py-2 ${
                       !n.read ? 'bg-info-soft' : ''
                     }`}
-                    onClick={() => !n.read && markRead(n.id)}
                   >
-                    <span className="flex items-center gap-1.5">
-                      {!n.read && <span className="bg-info h-1.5 w-1.5 shrink-0 rounded-full" />}
-                      <span className="text-ink text-[12.5px] font-semibold">{n.title}</span>
-                    </span>
-                    {n.message && <span className="text-muted text-[12px]">{n.message}</span>}
-                    <span className="text-faint text-[11px]">{timeAgo(n.createdAt)}</span>
-                  </button>
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                      onClick={() => !n.read && markRead(n.id)}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        {!n.read && <span className="bg-info h-1.5 w-1.5 shrink-0 rounded-full" />}
+                        <span className="text-ink text-[12.5px] font-semibold">{n.title}</span>
+                      </span>
+                      {n.message && <span className="text-muted text-[12px]">{n.message}</span>}
+                      <span className="text-faint text-[11px]">{timeAgo(n.createdAt)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn shrink-0 opacity-0 group-hover:opacity-100"
+                      aria-label="Dismiss notification"
+                      onClick={() => dismiss(n.id)}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
           )}
         </Dropdown>
-        <button className="icon-btn" aria-label="Log out" title="Log out" onClick={handleLogout}>
-          <LogOut size={18} />
-        </button>
-        <Avatar initials={initialsFor(displayName)} color="var(--accent-purple)" size={40} />
+        <Dropdown
+          align="right"
+          button={({ toggle }) => (
+            <button className="rounded-full" aria-label="Account menu" onClick={toggle}>
+              <Avatar initials={initialsFor(displayName)} color="var(--accent-purple)" size={40} />
+            </button>
+          )}
+          panelClassName="w-[220px] p-1.5"
+        >
+          {({ close }) => (
+            <div className="flex flex-col gap-0.5">
+              <div className="border-divider mb-1 border-b px-2.5 pb-2">
+                <p className="text-ink truncate text-[13px] font-semibold">{displayName}</p>
+                <p className="text-faint truncate text-[11.5px]">{username}</p>
+              </div>
+              <button
+                type="button"
+                className="hover:bg-subtle text-ink flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px]"
+                onClick={() => {
+                  close()
+                  navigate('/profile')
+                }}
+              >
+                <User size={15} /> Profile
+              </button>
+              <button
+                type="button"
+                className="hover:bg-subtle text-ink flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px]"
+                onClick={() => {
+                  close()
+                  navigate('/settings')
+                }}
+              >
+                <Settings size={15} /> Settings
+              </button>
+              <button
+                type="button"
+                className="hover:bg-subtle text-danger flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px]"
+                onClick={() => {
+                  close()
+                  handleLogout()
+                }}
+              >
+                <LogOut size={15} /> Logout
+              </button>
+            </div>
+          )}
+        </Dropdown>
       </div>
     </header>
   )
