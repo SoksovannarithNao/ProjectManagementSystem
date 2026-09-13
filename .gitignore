@@ -112,7 +112,8 @@ grafana/data/
 prometheus/data/
 
 ### ==================== Logs ==================== ###
-logs/
+logs/*
+!logs/.gitkeep
 *.log
 log/
 Project_requirement_plan.md

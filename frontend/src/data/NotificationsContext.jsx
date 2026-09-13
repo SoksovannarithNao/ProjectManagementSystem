@@ -1,6 +1,11 @@
 import { createContext, useCallback, useContext, useMemo } from 'react'
 import { useApi } from '../api/useApi'
-import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications'
+import {
+  getNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+} from '../api/notifications'
 import { useAuth } from '../auth/AuthContext'
 
 const NotificationsContext = createContext(null)
@@ -31,9 +36,17 @@ export function NotificationsProvider({ children }) {
     refetch()
   }, [refetch])
 
+  const dismiss = useCallback(
+    async (id) => {
+      await deleteNotification(id)
+      refetch()
+    },
+    [refetch]
+  )
+
   const value = useMemo(
-    () => ({ notifications, unreadCount, loading, refetch, markRead, markAllRead }),
-    [notifications, unreadCount, loading, refetch, markRead, markAllRead]
+    () => ({ notifications, unreadCount, loading, refetch, markRead, markAllRead, dismiss }),
+    [notifications, unreadCount, loading, refetch, markRead, markAllRead, dismiss]
   )
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>

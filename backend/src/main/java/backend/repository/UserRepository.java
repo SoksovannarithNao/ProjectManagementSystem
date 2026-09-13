@@ -16,4 +16,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findAllWithRoles();
 
     Optional<User> findByEmail(String email);
+
+    // Case-insensitive, matching idx_users_username_lower/idx_users_email_lower
+    // — used for friendly pre-checks during registration (the DB unique
+    // index enforces the same rule regardless, but with a less readable
+    // error message if this check is skipped).
+    boolean existsByUsernameIgnoreCase(String username);
+
+    boolean existsByEmailIgnoreCase(String email);
 }

@@ -43,7 +43,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
                     "/api/health",
-                    "/api/auth/login"
+                    "/api/auth/login",
+                    "/api/auth/register",
+                    "/api/auth/verify-otp",
+                    "/api/auth/resend-otp"
                 ).permitAll()
                 .anyRequest().authenticated()
             )

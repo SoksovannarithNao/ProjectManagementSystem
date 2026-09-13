@@ -49,6 +49,12 @@ public class User {
     @Column(name = "account_status", nullable = false, length = 20)
     private String accountStatus = "ACTIVE";
 
+    @Column(name = "theme_preference", nullable = false, length = 10)
+    private String themePreference = "SYSTEM";
+
+    @Column(name = "task_notifications_enabled", nullable = false)
+    private boolean taskNotificationsEnabled = true;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -153,6 +159,22 @@ public class User {
 
     public void setAccountStatus(String accountStatus) {
         this.accountStatus = accountStatus;
+    }
+
+    public String getThemePreference() {
+        return themePreference;
+    }
+
+    public void setThemePreference(String themePreference) {
+        this.themePreference = themePreference;
+    }
+
+    public boolean isTaskNotificationsEnabled() {
+        return taskNotificationsEnabled;
+    }
+
+    public void setTaskNotificationsEnabled(boolean taskNotificationsEnabled) {
+        this.taskNotificationsEnabled = taskNotificationsEnabled;
     }
 
     public OffsetDateTime getCreatedAt() {

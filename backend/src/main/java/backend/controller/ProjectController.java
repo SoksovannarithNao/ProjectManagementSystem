@@ -6,6 +6,7 @@ import backend.service.ProjectService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,8 +22,8 @@ public class ProjectController {
     }
 
     @GetMapping
-    public List<ProjectResponse> getAllProjects() {
-        return projectService.getAllProjects();
+    public List<ProjectResponse> getAllProjects(Authentication authentication) {
+        return projectService.getAllProjects(authentication.getName());
     }
 
     @GetMapping("/{id}")

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, SlidersHorizontal, Check } from 'lucide-react'
+import { ChevronDown, SlidersHorizontal, Check, BarChart3 } from 'lucide-react'
 import {
   LineChart,
   Line,
@@ -15,6 +15,7 @@ import {
 import { TopBar } from '../layout/TopBar'
 import { StatCard } from '../components/StatCard'
 import { Skeleton } from '../components/ui/Skeleton'
+import { EmptyState } from '../components/ui/EmptyState'
 import { Dropdown } from '../components/ui/Dropdown'
 import { useMembers } from '../data/UsersContext'
 import { useApi } from '../api/useApi'
@@ -26,11 +27,19 @@ import { computePeriodTaskStats, PERIOD_OPTIONS } from '../api/stats'
 
 const barColors = ['#242426', '#66676B', '#AEB9D2', '#B9B0C8', '#7E9FC4', '#D2A85A']
 
-function ChartCard({ title, loading, children }) {
+function ChartCard({ title, loading, empty, children }) {
   return (
     <section className="card px-5 pt-5 pb-3">
       <h3 className="section-title mb-3">{title}</h3>
-      {loading ? <Skeleton className="h-[220px] rounded-md" /> : children}
+      {loading ? (
+        <Skeleton className="h-[220px] rounded-md" />
+      ) : empty ? (
+        <div className="flex h-[220px] items-center justify-center">
+          <EmptyState icon={BarChart3} title="No data yet" />
+        </div>
+      ) : (
+        children
+      )}
     </section>
   )
 }
@@ -240,7 +249,7 @@ export function Reports() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Team Productivity" loading={loading}>
+        <ChartCard title="Team Productivity" loading={loading} empty={productivityByMember.length === 0}>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={productivityByMember} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--border-divider)" />
@@ -252,7 +261,7 @@ export function Reports() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Workload" loading={loading}>
+        <ChartCard title="Workload" loading={loading} empty={workloadByMember.length === 0}>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={workloadByMember} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
               <CartesianGrid horizontal={false} stroke="var(--border-divider)" />

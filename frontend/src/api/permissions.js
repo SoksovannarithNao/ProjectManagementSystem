@@ -22,3 +22,9 @@ export function canCreateProject(role) {
 export function canManageUsers(role) {
   return USER_MANAGE_ROLES.has(role)
 }
+
+// Same role set as task create/manage — POST/DELETE /api/project-members are
+// gated identically on the backend.
+export function canManageProjectMembers(role) {
+  return TASK_CREATE_ROLES.has(role)
+}

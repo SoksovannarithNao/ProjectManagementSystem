@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
 export function Login() {
@@ -82,6 +82,13 @@ export function Login() {
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+
+        <p className="text-muted mt-5 text-center text-[12.5px]">
+          Don't have an account?{' '}
+          <Link to="/register" className="text-ink font-semibold hover:underline">
+            Create account
+          </Link>
+        </p>
       </div>
     </div>
   )

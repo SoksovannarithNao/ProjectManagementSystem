@@ -100,7 +100,7 @@ frontend/src/
 ### Key Design Decisions
 
 1. **Stateless JWT auth over sessions** — the JWT carries the user's role as a custom claim; a custom `JwtAuthenticationConverter` maps it into a Spring Security authority, since the default converter only reads OAuth2 `scope` claims.
-2. **Coarse role-based authorization, not per-row ownership** — `@PreAuthorize` gates by role (e.g. only Administrator/Project Manager can create projects), but there's no row-level check yet — a Team Member can currently update any task, not just their own.
+2. **Coarse role-based authorization, mostly** — `@PreAuthorize` gates by role (e.g. only Administrator/Project Manager can create projects). Task updates are the one place with a row-level check: a Team Member may only update a task they're assigned to, and only its status/progress; projects have no equivalent per-row ownership check yet (any Administrator/Project Manager can edit any project, not just ones they manage).
 3. **DTOs on every endpoint, not raw entities** — prevents leaking fields like `passwordHash` through nested associations (e.g. a project's `manager`), and decouples the API shape from the JPA entity graph.
 4. **Schema owned by hand-written SQL, not Hibernate** — `ddl-auto=validate`, so the app fails fast if entities drift from the real schema instead of silently auto-migrating.
 5. **Business rules pushed into the database via triggers** where they're cross-row (cycle prevention and ordering on task dependencies, date-range checks, assignee/project-membership integrity, task/milestone/project consistency, project/milestone progress kept in sync with task completion) — Java-level validation only covers what's expressible per-request (Bean Validation). Each `RAISE EXCEPTION` explicitly sets `ERRCODE = '23514'` (check_violation) — without it, Postgres's default error code isn't in the SQLSTATE class Hibernate treats as a constraint violation, so the error would fall through to a generic unhandled 500 instead of a clean 400 with the actual reason. Full list: [database/README.md](database/README.md#business-rules-enforced-at-the-db-level).
@@ -130,10 +130,11 @@ frontend/src/
 
 | Variable | Description | Example |
 |---|---|---|
-| POSTGRES_USER | Postgres superuser | postgres |
-| POSTGRES_PASSWORD | Postgres password | postgres |
+| POSTGRES_USER | Postgres superuser (init/migrations only — the backend doesn't connect as this) | postgres |
+| POSTGRES_PASSWORD | Postgres superuser password | postgres |
 | POSTGRES_DB | Database name | taskmanager |
 | POSTGRES_PORT | Host port for Postgres | 5432 |
+| TASKMANAGER_APP_PASSWORD | Password for `taskmanager_app`, the least-privileged role the backend actually connects as (see [database/README.md](database/README.md#least-privilege-application-role)) | (long random string — change in every real deployment) |
 | BACKEND_PORT | Host port for the backend container | 8080 |
 | FRONTEND_PORT | Host port for the frontend container | 5173 |
 
@@ -142,11 +143,12 @@ frontend/src/
 | Variable | Description | Example |
 |---|---|---|
 | SPRING_DATASOURCE_URL | JDBC connection string | jdbc:postgresql://localhost:5432/taskmanager |
-| SPRING_DATASOURCE_USERNAME | DB username | postgres |
-| SPRING_DATASOURCE_PASSWORD | DB password | postgres |
-| JWT_SECRET | HMAC signing key for JWTs | (long random string — change in every real deployment) |
+| SPRING_DATASOURCE_USERNAME | DB username | taskmanager_app |
+| SPRING_DATASOURCE_PASSWORD | DB password | taskmanager_app_password |
+| JWT_SECRET | HMAC signing key for JWTs | (long random string — change in every real deployment; a startup `WARN` fires if this is left at the built-in default) |
 | JWT_EXPIRATION_MS | Token lifetime in ms | 3600000 |
 | CORS_ALLOWED_ORIGINS | Comma-separated allowed origins | http://localhost:5173,http://localhost:80 |
+| SECURITY_LOG_LEVEL | Log level for Spring Security's own logger | INFO (default); DEBUG for local JWT/role troubleshooting |
 
 Frontend has no `.env` of its own — it calls the backend via relative `/api/...` paths (proxied by nginx in Docker, by Vite's dev server otherwise), so no API base URL needs configuring.
 
@@ -245,7 +247,7 @@ Content-Type: application/json
 | Roles | `/api/roles` | Administrator only |
 | Projects | `/api/projects` | Administrator, Project Manager |
 | Milestones | `/api/milestones` | Administrator, Project Manager, Team Leader |
-| Tasks | `/api/tasks` | Create/delete: Administrator, Project Manager, Team Leader. Update: any authenticated role |
+| Tasks | `/api/tasks` | Create/delete: Administrator, Project Manager, Team Leader. Update: those roles can edit any task in full; a Team Member may only update status/progress on a task assigned to them |
 | Project Members | `/api/project-members` | Administrator, Project Manager, Team Leader |
 | Task Assignees | `/api/task-assignees` | Administrator, Project Manager, Team Leader |
 | Task Dependencies | `/api/task-dependencies` | Administrator, Project Manager, Team Leader |
@@ -264,6 +266,7 @@ All `GET` endpoints require only a valid token (any role). Not yet implemented: 
 | 401 | Missing/invalid token, or bad login credentials |
 | 403 | Authenticated but not authorized for this action |
 | 404 | Resource not found |
+| 429 | Too many failed login attempts — try again after the rate-limit window |
 | 500 | Unexpected server error (logged server-side, not leaked to the client) |
 
 ## Project Structure
@@ -353,8 +356,12 @@ Data models as returned by the API (full column-level detail, including tables w
 8. Database-level integrity: case-insensitive unique username/email, `CHECK` constraints on enum-like columns, and triggers preventing task-dependency cycles and out-of-range dates.
 9. Self-service profile updates (`PUT /api/users/me`) can only ever touch the caller's own row — the target user comes from the JWT (`authentication.getName()`), never a client-supplied id, and the request DTO has no `roleId`/`accountStatus` field for a user to escalate themselves with.
 10. Notification endpoints are ownership-checked, not just role-gated — `GET /api/notifications` scopes to the caller's own rows, and marking one read verifies it actually belongs to the caller (404, not 403, if not — so a client can't probe which ids exist).
+11. Task updates are ownership-checked for `TEAM_MEMBER`s — `PUT /api/tasks/{id}` requires the caller to be a current assignee of that task, and even then only applies `status`/`progress` from the request; `ADMINISTRATOR`/`PROJECT_MANAGER`/`TEAM_LEADER` retain full-field edit rights on any task.
+12. Login rate limiting — 5 failed attempts per 15 minutes per IP+username returns `429` instead of continuing to accept guesses.
+13. The backend connects to Postgres as a dedicated least-privileged role (`taskmanager_app`), not the superuser — see [database/README.md](database/README.md#least-privilege-application-role).
+14. A startup check warns (doesn't fail, since there's no profile system or real deploy target yet) if `JWT_SECRET` is left at its built-in development default.
 
-Not yet implemented: per-row ownership checks on tasks/projects (see [Key Design Decisions](#key-design-decisions)), refresh tokens, rate limiting on login.
+Not yet implemented: per-row ownership checks on projects (see [Key Design Decisions](#key-design-decisions)), refresh tokens.
 
 ## Testing the API
 
@@ -397,8 +404,9 @@ See [Contributing.md](Contributing.md) and [Role_Requirment.md](Role_Requirment.
 
 ## Future Enhancements
 
-- Per-row ownership authorization (e.g. a Team Member restricted to their own assigned tasks).
+- Per-row ownership authorization for projects (e.g. a Project Manager restricted to projects they manage) — tasks already have this (a Team Member is restricted to their own assigned tasks).
 - Entities/controllers for the remaining 6 core tables: subtasks, checklist items, comments, attachments, work logs, activity logs.
+- A refresh-token flow — access tokens currently just expire with no renewal path short of logging in again.
 - Wire the backend to check `role_permissions` (View/Create/Edit/Delete/Assign/Approve/Generate Reports) instead of hardcoded role names — the permission model exists in the database ([database/README.md](database/README.md#authorization--permissions)) but nothing in the backend consults it yet.
 - A scheduled job (Spring `@Scheduled`, or `pg_cron`) to actually call `fn_generate_overdue_notifications()` on a cadence — the DB-side detection/generation logic exists, it just isn't invoked automatically yet.
 - The remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `DEADLINE_REMINDER`, `MILESTONE_UPDATED`) — only `TASK_ASSIGNED`/`TASK_STATUS_CHANGED` are wired up in application code so far; the rest need a comment feature and/or a scheduled job.

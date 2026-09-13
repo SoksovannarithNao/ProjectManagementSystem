@@ -104,7 +104,11 @@ export function Sidebar() {
             <HelpCircle size={18} strokeWidth={2} />
             <span>Help &amp; Support</span>
           </button>
-          <div className="flex items-center gap-2.5 px-2 pt-2.5 pb-0.5">
+          <NavLink
+            to="/profile"
+            className="hover:bg-canvas duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-2.5 rounded-md px-2 pt-2.5 pb-2 transition-colors"
+            onClick={closeMobileNav}
+          >
             <Avatar initials={initialsFor(displayName)} color="var(--accent-purple)" size={36} />
             <div className="flex min-w-0 flex-col">
               <span className="text-ink truncate text-[13px] font-semibold">
@@ -112,7 +116,7 @@ export function Sidebar() {
               </span>
               <span className="text-faint text-[11.5px]">{displayRole}</span>
             </div>
-          </div>
+          </NavLink>
         </div>
       </aside>
 

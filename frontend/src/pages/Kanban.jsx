@@ -31,7 +31,7 @@ export function Kanban() {
   const { role } = useAuth()
   const { getMember } = useMembers()
   const { data: tasks, loading, refetch } = useApi(getTasks)
-  const { data: taskAssignees } = useApi(getTaskAssignees)
+  const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects } = useApi(getProjects)
   const [activeTask, setActiveTask] = useState(null)
   const [showNewTask, setShowNewTask] = useState(false)
@@ -57,6 +57,11 @@ export function Kanban() {
   }, [tasks, search, priorityFilter, projectFilter])
 
   const columns = useMemo(() => groupTasksByStatus(filteredTasks), [filteredTasks])
+
+  const refetchAll = () => {
+    refetch()
+    refetchAssignees()
+  }
 
   const togglePriorityFilter = (p) => {
     setPriorityFilter((prev) => {
@@ -212,11 +217,11 @@ export function Kanban() {
           key={activeTask.id}
           task={activeTask}
           onClose={() => setActiveTask(null)}
-          onChange={refetch}
+          onChange={refetchAll}
         />
       )}
 
-      {showNewTask && <TaskFormModal onClose={() => setShowNewTask(false)} onSaved={refetch} />}
+      {showNewTask && <TaskFormModal onClose={() => setShowNewTask(false)} onSaved={refetchAll} />}
     </div>
   )
 }

@@ -3,8 +3,10 @@ package backend.service;
 import backend.dto.ProjectRequest;
 import backend.dto.ProjectResponse;
 import backend.entity.Project;
+import backend.entity.ProjectMember;
 import backend.entity.User;
 import backend.exception.NotFoundException;
+import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
@@ -18,19 +20,37 @@ import java.util.List;
 public class ProjectService {
 
     private final ProjectRepository projectRepository;
+    private final ProjectMemberRepository projectMemberRepository;
     private final UserRepository userRepository;
 
-    public ProjectService(ProjectRepository projectRepository, UserRepository userRepository) {
+    public ProjectService(
+            ProjectRepository projectRepository,
+            ProjectMemberRepository projectMemberRepository,
+            UserRepository userRepository) {
         this.projectRepository = projectRepository;
+        this.projectMemberRepository = projectMemberRepository;
         this.userRepository = userRepository;
     }
 
+    // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
+    // §28) — ADMINISTRATOR sees every project; everyone else only sees
+    // projects they're a member of. createProject/updateProject below always
+    // add the designated manager as a project_member, so a Project Manager
+    // still sees the projects they manage.
     @Transactional(readOnly = true)
-    public List<ProjectResponse> getAllProjects() {
-        return projectRepository.findAll()
-                .stream()
-                .map(ProjectResponse::new)
-                .toList();
+    public List<ProjectResponse> getAllProjects(String username) {
+        User caller = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+
+        List<Project> projects;
+        if ("ADMINISTRATOR".equals(caller.getRole().getName())) {
+            projects = projectRepository.findAll();
+        } else {
+            List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
+            projects = projectRepository.findByIdIn(visibleProjectIds);
+        }
+
+        return projects.stream().map(ProjectResponse::new).toList();
     }
 
     @Transactional(readOnly = true)
@@ -47,13 +67,34 @@ public class ProjectService {
     public ProjectResponse createProject(ProjectRequest request) {
         Project project = new Project();
         applyRequest(project, request);
-        return new ProjectResponse(projectRepository.save(project));
+        Project saved = projectRepository.save(project);
+        ensureManagerIsMember(saved);
+        return new ProjectResponse(saved);
     }
 
     public ProjectResponse updateProject(Long id, ProjectRequest request) {
         Project project = getProjectEntityById(id);
         applyRequest(project, request);
-        return new ProjectResponse(projectRepository.save(project));
+        Project saved = projectRepository.save(project);
+        ensureManagerIsMember(saved);
+        return new ProjectResponse(saved);
+    }
+
+    // getAllProjects/getAllTasks scope non-admins to projects they're a
+    // project_member of, so the manager must always be one — otherwise a
+    // Project Manager couldn't see a project (or reassigned-to-them project)
+    // they were just made responsible for. Matches how database/init/02-seed.sql
+    // seeds every project's manager as a project_member with that same role.
+    private void ensureManagerIsMember(Project project) {
+        Long managerId = project.getManager().getId();
+        if (projectMemberRepository.existsByProjectIdAndUserId(project.getId(), managerId)) {
+            return;
+        }
+        ProjectMember member = new ProjectMember();
+        member.setProject(project);
+        member.setUser(project.getManager());
+        member.setProjectRole("PROJECT_MANAGER");
+        projectMemberRepository.save(member);
     }
 
     public void deleteProject(Long id) {

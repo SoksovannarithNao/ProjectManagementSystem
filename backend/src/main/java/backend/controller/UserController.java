@@ -1,7 +1,9 @@
 package backend.controller;
 
+import backend.dto.ChangePasswordRequest;
 import backend.dto.SelfProfileUpdateRequest;
 import backend.dto.UserCreateRequest;
+import backend.dto.UserPreferencesRequest;
 import backend.dto.UserResponse;
 import backend.dto.UserUpdateRequest;
 import backend.service.UserService;
@@ -54,6 +56,26 @@ public class UserController {
             @Valid @RequestBody SelfProfileUpdateRequest request
     ) {
         return userService.updateOwnProfile(authentication.getName(), request);
+    }
+
+    // Requires the current password — see ChangePasswordRequest/UserService
+    // for why this isn't folded into updateOwnProfile.
+    @PutMapping("/me/password")
+    public void changeOwnPassword(
+            Authentication authentication,
+            @Valid @RequestBody ChangePasswordRequest request
+    ) {
+        userService.changeOwnPassword(authentication.getName(), request);
+    }
+
+    // Appearance/notification preferences (Settings page) — separate from
+    // updateOwnProfile (personal info, Profile page).
+    @PutMapping("/me/preferences")
+    public UserResponse updateOwnPreferences(
+            Authentication authentication,
+            @Valid @RequestBody UserPreferencesRequest request
+    ) {
+        return userService.updateOwnPreferences(authentication.getName(), request);
     }
 
     @PreAuthorize("hasRole('ADMINISTRATOR')")
