@@ -15,8 +15,10 @@ public class UserResponse {
     private LocalDate dateOfBirth;
     private String phoneNumber;
     private String profilePhotoUrl;
-    private String position;
-    private String department;
+    private Long positionId;
+    private String positionName;
+    private Long departmentId;
+    private String departmentName;
     private String role;
     private String roleDescription;
     private String accountStatus;
@@ -34,8 +36,10 @@ public class UserResponse {
         this.dateOfBirth = user.getDateOfBirth();
         this.phoneNumber = user.getPhoneNumber();
         this.profilePhotoUrl = user.getProfilePhotoUrl();
-        this.position = user.getPosition();
-        this.department = user.getDepartment();
+        this.positionId = user.getPosition() != null ? user.getPosition().getId() : null;
+        this.positionName = user.getPosition() != null ? user.getPosition().getName() : null;
+        this.departmentId = user.getDepartment() != null ? user.getDepartment().getId() : null;
+        this.departmentName = user.getDepartment() != null ? user.getDepartment().getName() : null;
         this.role = user.getRole().getName();
         this.roleDescription = user.getRole().getDescription();
         this.accountStatus = user.getAccountStatus();
@@ -77,12 +81,20 @@ public class UserResponse {
         return profilePhotoUrl;
     }
 
-    public String getPosition() {
-        return position;
+    public Long getPositionId() {
+        return positionId;
     }
 
-    public String getDepartment() {
-        return department;
+    public String getPositionName() {
+        return positionName;
+    }
+
+    public Long getDepartmentId() {
+        return departmentId;
+    }
+
+    public String getDepartmentName() {
+        return departmentName;
     }
 
     public String getRole() {

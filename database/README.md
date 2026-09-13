@@ -186,16 +186,19 @@ Not every table here has a backend entity, repository, service, and controller y
 | Table | Backend coverage |
 |---|---|
 | `notifications` | Full stack (entity, repository, service, controller) |
-| `subtasks` | DB-only — no entity/repository/service/controller |
+| `positions` / `departments` | Full stack — org-wide lookup lists, Team-Admin-managed (see `backend/README.md`'s Security section) |
+| `subtasks` | Full stack — project-membership-scoped (`ProjectAccessGuard`) |
+| `comments` | Full stack — project-membership-scoped for read/create, author-only edit, author-or-team-admin delete |
 | `checklist_items` | DB-only — no entity/repository/service/controller |
-| `comments` | DB-only — no entity/repository/service/controller |
 | `attachments` | DB-only — no entity/repository/service/controller |
 | `work_logs` | DB-only — no entity/repository/service/controller |
 | `activity_logs` | DB-only — no entity/repository/service/controller |
 | `permissions` / `role_permissions` | DB-only — nothing in the backend consults these yet (see [Authorization](#authorization--permissions) above) |
 | `report_exports` / `kpi_snapshots` | DB-only — nothing writes to these yet; the reporting *views* are queryable but have no controller either |
 
-This is a deliberate scope boundary for this pass (database layer only) — building out the missing entities/controllers/services/frontend integration for the six core DB-only tables, wiring the backend to `role_permissions`, and adding endpoints over the reporting views/`report_exports`/`kpi_snapshots` are all backend/API follow-up work, not schema work.
+`project_members` also gained a `status`/`invited_by`/`responded_at` trio (see `V4__add_team_invitations_positions_departments_subtasks_comments.sql`) to support the team-invitation workflow — a `project` IS the "team" in this app's data model, so there's no separate `teams` table.
+
+Remaining scope for a future pass: entities/controllers/services for the four still-DB-only tables above, wiring the backend to `role_permissions`, and adding endpoints over the reporting views/`report_exports`/`kpi_snapshots`.
 
 ## Migrations
 
@@ -211,10 +214,12 @@ database/taskmanager/
 ├── schema-model/             (schema snapshot Flyway Desktop maintains from the Development connection)
 └── migrations/
     ├── V1__initial_schema.sql                                    (baseline)
-    └── V2__add_permissions_progress_and_integrity_rules.sql      (permissions, derived progress, dependency/assignment/consistency rules, overdue detection, reporting views — see this file's own header)
+    ├── V2__add_permissions_progress_and_integrity_rules.sql      (permissions, derived progress, dependency/assignment/consistency rules, overdue detection, reporting views — see this file's own header)
+    ├── V3__add_registration_otp_and_preferences.sql              (self-registration OTP, theme/notification preferences)
+    └── V4__add_team_invitations_positions_departments_subtasks_comments.sql  (positions/departments lookup tables, project_members invitation workflow, notifications.type additions — see this file's own header)
 ```
 
-From here on, schema changes should be new `V3__*.sql` files in `taskmanager/migrations/` — never edits to an already-numbered migration, since Flyway checksums each applied file and refuses to re-run one that changed underneath it. (V1 itself was corrected in place once, as part of this change, to fix three of its triggers that were silently missing `USING ERRCODE = '23514'` — see [Business rules](#business-rules-enforced-at-the-db-level) above. That's normally not allowed; it was safe here specifically because no `flyway_schema_history` table has ever existed anywhere this project runs, so nothing had actually consumed V1's checksum yet. Don't treat this as precedent for editing a migration that's actually been applied somewhere.) Flyway Desktop can generate new migrations for you by diffing its **Development** environment against its **Shadow** environment (a second, disposable Postgres database it can freely wipe/rebuild — create one locally with `docker exec -it taskmanager-postgres psql -U postgres -c "CREATE DATABASE taskmanager_shadow;"` if you're setting the project up fresh).
+From here on, schema changes should be new `V5__*.sql` files in `taskmanager/migrations/` — never edits to an already-numbered migration, since Flyway checksums each applied file and refuses to re-run one that changed underneath it. (V1 itself was corrected in place once, as part of this change, to fix three of its triggers that were silently missing `USING ERRCODE = '23514'` — see [Business rules](#business-rules-enforced-at-the-db-level) above. That's normally not allowed; it was safe here specifically because no `flyway_schema_history` table has ever existed anywhere this project runs, so nothing had actually consumed V1's checksum yet. Don't treat this as precedent for editing a migration that's actually been applied somewhere.) Flyway Desktop can generate new migrations for you by diffing its **Development** environment against its **Shadow** environment (a second, disposable Postgres database it can freely wipe/rebuild — create one locally with `docker exec -it taskmanager-postgres psql -U postgres -c "CREATE DATABASE taskmanager_shadow;"` if you're setting the project up fresh).
 
 Note V2 expresses the same changes as `ALTER TABLE`/`CREATE` statements against the V1 baseline (e.g. `ALTER TABLE tasks ALTER COLUMN start_date SET NOT NULL`), whereas `01-init.sql` bakes them straight into each `CREATE TABLE` (e.g. `start_date DATE NOT NULL`) since it always runs against an empty database — same resulting schema, different route to it. Verified directly: applying `01-init.sql` and applying `V1` then `V2` against two fresh disposable databases produces identical table/view/trigger sets.
 

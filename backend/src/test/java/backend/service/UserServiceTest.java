@@ -6,6 +6,9 @@ import backend.dto.UserUpdateRequest;
 import backend.entity.Role;
 import backend.entity.User;
 import backend.exception.NotFoundException;
+import backend.repository.DepartmentRepository;
+import backend.repository.PositionRepository;
+import backend.repository.ProjectMemberRepository;
 import backend.repository.RoleRepository;
 import backend.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +36,15 @@ class UserServiceTest {
     @Mock
     private RoleRepository roleRepository;
 
+    @Mock
+    private PositionRepository positionRepository;
+
+    @Mock
+    private DepartmentRepository departmentRepository;
+
+    @Mock
+    private ProjectMemberRepository projectMemberRepository;
+
     // A real encoder (not mocked) so the hashing behavior itself is verified,
     // not just that some method got called.
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -43,7 +55,9 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(userRepository, roleRepository, passwordEncoder);
+        userService = new UserService(
+                userRepository, roleRepository, positionRepository, departmentRepository,
+                projectMemberRepository, passwordEncoder);
 
         teamMemberRole = new Role();
         teamMemberRole.setName("TEAM_MEMBER");

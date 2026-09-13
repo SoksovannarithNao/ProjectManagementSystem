@@ -1,6 +1,7 @@
 package backend.controller;
 
 import backend.dto.ChangePasswordRequest;
+import backend.dto.MemberAttributesRequest;
 import backend.dto.SelfProfileUpdateRequest;
 import backend.dto.UserCreateRequest;
 import backend.dto.UserPreferencesRequest;
@@ -76,6 +77,19 @@ public class UserController {
             @Valid @RequestBody UserPreferencesRequest request
     ) {
         return userService.updateOwnPreferences(authentication.getName(), request);
+    }
+
+    // Not role-gated at the annotation level — UserService enforces the
+    // actual "Team Admin for this specific member" check (ADMINISTRATOR, or
+    // an active PROJECT_MANAGER/TEAM_LEADER of a project this member also
+    // belongs to), same pattern as the self-scoped endpoints above.
+    @PutMapping("/{id}/position-department")
+    public UserResponse updateMemberPositionDepartment(
+            @PathVariable Long id,
+            Authentication authentication,
+            @Valid @RequestBody MemberAttributesRequest request
+    ) {
+        return userService.updateMemberPositionDepartment(authentication.getName(), id, request);
     }
 
     @PreAuthorize("hasRole('ADMINISTRATOR')")

@@ -27,8 +27,8 @@ public class ProjectController {
     }
 
     @GetMapping("/{id}")
-    public ProjectResponse getProjectById(@PathVariable Long id) {
-        return projectService.getProjectById(id);
+    public ProjectResponse getProjectById(@PathVariable Long id, Authentication authentication) {
+        return projectService.getProjectById(id, authentication.getName());
     }
 
     @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER')")

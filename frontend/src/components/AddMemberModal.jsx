@@ -1,23 +1,34 @@
 import { useState } from 'react'
 import { Modal } from './ui/Modal'
+import { LookupSelect } from './ui/LookupSelect'
+import { AddLookupModal } from './AddLookupModal'
 import { useToast } from './ui/Toast'
 import { useApi } from '../api/useApi'
 import { getRoles } from '../api/roles'
 import { createUser } from '../api/users'
+import { getPositions, createPosition } from '../api/positions'
+import { getDepartments, createDepartment } from '../api/departments'
 import { PASSWORD_REQUIREMENTS_MESSAGE, isPasswordComplex } from '../api/validation'
 
-// There's no email-invite flow on the backend — this creates the account
-// directly (POST /api/users, Administrator-only) with a temporary password
-// the admin shares with the new member themselves.
+// There's no email-invite flow for brand-new accounts on the backend — this
+// creates the account directly (POST /api/users, Administrator-only) with a
+// temporary password the admin shares with the new member themselves.
+// (Inviting an *existing* user to a specific project/team goes through
+// ProjectMemberService.inviteMember instead — see Team.jsx.)
 export function AddMemberModal({ onClose, onCreated }) {
   const notify = useToast()
   const { data: roles } = useApi(getRoles)
+  const { data: positions, refetch: refetchPositions } = useApi(getPositions)
+  const { data: departments, refetch: refetchDepartments } = useApi(getDepartments)
   const [fullName, setFullName] = useState('')
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [roleId, setRoleId] = useState('')
-  const [department, setDepartment] = useState('')
+  const [positionId, setPositionId] = useState(null)
+  const [departmentId, setDepartmentId] = useState(null)
+  const [addingPosition, setAddingPosition] = useState(false)
+  const [addingDepartment, setAddingDepartment] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -39,7 +50,8 @@ export function AddMemberModal({ onClose, onCreated }) {
         email: email.trim(),
         password,
         roleId: Number(effectiveRoleId),
-        department: department.trim() || null,
+        positionId,
+        departmentId,
         accountStatus: 'ACTIVE',
       })
       onCreated?.(created)
@@ -120,15 +132,23 @@ export function AddMemberModal({ onClose, onCreated }) {
               ))}
             </select>
           </label>
-          <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Department</span>
-            <input
-              type="text"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
-            />
-          </label>
+        </div>
+
+        <div className="flex gap-3">
+          <LookupSelect
+            label="Position"
+            items={positions}
+            value={positionId}
+            onChange={setPositionId}
+            onAddNew={() => setAddingPosition(true)}
+          />
+          <LookupSelect
+            label="Department"
+            items={departments}
+            value={departmentId}
+            onChange={setDepartmentId}
+            onAddNew={() => setAddingDepartment(true)}
+          />
         </div>
 
         {error && <p className="text-danger text-[12.5px] font-semibold">{error}</p>}
@@ -142,6 +162,32 @@ export function AddMemberModal({ onClose, onCreated }) {
           </button>
         </div>
       </form>
+
+      {addingPosition && (
+        <AddLookupModal
+          title="Add New Position"
+          nameLabel="Position Name"
+          onClose={() => setAddingPosition(false)}
+          onCreate={createPosition}
+          onCreated={(created) => {
+            refetchPositions()
+            setPositionId(created.id)
+          }}
+        />
+      )}
+
+      {addingDepartment && (
+        <AddLookupModal
+          title="Add New Department"
+          nameLabel="Department Name"
+          onClose={() => setAddingDepartment(false)}
+          onCreate={createDepartment}
+          onCreated={(created) => {
+            refetchDepartments()
+            setDepartmentId(created.id)
+          }}
+        />
+      )}
     </Modal>
   )
 }

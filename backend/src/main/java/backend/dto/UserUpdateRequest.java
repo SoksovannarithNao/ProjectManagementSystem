@@ -42,11 +42,9 @@ public class UserUpdateRequest {
     @Size(max = 500)
     private String profilePhotoUrl;
 
-    @Size(max = 100)
-    private String position;
+    private Long positionId;
 
-    @Size(max = 100)
-    private String department;
+    private Long departmentId;
 
     @NotNull
     private Long roleId;
@@ -118,20 +116,20 @@ public class UserUpdateRequest {
         this.profilePhotoUrl = profilePhotoUrl;
     }
 
-    public String getPosition() {
-        return position;
+    public Long getPositionId() {
+        return positionId;
     }
 
-    public void setPosition(String position) {
-        this.position = position;
+    public void setPositionId(Long positionId) {
+        this.positionId = positionId;
     }
 
-    public String getDepartment() {
-        return department;
+    public Long getDepartmentId() {
+        return departmentId;
     }
 
-    public void setDepartment(String department) {
-        this.department = department;
+    public void setDepartmentId(Long departmentId) {
+        this.departmentId = departmentId;
     }
 
     public Long getRoleId() {

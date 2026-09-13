@@ -82,6 +82,31 @@ INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.name = 'TEAM_MEMBER' AND p.code IN ('VIEW', 'EDIT');
 
+-- ==================== positions / departments ==================== --
+-- Org-wide lookup lists (Requirement: Position/Department must be managed by
+-- a Team Admin, not freely typed by each user). Global rather than
+-- per-project/per-team — a Position like "Developer" means the same thing
+-- everywhere in this app, and per-team copies would just fragment the same
+-- handful of values across projects with no real isolation need.
+
+CREATE TABLE positions (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name        VARCHAR(100) NOT NULL,
+    description VARCHAR(255),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX idx_positions_name_lower ON positions (LOWER(name));
+
+CREATE TABLE departments (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name        VARCHAR(100) NOT NULL,
+    description VARCHAR(255),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX idx_departments_name_lower ON departments (LOWER(name));
+
 -- ==================== users ==================== --
 
 CREATE TABLE users (
@@ -94,8 +119,10 @@ CREATE TABLE users (
     date_of_birth    DATE,
     phone_number     VARCHAR(30),
     profile_photo_url VARCHAR(500),
-    position         VARCHAR(100),
-    department       VARCHAR(100),
+    -- Set only by a Team Admin (via project_members-scoped authorization in
+    -- the backend), never by the user themselves — see backend/README.md.
+    position_id      BIGINT REFERENCES positions (id) ON DELETE SET NULL,
+    department_id    BIGINT REFERENCES departments (id) ON DELETE SET NULL,
     role_id          BIGINT NOT NULL REFERENCES roles (id) ON DELETE RESTRICT,
     -- PENDING_VERIFICATION is the state a self-registered account starts in
     -- (see otp_verifications below) — CustomUserDetailsService only treats
@@ -118,6 +145,8 @@ CREATE TABLE users (
 CREATE UNIQUE INDEX idx_users_username_lower ON users (LOWER(username));
 CREATE UNIQUE INDEX idx_users_email_lower ON users (LOWER(email));
 CREATE INDEX idx_users_role_id ON users (role_id);
+CREATE INDEX idx_users_position_id ON users (position_id);
+CREATE INDEX idx_users_department_id ON users (department_id);
 
 CREATE TRIGGER trg_users_updated_at
     BEFORE UPDATE ON users
@@ -182,12 +211,24 @@ CREATE TABLE project_members (
     user_id      BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     project_role VARCHAR(20) NOT NULL DEFAULT 'TEAM_MEMBER'
                  CHECK (project_role IN ('PROJECT_MANAGER', 'TEAM_LEADER', 'TEAM_MEMBER')),
+    -- The "team invitation" workflow lives on this table rather than a
+    -- separate one — a project's membership IS its team, so an invitation is
+    -- just a project_members row that hasn't been accepted yet. A row stays
+    -- PENDING/DECLINED forever if never accepted (no separate audit table),
+    -- and the (project_id, user_id) UNIQUE constraint below means declining
+    -- then being re-invited reuses the same row rather than creating a
+    -- second one.
+    status       VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
+                 CHECK (status IN ('PENDING', 'ACTIVE', 'DECLINED')),
+    invited_by   BIGINT REFERENCES users (id) ON DELETE SET NULL,
+    responded_at TIMESTAMPTZ,
     joined_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (project_id, user_id)
 );
 
 CREATE INDEX idx_project_members_project_id ON project_members (project_id);
 CREATE INDEX idx_project_members_user_id ON project_members (user_id);
+CREATE INDEX idx_project_members_status ON project_members (status);
 
 -- ==================== milestones ==================== --
 
@@ -331,7 +372,8 @@ DECLARE
 BEGIN
     SELECT project_id INTO v_project_id FROM tasks WHERE id = NEW.task_id;
     IF NOT EXISTS (
-        SELECT 1 FROM project_members WHERE project_id = v_project_id AND user_id = NEW.user_id
+        SELECT 1 FROM project_members
+        WHERE project_id = v_project_id AND user_id = NEW.user_id AND status = 'ACTIVE'
     ) THEN
         RAISE EXCEPTION 'User % is not a member of project % and cannot be assigned to task %',
             NEW.user_id, v_project_id, NEW.task_id
@@ -694,7 +736,7 @@ CREATE TABLE notifications (
     type       VARCHAR(30) NOT NULL
                CHECK (type IN ('TASK_ASSIGNED', 'TASK_STATUS_CHANGED', 'COMMENT_ADDED',
                                 'PROJECT_UPDATED', 'DEADLINE_REMINDER', 'OVERDUE_TASK',
-                                'MILESTONE_UPDATED')),
+                                'MILESTONE_UPDATED', 'TEAM_INVITATION', 'TEAM_INVITATION_RESPONDED')),
     title      VARCHAR(200) NOT NULL,
     message    VARCHAR(500),
     project_id BIGINT REFERENCES projects (id) ON DELETE CASCADE,

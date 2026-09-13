@@ -4,9 +4,12 @@ import backend.dto.MilestoneRequest;
 import backend.dto.MilestoneResponse;
 import backend.entity.Milestone;
 import backend.entity.Project;
+import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.MilestoneRepository;
+import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
+import backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,23 +22,47 @@ public class MilestoneService {
 
     private final MilestoneRepository milestoneRepository;
     private final ProjectRepository projectRepository;
+    private final ProjectMemberRepository projectMemberRepository;
+    private final UserRepository userRepository;
+    private final ProjectAccessGuard projectAccessGuard;
 
-    public MilestoneService(MilestoneRepository milestoneRepository, ProjectRepository projectRepository) {
+    public MilestoneService(
+            MilestoneRepository milestoneRepository,
+            ProjectRepository projectRepository,
+            ProjectMemberRepository projectMemberRepository,
+            UserRepository userRepository,
+            ProjectAccessGuard projectAccessGuard) {
         this.milestoneRepository = milestoneRepository;
         this.projectRepository = projectRepository;
+        this.projectMemberRepository = projectMemberRepository;
+        this.userRepository = userRepository;
+        this.projectAccessGuard = projectAccessGuard;
+    }
+
+    // Previously an unscoped findAll() with no username parameter at all —
+    // any authenticated user (including a brand-new one with zero project
+    // memberships) could see every milestone in the system. Scoped the same
+    // way as TaskService.getAllTasks.
+    @Transactional(readOnly = true)
+    public List<MilestoneResponse> getAllMilestones(String username) {
+        User caller = requireUser(username);
+        List<Milestone> milestones;
+        if (projectAccessGuard.isAdmin(caller)) {
+            milestones = milestoneRepository.findAll();
+        } else {
+            List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
+            milestones = milestoneRepository.findAll().stream()
+                    .filter(m -> visibleProjectIds.contains(m.getProject().getId()))
+                    .toList();
+        }
+        return milestones.stream().map(MilestoneResponse::new).toList();
     }
 
     @Transactional(readOnly = true)
-    public List<MilestoneResponse> getAllMilestones() {
-        return milestoneRepository.findAll()
-                .stream()
-                .map(MilestoneResponse::new)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public MilestoneResponse getMilestoneById(Long id) {
-        return new MilestoneResponse(getMilestoneEntityById(id));
+    public MilestoneResponse getMilestoneById(Long id, String username) {
+        Milestone milestone = getMilestoneEntityById(id);
+        projectAccessGuard.assertAccess(requireUser(username), milestone.getProject().getId());
+        return new MilestoneResponse(milestone);
     }
 
     @Transactional(readOnly = true)
@@ -45,11 +72,17 @@ public class MilestoneService {
     }
 
     @Transactional(readOnly = true)
-    public List<MilestoneResponse> getMilestonesByProjectId(Long projectId) {
+    public List<MilestoneResponse> getMilestonesByProjectId(Long projectId, String username) {
+        projectAccessGuard.assertAccess(requireUser(username), projectId);
         return milestoneRepository.findByProjectId(projectId)
                 .stream()
                 .map(MilestoneResponse::new)
                 .toList();
+    }
+
+    private User requireUser(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
     public MilestoneResponse createMilestone(MilestoneRequest request) {

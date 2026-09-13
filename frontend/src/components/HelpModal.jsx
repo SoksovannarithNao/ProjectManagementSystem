@@ -15,12 +15,16 @@ const FAQS = [
     a: 'Open Settings from the sidebar and use the Password section.',
   },
   {
-    q: 'How do I add someone to the team?',
+    q: 'How do I add a brand-new person to the team?',
     a: '"Invite Member" on the Team page creates their account directly (Administrators only) — share the temporary password with them so they can sign in and change it themselves in Settings.',
   },
   {
-    q: 'Why can\'t I see subtasks or comments I added earlier?',
-    a: "Those are local to your current session — the backend doesn't have storage for them yet, so they reset when you close a task's panel.",
+    q: 'How do I add an existing user to one of my projects?',
+    a: 'Select them on the Team page, pick a project from "Invite to team," and send the invitation (Administrators, Project Managers, and Team Leaders who administer that project). They\'ll get a notification to Accept or Decline — nothing changes until they respond.',
+  },
+  {
+    q: "Who controls my Position and Department?",
+    a: 'Only a Team Admin (a Project Manager or Team Leader on one of your projects) can set these — see them under Team Information on your Profile page.',
   },
 ]
 

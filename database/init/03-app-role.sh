@@ -50,7 +50,7 @@ psql -v ON_ERROR_STOP=1 \
     GRANT SELECT, INSERT, UPDATE, DELETE ON
         roles, users, projects, project_members, milestones,
         tasks, task_assignees, task_dependencies, notifications,
-        otp_verifications
+        otp_verifications, positions, departments, subtasks, comments
         TO taskmanager_app;
 
     -- GENERATED ALWAYS AS IDENTITY columns still back onto a real sequence;

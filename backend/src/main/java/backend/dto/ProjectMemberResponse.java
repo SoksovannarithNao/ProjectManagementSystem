@@ -10,6 +10,10 @@ public class ProjectMemberResponse {
     private ProjectResponse project;
     private UserResponse user;
     private String projectRole;
+    private String status;
+    private Long invitedById;
+    private String invitedByName;
+    private OffsetDateTime respondedAt;
     private OffsetDateTime joinedAt;
 
     public ProjectMemberResponse(ProjectMember projectMember) {
@@ -17,6 +21,10 @@ public class ProjectMemberResponse {
         this.project = new ProjectResponse(projectMember.getProject());
         this.user = new UserResponse(projectMember.getUser());
         this.projectRole = projectMember.getProjectRole();
+        this.status = projectMember.getStatus();
+        this.invitedById = projectMember.getInvitedBy() != null ? projectMember.getInvitedBy().getId() : null;
+        this.invitedByName = projectMember.getInvitedBy() != null ? projectMember.getInvitedBy().getFullName() : null;
+        this.respondedAt = projectMember.getRespondedAt();
         this.joinedAt = projectMember.getJoinedAt();
     }
 
@@ -38,5 +46,21 @@ public class ProjectMemberResponse {
 
     public OffsetDateTime getJoinedAt() {
         return joinedAt;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public Long getInvitedById() {
+        return invitedById;
+    }
+
+    public String getInvitedByName() {
+        return invitedByName;
+    }
+
+    public OffsetDateTime getRespondedAt() {
+        return respondedAt;
     }
 }

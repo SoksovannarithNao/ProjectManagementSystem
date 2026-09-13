@@ -32,26 +32,26 @@ public class TaskController {
     }
 
     @GetMapping("/{id}")
-    public TaskResponse getTaskById(@PathVariable Long id) {
-        return taskService.getTaskById(id);
+    public TaskResponse getTaskById(@PathVariable Long id, Authentication authentication) {
+        return taskService.getTaskById(id, authentication.getName());
     }
 
     @GetMapping("/project/{projectId}")
-    public List<TaskResponse> getTasksByProjectId(@PathVariable Long projectId) {
-        return taskService.getTasksByProjectId(projectId);
+    public List<TaskResponse> getTasksByProjectId(@PathVariable Long projectId, Authentication authentication) {
+        return taskService.getTasksByProjectId(projectId, authentication.getName());
     }
 
     @GetMapping("/milestone/{milestoneId}")
-    public List<TaskResponse> getTasksByMilestoneId(@PathVariable Long milestoneId) {
-        return taskService.getTasksByMilestoneId(milestoneId);
+    public List<TaskResponse> getTasksByMilestoneId(@PathVariable Long milestoneId, Authentication authentication) {
+        return taskService.getTasksByMilestoneId(milestoneId, authentication.getName());
     }
 
     @GetMapping("/status/{status}")
-    public List<TaskResponse> getTasksByStatus(@PathVariable String status) {
+    public List<TaskResponse> getTasksByStatus(@PathVariable String status, Authentication authentication) {
         if (!VALID_STATUSES.contains(status)) {
             throw new IllegalArgumentException("Invalid status: " + status);
         }
-        return taskService.getTasksByStatus(status);
+        return taskService.getTasksByStatus(status, authentication.getName());
     }
 
     @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")

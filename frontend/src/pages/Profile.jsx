@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { User, Lock } from 'lucide-react'
+import { User, Lock, Users } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
@@ -18,8 +18,6 @@ export function Profile() {
   const [gender, setGender] = useState(profile?.gender ?? '')
   const [dateOfBirth, setDateOfBirth] = useState(profile?.dateOfBirth ?? '')
   const [phoneNumber, setPhoneNumber] = useState(profile?.phoneNumber ?? '')
-  const [position, setPosition] = useState(profile?.position ?? '')
-  const [department, setDepartment] = useState(profile?.department ?? '')
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileError, setProfileError] = useState('')
 
@@ -40,8 +38,6 @@ export function Profile() {
         gender: gender || null,
         dateOfBirth: dateOfBirth || null,
         phoneNumber: phoneNumber.trim() || null,
-        position: position.trim() || null,
-        department: department.trim() || null,
       })
       await refreshProfile()
       notify('Profile updated', { tone: 'success' })
@@ -156,27 +152,6 @@ export function Profile() {
               />
             </label>
 
-            <div className="flex gap-3">
-              <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">Position</span>
-                <input
-                  type="text"
-                  value={position}
-                  onChange={(e) => setPosition(e.target.value)}
-                  className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
-                />
-              </label>
-              <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">Department</span>
-                <input
-                  type="text"
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
-                />
-              </label>
-            </div>
-
             {profileError && <p className="text-danger text-[12.5px] font-semibold">{profileError}</p>}
 
             <div className="mt-1 flex justify-end">
@@ -185,6 +160,30 @@ export function Profile() {
               </button>
             </div>
           </form>
+        </section>
+
+        <section className="card px-6 py-5">
+          <div className="mb-4 flex items-center gap-2.5">
+            <Users size={17} className="text-muted" />
+            <h3 className="section-title text-base">Team Information</h3>
+          </div>
+          <p className="text-faint mb-4 text-[12px]">
+            Set by your Team Admin — you can't edit these yourself.
+          </p>
+          <div className="flex gap-3">
+            <div className="bg-subtle border-border flex-1 rounded-md border px-4 py-3">
+              <span className="text-faint block text-[11.5px] font-semibold">Position</span>
+              <span className="text-ink text-[13.5px] font-semibold">
+                {profile?.positionName || 'Not set'}
+              </span>
+            </div>
+            <div className="bg-subtle border-border flex-1 rounded-md border px-4 py-3">
+              <span className="text-faint block text-[11.5px] font-semibold">Department</span>
+              <span className="text-ink text-[13.5px] font-semibold">
+                {profile?.departmentName || 'Not set'}
+              </span>
+            </div>
+          </div>
         </section>
 
         <section className="card px-6 py-5">

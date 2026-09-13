@@ -36,11 +36,15 @@ public class User {
     @Column(name = "profile_photo_url", length = 500)
     private String profilePhotoUrl;
 
-    @Column(length = 100)
-    private String position;
+    // Set only by a Team Admin (enforced in UserService.updateMemberPositionDepartment),
+    // never by the user themselves via updateOwnProfile — see backend/README.md.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "position_id")
+    private Position position;
 
-    @Column(length = 100)
-    private String department;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "department_id")
+    private Department department;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "role_id", nullable = false)
@@ -129,19 +133,19 @@ public class User {
         this.profilePhotoUrl = profilePhotoUrl;
     }
 
-    public String getPosition() {
+    public Position getPosition() {
         return position;
     }
 
-    public void setPosition(String position) {
+    public void setPosition(Position position) {
         this.position = position;
     }
 
-    public String getDepartment() {
+    public Department getDepartment() {
         return department;
     }
 
-    public void setDepartment(String department) {
+    public void setDepartment(Department department) {
         this.department = department;
     }
 
