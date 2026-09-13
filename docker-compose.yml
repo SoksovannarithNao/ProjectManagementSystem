@@ -7,6 +7,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-taskmanager}
+      # Read by database/init/03-app-role.sh to create the backend's own
+      # least-privileged login (the backend never connects as POSTGRES_USER).
+      TASKMANAGER_APP_PASSWORD: ${TASKMANAGER_APP_PASSWORD:-taskmanager_app_password}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -24,8 +27,12 @@ services:
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-taskmanager}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # Connects as the least-privileged app role (database/init/03-app-role.sh),
+      # not the postgres superuser used above only for container init.
+      SPRING_DATASOURCE_USERNAME: taskmanager_app
+      SPRING_DATASOURCE_PASSWORD: ${TASKMANAGER_APP_PASSWORD:-taskmanager_app_password}
+      JWT_SECRET: ${JWT_SECRET:-change-this-development-secret-key-change-this-development-secret-key}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:80}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     volumes:

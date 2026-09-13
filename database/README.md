@@ -16,21 +16,23 @@ cp .env.example .env   # first time only
 docker compose up -d
 ```
 
-This starts a `postgres` container, creates the `taskmanager` database, and runs every `.sql` file in [`database/init/`](init/) against it **the first time the container's data volume is created**. If you change a script after the volume already exists, it won't re-run automatically — see below.
+This starts a `postgres` container, creates the `taskmanager` database, and runs every `.sql`/`.sh` file in [`database/init/`](init/) against it, in filename order, **the first time the container's data volume is created**. If you change a script after the volume already exists, it won't re-run automatically — see below.
 
-[`01-init.sql`](init/01-init.sql) is the schema; [`02-seed.sql`](init/02-seed.sql) loads placeholder demo data (~13 users, 6 projects, and everything under them) on top of it so there's something to look at without registering accounts by hand. It's demo data only, not a fixture set for automated tests — CI loads both files into its throwaway test database too (see [ci.yml](../.github/workflows/ci.yml)).
+[`01-init.sql`](init/01-init.sql) is the schema; [`02-seed.sql`](init/02-seed.sql) loads placeholder demo data (~13 users, 6 projects, and everything under them) on top of it so there's something to look at without registering accounts by hand — CI loads both files into its throwaway test database too (see [ci.yml](../.github/workflows/ci.yml)). [`03-app-role.sh`](init/03-app-role.sh) then creates the least-privileged role the backend actually connects as — see [Least-privilege application role](#least-privilege-application-role) below.
 
 Every seeded user shares the password **`secret`** — the bcrypt hash in the file is generated and verified specifically for that plaintext (a previously copied "well-known sample" hash in this file looked plausible but didn't actually verify against `secret`, so no seed account could log in until it was regenerated). `emma.silva` (`INACTIVE`) and `frank.lee` (`SUSPENDED`) are seeded to deliberately fail login regardless of password, to exercise `account_status` handling.
 
-Connection details (also the backend's defaults, in [backend/src/main/resources/application.properties](../backend/src/main/resources/application.properties)):
+Connection details:
 
-| | |
-|---|---|
-| Host | `localhost` |
-| Port | `5432` |
-| Database | `taskmanager` |
-| User | `postgres` |
-| Password | `postgres` |
+| | Superuser (admin/migrations) | App role (what the backend connects as) |
+|---|---|---|
+| Host | `localhost` | `localhost` |
+| Port | `5432` | `5432` |
+| Database | `taskmanager` | `taskmanager` |
+| User | `postgres` | `taskmanager_app` |
+| Password | `postgres` | `taskmanager_app_password` (dev default — set via `TASKMANAGER_APP_PASSWORD`) |
+
+The backend's actual defaults live in [backend/src/main/resources/application.properties](../backend/src/main/resources/application.properties) (`SPRING_DATASOURCE_USERNAME`/`PASSWORD`, overridable via env — see `.env.example`/`docker-compose.yml`).
 
 ### Re-running init scripts after a schema change
 
@@ -125,6 +127,17 @@ A couple of choices that came up as ambiguous or under-specified while implement
 **Caveat:** `ADMINISTRATOR` and `PROJECT_MANAGER` share the same action set at this granularity. Role_Requirment.md gives Project Managers full lifecycle ownership (create/edit/delete/assign/approve/report) of projects they manage, so there's no *action* a PM can't do that an Administrator can — what actually differs is *scope* (an Administrator manages every project and user; a PM's authority is really "on projects I manage"). Modeling that distinction needs a resource-scoped permission model (permission-per-record, not just permission-per-role), which is a bigger change than this pass makes — it's a natural next step alongside the ownership-scoped authorization gap already noted in `backend/README.md`.
 
 Nothing in the backend consumes this yet (confirmed: all current authorization is `@PreAuthorize("hasRole(...)")` against `roles.name` directly). Wiring the backend to check `role_permissions` instead of hardcoded role names is a follow-up outside this pass's database-only scope.
+
+### Least-privilege application role
+
+The backend doesn't connect as the Postgres superuser (`POSTGRES_USER`/`postgres`) — [`init/03-app-role.sh`](init/03-app-role.sh) creates a dedicated `taskmanager_app` role that the backend uses instead, so a compromised or buggy application process can't touch anything beyond what it actually needs:
+
+- `SELECT`/`INSERT`/`UPDATE`/`DELETE` on the 9 tables the backend's JPA entities actually touch (`roles`, `users`, `projects`, `project_members`, `milestones`, `tasks`, `task_assignees`, `task_dependencies`, `notifications`) — not the other 11 tables, which have no backend code touching them yet.
+- `USAGE`/`SELECT` on every sequence in the `public` schema — required because `GENERATED ALWAYS AS IDENTITY` primary keys still back onto a real Postgres sequence, and a non-owner role needs sequence `USAGE` for the implicit `nextval()` call an `INSERT` triggers (a well-known "permission denied for sequence ..._id_seq" gotcha if skipped).
+- No `SUPERUSER`, `CREATEDB`, or `CREATEROLE` — it can't alter the schema, create other roles, or touch other databases.
+- Explicit (if largely redundant, since Postgres grants `EXECUTE` on new functions to `PUBLIC` by default and nothing here revokes that) `EXECUTE` grants on `fn_compute_project_progress`/`fn_compute_milestone_progress`/`fn_generate_overdue_notifications`.
+
+**Adding a table's backend entity later needs a matching `GRANT` line added to `init/03-app-role.sh`** (and to the equivalent step in [ci.yml](../.github/workflows/ci.yml), which duplicates this script's grants rather than sourcing it, since CI talks to a bare service container rather than through the `postgres` Docker image's own init-script mechanism). This only takes effect against a fresh volume — `docker compose down -v && docker compose up -d` locally.
 
 ### Progress, overdue detection, and reports
 

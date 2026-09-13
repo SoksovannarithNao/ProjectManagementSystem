@@ -6,6 +6,7 @@ import backend.service.TaskService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -53,15 +54,18 @@ public class TaskController {
     }
 
     // Open to any authenticated role (not just PM/TL), since a TEAM_MEMBER
-    // must be able to update the status/progress of their own tasks. There's
-    // no per-row ownership check yet, so this is coarser than ideal — see
+    // must be able to update the status/progress of their own tasks.
+    // ADMINISTRATOR/PROJECT_MANAGER/TEAM_LEADER may still edit every field on
+    // any task; a TEAM_MEMBER may only act on a task they're assigned to, and
+    // only its status/progress take effect — see TaskService.updateTask and
     // the README's Security section.
     @PutMapping("/{id}")
     public TaskResponse updateTask(
             @PathVariable Long id,
-            @Valid @RequestBody TaskRequest request
+            @Valid @RequestBody TaskRequest request,
+            Authentication authentication
     ) {
-        return taskService.updateTask(id, request);
+        return taskService.updateTask(id, request, authentication.getName());
     }
 
     @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")

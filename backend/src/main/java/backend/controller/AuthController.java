@@ -3,6 +3,7 @@ package backend.controller;
 import backend.dto.LoginRequest;
 import backend.dto.LoginResponse;
 import backend.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,7 +18,8 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
-        return authService.login(request);
+    public LoginResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        String rateLimitKey = httpRequest.getRemoteAddr() + ":" + request.getUsername();
+        return authService.login(request, rateLimitKey);
     }
 }
