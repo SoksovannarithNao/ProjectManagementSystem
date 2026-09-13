@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   X,
   CalendarDays,
@@ -19,51 +19,111 @@ import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
 import { canManageTask } from '../api/permissions'
 import { setTaskStatus, deleteTask } from '../api/tasks'
-import { formatDate, humanizeEnum, initialsFor } from '../api/format'
+import { useApi } from '../api/useApi'
+import { getSubtasksByTask, createSubtask, updateSubtask, deleteSubtask } from '../api/subtasks'
+import { getCommentsByTask, createComment, updateComment, deleteComment } from '../api/comments'
+import { formatDate, humanizeEnum, initialsFor, timeAgo } from '../api/format'
 
 const STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
 
 export function TaskDetailPanel({ task, onClose, onChange }) {
   const { getMember } = useMembers()
-  const { profile, username, role } = useAuth()
+  const { profile, role } = useAuth()
   const notify = useToast()
   const canManage = canManageTask(role)
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  // Subtasks/comments have no backend entity — a local-only, empty-by-default
-  // checklist per task (not the same fake seed data for every task). The
-  // parent gives this component `key={task.id}` so switching tasks remounts
-  // it and resets this state naturally, without an extra effect.
-  const [subtasks, setSubtasks] = useState([])
+
+  const subtasksFetcher = useCallback(() => getSubtasksByTask(task.id), [task.id])
+  const { data: subtasksData, refetch: refetchSubtasks } = useApi(subtasksFetcher)
+  const subtasks = useMemo(() => subtasksData ?? [], [subtasksData])
+
+  const commentsFetcher = useCallback(() => getCommentsByTask(task.id), [task.id])
+  const { data: commentsData, refetch: refetchComments } = useApi(commentsFetcher)
+  const comments = useMemo(() => commentsData ?? [], [commentsData])
+
   const [comment, setComment] = useState('')
-  const [comments, setComments] = useState([])
+  const [editingCommentId, setEditingCommentId] = useState(null)
+  const [editingCommentText, setEditingCommentText] = useState('')
   const [status, setStatus] = useState(task?.status)
   const [savingStatus, setSavingStatus] = useState(false)
 
   const assigneeId = useMemo(() => task?.assigneeIds?.[0], [task])
   const assignee = getMember(assigneeId)
-  const doneCount = subtasks.filter((s) => s.done).length
+  const doneCount = subtasks.filter((s) => s.status === 'COMPLETED').length
 
   if (!task) return null
 
-  const toggleSubtask = (id) => {
-    setSubtasks((prev) => prev.map((s) => (s.id === id ? { ...s, done: !s.done } : s)))
+  const toggleSubtask = async (s) => {
+    try {
+      await updateSubtask(s.id, {
+        taskId: task.id,
+        title: s.title,
+        assigneeId: s.assigneeId,
+        dueDate: s.dueDate,
+        status: s.status === 'COMPLETED' ? 'TO_DO' : 'COMPLETED',
+      })
+      refetchSubtasks()
+    } catch (err) {
+      notify(err.message || 'Failed to update subtask', { tone: 'error' })
+    }
   }
 
-  const addSubtask = (label) => {
+  const addSubtask = async (label) => {
     if (!label.trim()) return
-    setSubtasks((prev) => [...prev, { id: `s${Date.now()}`, label: label.trim(), done: false }])
+    try {
+      await createSubtask({ taskId: task.id, title: label.trim(), status: 'TO_DO' })
+      refetchSubtasks()
+    } catch (err) {
+      notify(err.message || 'Failed to add subtask', { tone: 'error' })
+    }
   }
 
-  const submitComment = (e) => {
+  const removeSubtask = async (id) => {
+    try {
+      await deleteSubtask(id)
+      refetchSubtasks()
+    } catch (err) {
+      notify(err.message || 'Failed to delete subtask', { tone: 'error' })
+    }
+  }
+
+  const submitComment = async (e) => {
     e.preventDefault()
     if (!comment.trim()) return
-    setComments((prev) => [
-      ...prev,
-      { id: `c${Date.now()}`, authorName: profile?.fullName || username, text: comment.trim(), time: 'Just now' },
-    ])
-    setComment('')
+    try {
+      await createComment({ taskId: task.id, message: comment.trim() })
+      setComment('')
+      refetchComments()
+    } catch (err) {
+      notify(err.message || 'Failed to add comment', { tone: 'error' })
+    }
+  }
+
+  const startEditComment = (c) => {
+    setEditingCommentId(c.id)
+    setEditingCommentText(c.message)
+  }
+
+  const saveEditComment = async (id) => {
+    if (!editingCommentText.trim()) return
+    try {
+      await updateComment(id, { taskId: task.id, message: editingCommentText.trim() })
+      setEditingCommentId(null)
+      refetchComments()
+    } catch (err) {
+      notify(err.message || 'Failed to update comment', { tone: 'error' })
+    }
+  }
+
+  const removeComment = async (id) => {
+    try {
+      await deleteComment(id)
+      refetchComments()
+    } catch (err) {
+      notify(err.message || 'Failed to delete comment', { tone: 'error' })
+    }
   }
 
   const handleStatusChange = async (nextStatus) => {
@@ -193,19 +253,29 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                 {doneCount}/{subtasks.length}
               </span>
             </div>
-            <p className="text-faint mb-2 text-[11.5px]">
-              Local checklist for this session — there's no subtask storage on the server yet.
-            </p>
             <div className="flex flex-col gap-0.5">
               {subtasks.map((s) => (
-                <button
+                <div
                   key={s.id}
-                  className="text-ink hover:bg-subtle duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-2.5 rounded-sm border-none bg-none px-1 py-2 text-left text-[13px] transition-colors [&_svg]:text-faint [&_svg]:shrink-0"
-                  onClick={() => toggleSubtask(s.id)}
+                  className="text-ink hover:bg-subtle group duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-2.5 rounded-sm px-1 py-2 text-left text-[13px] transition-colors [&_svg]:text-faint [&_svg]:shrink-0"
                 >
-                  {s.done ? <CheckSquare size={17} /> : <Square size={17} />}
-                  <span className={s.done ? 'text-faint line-through' : ''}>{s.label}</span>
-                </button>
+                  <button
+                    type="button"
+                    className="flex flex-1 items-center gap-2.5 border-none bg-none text-left"
+                    onClick={() => toggleSubtask(s)}
+                  >
+                    {s.status === 'COMPLETED' ? <CheckSquare size={17} /> : <Square size={17} />}
+                    <span className={s.status === 'COMPLETED' ? 'text-faint line-through' : ''}>{s.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger"
+                    aria-label="Delete subtask"
+                    onClick={() => removeSubtask(s.id)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               ))}
             </div>
             <form
@@ -235,18 +305,79 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               <p className="text-faint text-[12.5px]">No comments yet.</p>
             )}
             <div className="flex flex-col gap-3.5">
-              {comments.map((c) => (
-                <div key={c.id} className="flex gap-2.5">
-                  <Avatar initials={initialsFor(c.authorName)} color="var(--accent-purple)" size={28} />
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-[3px] flex items-baseline gap-2">
-                      <span className="text-[12.5px] font-[650]">{c.authorName}</span>
-                      <span className="text-faint text-[11px]">{c.time}</span>
+              {comments.map((c) => {
+                const isOwn = profile?.id != null && c.userId === profile.id
+                return (
+                  <div key={c.id} className="group flex gap-2.5">
+                    <Avatar initials={initialsFor(c.authorName)} color="var(--accent-purple)" size={28} />
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-[3px] flex items-baseline gap-2">
+                        <span className="text-[12.5px] font-[650]">{c.authorName}</span>
+                        <span className="text-faint text-[11px]">{timeAgo(c.createdAt)}</span>
+                        {isOwn && (
+                          <span className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                            <button
+                              type="button"
+                              className="icon-btn h-6 w-6"
+                              aria-label="Edit comment"
+                              onClick={() => startEditComment(c)}
+                            >
+                              <Pencil size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn h-6 w-6 hover:text-danger"
+                              aria-label="Delete comment"
+                              onClick={() => removeComment(c.id)}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </span>
+                        )}
+                        {!isOwn && canManage && (
+                          <button
+                            type="button"
+                            className="icon-btn ml-auto h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-danger"
+                            aria-label="Delete comment"
+                            onClick={() => removeComment(c.id)}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                      {editingCommentId === c.id ? (
+                        <form
+                          className="flex items-center gap-2"
+                          onSubmit={(e) => {
+                            e.preventDefault()
+                            saveEditComment(c.id)
+                          }}
+                        >
+                          <input
+                            type="text"
+                            value={editingCommentText}
+                            onChange={(e) => setEditingCommentText(e.target.value)}
+                            autoFocus
+                            className="bg-subtle border-border focus:border-lavender h-8 flex-1 rounded-md border px-2.5 text-[12.5px] outline-none"
+                          />
+                          <button type="submit" className="text-lavender text-[11.5px] font-semibold">
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            className="text-muted text-[11.5px] font-semibold"
+                            onClick={() => setEditingCommentId(null)}
+                          >
+                            Cancel
+                          </button>
+                        </form>
+                      ) : (
+                        <p className="text-muted text-[12.5px] leading-normal">{c.message}</p>
+                      )}
                     </div>
-                    <p className="text-muted text-[12.5px] leading-normal">{c.text}</p>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>

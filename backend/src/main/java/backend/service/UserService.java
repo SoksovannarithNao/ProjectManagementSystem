@@ -1,6 +1,7 @@
 package backend.service;
 
 import backend.dto.ChangePasswordRequest;
+import backend.dto.MemberAttributesRequest;
 import backend.dto.PasswordPolicy;
 import backend.dto.RegisterRequest;
 import backend.dto.SelfProfileUpdateRequest;
@@ -8,11 +9,17 @@ import backend.dto.UserCreateRequest;
 import backend.dto.UserPreferencesRequest;
 import backend.dto.UserResponse;
 import backend.dto.UserUpdateRequest;
+import backend.entity.Department;
+import backend.entity.Position;
 import backend.entity.Role;
 import backend.entity.User;
 import backend.exception.NotFoundException;
+import backend.repository.DepartmentRepository;
+import backend.repository.PositionRepository;
+import backend.repository.ProjectMemberRepository;
 import backend.repository.RoleRepository;
 import backend.repository.UserRepository;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,14 +32,23 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final PositionRepository positionRepository;
+    private final DepartmentRepository departmentRepository;
+    private final ProjectMemberRepository projectMemberRepository;
     private final PasswordEncoder passwordEncoder;
 
     public UserService(
             UserRepository userRepository,
             RoleRepository roleRepository,
+            PositionRepository positionRepository,
+            DepartmentRepository departmentRepository,
+            ProjectMemberRepository projectMemberRepository,
             PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.positionRepository = positionRepository;
+        this.departmentRepository = departmentRepository;
+        this.projectMemberRepository = projectMemberRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -81,8 +97,8 @@ public class UserService {
         user.setDateOfBirth(request.getDateOfBirth());
         user.setPhoneNumber(request.getPhoneNumber());
         user.setProfilePhotoUrl(request.getProfilePhotoUrl());
-        user.setPosition(request.getPosition());
-        user.setDepartment(request.getDepartment());
+        user.setPosition(resolvePosition(request.getPositionId()));
+        user.setDepartment(resolveDepartment(request.getDepartmentId()));
         user.setRole(role);
         if (request.getAccountStatus() != null) {
             user.setAccountStatus(request.getAccountStatus());
@@ -103,8 +119,8 @@ public class UserService {
         user.setDateOfBirth(request.getDateOfBirth());
         user.setPhoneNumber(request.getPhoneNumber());
         user.setProfilePhotoUrl(request.getProfilePhotoUrl());
-        user.setPosition(request.getPosition());
-        user.setDepartment(request.getDepartment());
+        user.setPosition(resolvePosition(request.getPositionId()));
+        user.setDepartment(resolveDepartment(request.getDepartmentId()));
         user.setRole(role);
         if (request.getAccountStatus() != null) {
             user.setAccountStatus(request.getAccountStatus());
@@ -130,10 +146,58 @@ public class UserService {
         user.setDateOfBirth(request.getDateOfBirth());
         user.setPhoneNumber(request.getPhoneNumber());
         user.setProfilePhotoUrl(request.getProfilePhotoUrl());
-        user.setPosition(request.getPosition());
-        user.setDepartment(request.getDepartment());
+        // Deliberately does NOT touch position/department — those are
+        // Team-Admin-managed only, via updateMemberPositionDepartment below.
 
         return new UserResponse(userRepository.save(user));
+    }
+
+    // Team-Admin-only: sets another user's Position/Department. "Team Admin"
+    // here means ADMINISTRATOR, or an ACTIVE PROJECT_MANAGER/TEAM_LEADER
+    // member of at least one project the target user is also an ACTIVE
+    // member of — i.e. someone who actually administers a team the target
+    // belongs to, not just any elevated role holder. See ProjectMemberService
+    // for the same "team admin" notion used to gate invites. Deliberately
+    // refuses self-targeting (even for ADMINISTRATOR) — these fields must be
+    // set by someone else, or a Team Admin could just set their own at will,
+    // defeating the "not user-controlled" requirement.
+    public UserResponse updateMemberPositionDepartment(
+            String callerUsername, Long targetUserId, MemberAttributesRequest request) {
+        User caller = getUserEntityByUsername(callerUsername);
+        User target = getUserEntityById(targetUserId);
+
+        if (caller.getId().equals(target.getId())) {
+            throw new AccessDeniedException("You cannot change your own position/department");
+        }
+
+        if (!"ADMINISTRATOR".equals(caller.getRole().getName())) {
+            List<Long> callerAdminProjectIds = projectMemberRepository.findActiveAdminProjectIds(caller.getId());
+            List<Long> targetProjectIds = projectMemberRepository.findProjectIdsByUserId(target.getId());
+            boolean sharesAdministeredTeam = callerAdminProjectIds.stream().anyMatch(targetProjectIds::contains);
+            if (!sharesAdministeredTeam) {
+                throw new AccessDeniedException("You are not a Team Admin for this member");
+            }
+        }
+
+        target.setPosition(resolvePosition(request.getPositionId()));
+        target.setDepartment(resolveDepartment(request.getDepartmentId()));
+        return new UserResponse(userRepository.save(target));
+    }
+
+    private Position resolvePosition(Long positionId) {
+        if (positionId == null) {
+            return null;
+        }
+        return positionRepository.findById(positionId)
+                .orElseThrow(() -> new NotFoundException("Position not found"));
+    }
+
+    private Department resolveDepartment(Long departmentId) {
+        if (departmentId == null) {
+            return null;
+        }
+        return departmentRepository.findById(departmentId)
+                .orElseThrow(() -> new NotFoundException("Department not found"));
     }
 
     // Requires the current password (unlike updateOwnProfile before this),

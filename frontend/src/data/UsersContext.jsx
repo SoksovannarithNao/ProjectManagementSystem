@@ -20,10 +20,15 @@ export function UsersProvider({ children }) {
     const members = (data ?? []).map((u) => ({
       id: u.id,
       name: u.fullName,
+      username: u.username,
       initials: initialsFor(u.fullName),
       color: colorForId(u.id),
       role: u.role,
       email: u.email,
+      positionId: u.positionId,
+      positionName: u.positionName,
+      departmentId: u.departmentId,
+      departmentName: u.departmentName,
     }))
     const byId = new Map(members.map((m) => [String(m.id), m]))
     return {

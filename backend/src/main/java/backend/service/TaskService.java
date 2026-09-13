@@ -39,6 +39,7 @@ public class TaskService {
     private final UserRepository userRepository;
     private final TaskAssigneeRepository taskAssigneeRepository;
     private final NotificationService notificationService;
+    private final ProjectAccessGuard projectAccessGuard;
 
     public TaskService(
             TaskRepository taskRepository,
@@ -47,7 +48,8 @@ public class TaskService {
             MilestoneRepository milestoneRepository,
             UserRepository userRepository,
             TaskAssigneeRepository taskAssigneeRepository,
-            NotificationService notificationService) {
+            NotificationService notificationService,
+            ProjectAccessGuard projectAccessGuard) {
         this.taskRepository = taskRepository;
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
@@ -55,6 +57,7 @@ public class TaskService {
         this.userRepository = userRepository;
         this.taskAssigneeRepository = taskAssigneeRepository;
         this.notificationService = notificationService;
+        this.projectAccessGuard = projectAccessGuard;
     }
 
     // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
@@ -81,8 +84,10 @@ public class TaskService {
     }
 
     @Transactional(readOnly = true)
-    public TaskResponse getTaskById(Long id) {
-        return new TaskResponse(getTaskEntityById(id));
+    public TaskResponse getTaskById(Long id, String username) {
+        Task task = getTaskEntityById(id);
+        projectAccessGuard.assertAccess(requireUser(username), task.getProject().getId());
+        return new TaskResponse(task);
     }
 
     @Transactional(readOnly = true)
@@ -92,7 +97,8 @@ public class TaskService {
     }
 
     @Transactional(readOnly = true)
-    public List<TaskResponse> getTasksByProjectId(Long projectId) {
+    public List<TaskResponse> getTasksByProjectId(Long projectId, String username) {
+        projectAccessGuard.assertAccess(requireUser(username), projectId);
         return taskRepository.findByProjectId(projectId)
                 .stream()
                 .map(TaskResponse::new)
@@ -100,19 +106,37 @@ public class TaskService {
     }
 
     @Transactional(readOnly = true)
-    public List<TaskResponse> getTasksByMilestoneId(Long milestoneId) {
+    public List<TaskResponse> getTasksByMilestoneId(Long milestoneId, String username) {
+        Milestone milestone = milestoneRepository.findById(milestoneId)
+                .orElseThrow(() -> new NotFoundException("Milestone not found"));
+        projectAccessGuard.assertAccess(requireUser(username), milestone.getProject().getId());
         return taskRepository.findByMilestoneId(milestoneId)
                 .stream()
                 .map(TaskResponse::new)
                 .toList();
     }
 
+    // Global "every task with this status" scoped down to the caller's own
+    // visible projects, same as getAllTasks — otherwise a non-admin could
+    // enumerate every task in the system regardless of project membership.
     @Transactional(readOnly = true)
-    public List<TaskResponse> getTasksByStatus(String status) {
-        return taskRepository.findByStatus(status)
-                .stream()
-                .map(TaskResponse::new)
-                .toList();
+    public List<TaskResponse> getTasksByStatus(String status, String username) {
+        User caller = requireUser(username);
+        List<Task> tasks;
+        if (projectAccessGuard.isAdmin(caller)) {
+            tasks = taskRepository.findByStatus(status);
+        } else {
+            List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
+            tasks = taskRepository.findByStatus(status).stream()
+                    .filter(t -> visibleProjectIds.contains(t.getProject().getId()))
+                    .toList();
+        }
+        return tasks.stream().map(TaskResponse::new).toList();
+    }
+
+    private User requireUser(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
     public TaskResponse createTask(TaskRequest request) {

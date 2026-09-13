@@ -23,3 +23,10 @@ export function changeOwnPassword(request) {
 export function updateOwnPreferences(request) {
   return apiFetch('/users/me/preferences', { method: 'PUT', body: request })
 }
+
+// Team-Admin-only — see UserController.updateMemberPositionDepartment. Not
+// callable on your own account through this UI; the backend also refuses it
+// unless the caller actually administers a team the target belongs to.
+export function updateMemberPositionDepartment(userId, request) {
+  return apiFetch(`/users/${userId}/position-department`, { method: 'PUT', body: request })
+}

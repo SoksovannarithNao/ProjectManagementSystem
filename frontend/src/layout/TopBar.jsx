@@ -1,10 +1,13 @@
+import { useState } from 'react'
 import { Menu, Search, Bell, BellOff, LogOut, User, Settings, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Avatar } from '../components/ui/Avatar'
 import { Dropdown } from '../components/ui/Dropdown'
 import { EmptyState } from '../components/ui/EmptyState'
+import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
 import { useNotifications } from '../data/NotificationsContext'
+import { acceptInvitation, declineInvitation } from '../api/projectMembers'
 import { initialsFor, timeAgo } from '../api/format'
 import { useLayout } from './useLayout'
 
@@ -15,8 +18,28 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
   const { openMobileNav } = useLayout()
   const { profile, username, logout } = useAuth()
   const { notifications, unreadCount, markRead, markAllRead, dismiss } = useNotifications()
+  const notify = useToast()
   const navigate = useNavigate()
   const displayName = profile?.fullName || username || ''
+  const [respondingId, setRespondingId] = useState(null)
+
+  const handleRespond = async (n, accept) => {
+    if (n.projectId == null) return
+    setRespondingId(n.id)
+    try {
+      if (accept) await acceptInvitation(n.projectId)
+      else await declineInvitation(n.projectId)
+      await dismiss(n.id)
+      notify(
+        accept ? `Joined "${n.projectName}"` : `Declined the invitation to "${n.projectName}"`,
+        { tone: 'success' }
+      )
+    } catch (err) {
+      notify(err.message || 'Failed to respond to invitation', { tone: 'error' })
+    } finally {
+      setRespondingId(null)
+    }
+  }
 
   const handleLogout = () => {
     logout()
@@ -83,35 +106,67 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
               </div>
               <div className="flex-1 overflow-y-auto p-1.5">
                 {notifications.length === 0 && <EmptyState icon={BellOff} title="No notifications yet" />}
-                {notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    className={`hover:bg-subtle group flex w-full items-start gap-1 rounded-md px-2.5 py-2 ${
-                      !n.read ? 'bg-info-soft' : ''
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
-                      onClick={() => !n.read && markRead(n.id)}
+                {notifications.map((n) => {
+                  const isInvitation = n.type === 'TEAM_INVITATION' && n.projectId != null
+                  return (
+                    <div
+                      key={n.id}
+                      className={`hover:bg-subtle group flex w-full items-start gap-1 rounded-md px-2.5 py-2 ${
+                        !n.read ? 'bg-info-soft' : ''
+                      }`}
                     >
-                      <span className="flex items-center gap-1.5">
-                        {!n.read && <span className="bg-info h-1.5 w-1.5 shrink-0 rounded-full" />}
-                        <span className="text-ink text-[12.5px] font-semibold">{n.title}</span>
-                      </span>
-                      {n.message && <span className="text-muted text-[12px]">{n.message}</span>}
-                      <span className="text-faint text-[11px]">{timeAgo(n.createdAt)}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-btn shrink-0 opacity-0 group-hover:opacity-100"
-                      aria-label="Dismiss notification"
-                      onClick={() => dismiss(n.id)}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
+                      {isInvitation ? (
+                        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                          <span className="flex items-center gap-1.5">
+                            {!n.read && <span className="bg-info h-1.5 w-1.5 shrink-0 rounded-full" />}
+                            <span className="text-ink text-[12.5px] font-semibold">{n.title}</span>
+                          </span>
+                          {n.message && <span className="text-muted text-[12px]">{n.message}</span>}
+                          <span className="text-faint text-[11px]">{timeAgo(n.createdAt)}</span>
+                          <div className="mt-1 flex gap-2">
+                            <button
+                              type="button"
+                              className="btn btn-primary px-2.5 py-1 text-[11.5px]"
+                              disabled={respondingId === n.id}
+                              onClick={() => handleRespond(n, true)}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary px-2.5 py-1 text-[11.5px]"
+                              disabled={respondingId === n.id}
+                              onClick={() => handleRespond(n, false)}
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                          onClick={() => !n.read && markRead(n.id)}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {!n.read && <span className="bg-info h-1.5 w-1.5 shrink-0 rounded-full" />}
+                            <span className="text-ink text-[12.5px] font-semibold">{n.title}</span>
+                          </span>
+                          {n.message && <span className="text-muted text-[12px]">{n.message}</span>}
+                          <span className="text-faint text-[11px]">{timeAgo(n.createdAt)}</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="icon-btn shrink-0 opacity-0 group-hover:opacity-100"
+                        aria-label="Dismiss notification"
+                        onClick={() => dismiss(n.id)}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}

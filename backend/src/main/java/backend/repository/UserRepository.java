@@ -12,6 +12,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u FROM User u JOIN FETCH u.role WHERE u.username = :username")
     Optional<User> findByUsername(String username);
 
+    // Case-insensitive lookup for the team-invitation "search by username"
+    // flow — usernames are unique case-insensitively (idx_users_username_lower)
+    // but stored with their original casing.
+    @Query("SELECT u FROM User u JOIN FETCH u.role WHERE LOWER(u.username) = LOWER(:username)")
+    Optional<User> findByUsernameIgnoreCase(String username);
+
     @Query("SELECT u FROM User u JOIN FETCH u.role")
     List<User> findAllWithRoles();
 

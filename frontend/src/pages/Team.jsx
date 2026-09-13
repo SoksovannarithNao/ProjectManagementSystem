@@ -4,6 +4,8 @@ import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
+import { LookupSelect } from '../components/ui/LookupSelect'
+import { AddLookupModal } from '../components/AddLookupModal'
 import { useToast } from '../components/ui/Toast'
 import { AddMemberModal } from '../components/AddMemberModal'
 import { useMembers } from '../data/UsersContext'
@@ -11,25 +13,34 @@ import { useAuth } from '../auth/AuthContext'
 import { canManageUsers, canManageProjectMembers } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
-import { getProjectMembers, createProjectMember, deleteProjectMember } from '../api/projectMembers'
+import { getProjectMembers, inviteMember, deleteProjectMember } from '../api/projectMembers'
 import { getTaskAssignees } from '../api/taskAssignees'
+import { getPositions, createPosition } from '../api/positions'
+import { getDepartments, createDepartment } from '../api/departments'
+import { updateMemberPositionDepartment } from '../api/users'
 import { buildProjectMemberMap, buildTaskAssigneeMap, countByValue } from '../api/relations'
 
 export function Team() {
-  const { role } = useAuth()
+  const { profile, role } = useAuth()
   const notify = useToast()
   const { members, loading: membersLoading, refetch: refetchMembers } = useMembers()
   const { data: projects } = useApi(getProjects)
   const { data: projectMembers, refetch: refetchProjectMembers } = useApi(getProjectMembers)
   const { data: taskAssignees } = useApi(getTaskAssignees)
+  const { data: positions, refetch: refetchPositions } = useApi(getPositions)
+  const { data: departments, refetch: refetchDepartments } = useApi(getDepartments)
 
   const [selectedId, setSelectedId] = useState(null)
   const [query, setQuery] = useState('')
   const [showInvite, setShowInvite] = useState(false)
   const [addProjectId, setAddProjectId] = useState('')
   const [addingProject, setAddingProject] = useState(false)
+  const [savingAttributes, setSavingAttributes] = useState(false)
+  const [addingPosition, setAddingPosition] = useState(false)
+  const [addingDepartment, setAddingDepartment] = useState(false)
   const canInvite = canManageUsers(role)
   const canManageMembership = canManageProjectMembers(role)
+  const isAdmin = role === 'ADMINISTRATOR'
 
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
   const taskAssigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
@@ -38,6 +49,28 @@ export function Team() {
 
   const activeId = selectedId ?? members[0]?.id
   const selected = members.find((m) => m.id === activeId)
+  const isSelf = selected?.id === profile?.id
+
+  // Projects the current user actually administers (manager, or an active
+  // PROJECT_MANAGER/TEAM_LEADER membership) — mirrors
+  // ProjectMemberService.assertTeamAdmin on the backend, so "Invite" only
+  // offers teams the caller can really send an invitation for.
+  const administeredProjectIds = useMemo(() => {
+    if (isAdmin || profile == null) return null
+    const ids = new Set()
+    for (const p of projects ?? []) {
+      if (p.manager?.id === profile.id) ids.add(p.id)
+    }
+    for (const pm of projectMembers ?? []) {
+      if (
+        pm.user?.id === profile.id &&
+        (pm.projectRole === 'PROJECT_MANAGER' || pm.projectRole === 'TEAM_LEADER')
+      ) {
+        ids.add(pm.project?.id)
+      }
+    }
+    return ids
+  }, [isAdmin, profile, projects, projectMembers])
 
   const memberProjects = useMemo(() => {
     if (activeId == null) return []
@@ -51,8 +84,10 @@ export function Team() {
   const availableProjects = useMemo(() => {
     if (activeId == null) return []
     const memberIds = new Set(memberProjects.map((p) => p.id))
-    return (projects ?? []).filter((p) => !memberIds.has(p.id))
-  }, [projects, memberProjects, activeId])
+    return (projects ?? []).filter(
+      (p) => !memberIds.has(p.id) && (administeredProjectIds == null || administeredProjectIds.has(p.id))
+    )
+  }, [projects, memberProjects, activeId, administeredProjectIds])
 
   const isAddProjectIdValid = availableProjects.some((p) => String(p.id) === addProjectId)
   const effectiveAddProjectId = isAddProjectIdValid
@@ -61,20 +96,18 @@ export function Team() {
       ? String(availableProjects[0].id)
       : ''
 
-  const handleAddToProject = async () => {
-    if (!effectiveAddProjectId || activeId == null) return
+  const handleInviteToProject = async () => {
+    if (!effectiveAddProjectId || !selected) return
     setAddingProject(true)
     try {
-      await createProjectMember({
+      await inviteMember({
         projectId: Number(effectiveAddProjectId),
-        userId: activeId,
-        projectRole: 'TEAM_MEMBER',
+        username: selected.username,
       })
       setAddProjectId('')
-      refetchProjectMembers()
-      notify('Added to project', { tone: 'success' })
+      notify(`Invitation sent to ${selected.name}`, { tone: 'success' })
     } catch (err) {
-      notify(err.message || 'Failed to add member to project', { tone: 'error' })
+      notify(err.message || 'Failed to send invitation', { tone: 'error' })
     } finally {
       setAddingProject(false)
     }
@@ -94,9 +127,27 @@ export function Team() {
     }
   }
 
+  const handleSaveAttributes = async ({ positionId, departmentId }) => {
+    if (!selected) return
+    setSavingAttributes(true)
+    try {
+      await updateMemberPositionDepartment(selected.id, {
+        positionId: positionId ?? selected.positionId ?? null,
+        departmentId: departmentId ?? selected.departmentId ?? null,
+      })
+      refetchMembers()
+      notify('Team member updated', { tone: 'success' })
+    } catch (err) {
+      notify(err.message || 'Failed to update team member', { tone: 'error' })
+    } finally {
+      setSavingAttributes(false)
+    }
+  }
+
   const filtered = members.filter(
     (m) =>
       m.name?.toLowerCase().includes(query.toLowerCase()) ||
+      m.username?.toLowerCase().includes(query.toLowerCase()) ||
       m.role?.toLowerCase().includes(query.toLowerCase())
   )
 
@@ -120,7 +171,7 @@ export function Team() {
             <Search size={15} />
             <input
               type="text"
-              placeholder="Search members"
+              placeholder="Search by name or @username"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="text-ink w-full border-none bg-transparent text-[13px] outline-none"
@@ -149,7 +200,7 @@ export function Team() {
                   <Avatar initials={m.initials} color={m.color} size={38} />
                   <span className="flex min-w-0 flex-col">
                     <span className="text-ink truncate text-[13.5px] font-[650]">{m.name}</span>
-                    <span className="text-faint text-[11.5px]">{m.role}</span>
+                    <span className="text-faint truncate text-[11.5px]">@{m.username}</span>
                   </span>
                 </button>
               ))}
@@ -165,7 +216,7 @@ export function Team() {
               <Avatar initials={selected.initials} color={selected.color} size={64} />
               <div>
                 <h2 className="text-[19px] font-bold tracking-[-0.01em]">{selected.name}</h2>
-                <p className="text-muted my-1 text-[13px]">{selected.role}</p>
+                <p className="text-muted my-1 text-[13px]">@{selected.username}</p>
                 <span className="text-faint inline-flex items-center gap-1.5 text-[12.5px]">
                   <Mail size={13} /> {selected.email}
                 </span>
@@ -187,6 +238,45 @@ export function Team() {
                   <span className="text-faint mt-0.5 block text-[11.5px]">Projects</span>
                 </div>
               </div>
+            </div>
+
+            <div className="mb-[22px]">
+              <h4 className="mb-3 text-[13px] font-[650]">Team Information</h4>
+              {canManageMembership && !isSelf ? (
+                <div className="flex gap-3">
+                  <LookupSelect
+                    label="Position"
+                    items={positions}
+                    value={selected.positionId ?? null}
+                    disabled={savingAttributes}
+                    onChange={(positionId) => handleSaveAttributes({ positionId })}
+                    onAddNew={() => setAddingPosition(true)}
+                  />
+                  <LookupSelect
+                    label="Department"
+                    items={departments}
+                    value={selected.departmentId ?? null}
+                    disabled={savingAttributes}
+                    onChange={(departmentId) => handleSaveAttributes({ departmentId })}
+                    onAddNew={() => setAddingDepartment(true)}
+                  />
+                </div>
+              ) : (
+                <div className="flex gap-3">
+                  <div className="bg-subtle border-border flex-1 rounded-md border px-4 py-3">
+                    <span className="text-faint block text-[11.5px] font-semibold">Position</span>
+                    <span className="text-ink text-[13.5px] font-semibold">
+                      {selected.positionName || 'Not set'}
+                    </span>
+                  </div>
+                  <div className="bg-subtle border-border flex-1 rounded-md border px-4 py-3">
+                    <span className="text-faint block text-[11.5px] font-semibold">Department</span>
+                    <span className="text-ink text-[13.5px] font-semibold">
+                      {selected.departmentName || 'Not set'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="mb-[22px]">
@@ -218,7 +308,7 @@ export function Team() {
                 ))}
               </div>
 
-              {canManageMembership && availableProjects.length > 0 && (
+              {canManageMembership && !isSelf && availableProjects.length > 0 && (
                 <div className="mt-3 flex items-center gap-2">
                   <select
                     value={effectiveAddProjectId}
@@ -235,9 +325,9 @@ export function Team() {
                     type="button"
                     className="btn btn-secondary px-3 py-2 text-[12px]"
                     disabled={addingProject}
-                    onClick={handleAddToProject}
+                    onClick={handleInviteToProject}
                   >
-                    {addingProject ? 'Adding…' : 'Add to project'}
+                    {addingProject ? 'Inviting…' : 'Invite to team'}
                   </button>
                 </div>
               )}
@@ -248,6 +338,32 @@ export function Team() {
 
       {showInvite && (
         <AddMemberModal onClose={() => setShowInvite(false)} onCreated={refetchMembers} />
+      )}
+
+      {addingPosition && (
+        <AddLookupModal
+          title="Add New Position"
+          nameLabel="Position Name"
+          onClose={() => setAddingPosition(false)}
+          onCreate={createPosition}
+          onCreated={(created) => {
+            refetchPositions()
+            handleSaveAttributes({ positionId: created.id })
+          }}
+        />
+      )}
+
+      {addingDepartment && (
+        <AddLookupModal
+          title="Add New Department"
+          nameLabel="Department Name"
+          onClose={() => setAddingDepartment(false)}
+          onCreate={createDepartment}
+          onCreated={(created) => {
+            refetchDepartments()
+            handleSaveAttributes({ departmentId: created.id })
+          }}
+        />
       )}
     </div>
   )

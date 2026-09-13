@@ -11,7 +11,9 @@ import java.time.LocalDate;
 // the token's "sub" claim doesn't change until the next login). Also no
 // password — changing a password now goes through ChangePasswordRequest,
 // which requires the current password rather than accepting a bare
-// replacement from anyone holding a still-valid JWT.
+// replacement from anyone holding a still-valid JWT. Also no position/
+// department — those are Team-Admin-managed only, via
+// UserService.updateMemberPositionDepartment (see backend/README.md).
 public class SelfProfileUpdateRequest {
 
     @NotBlank
@@ -33,12 +35,6 @@ public class SelfProfileUpdateRequest {
 
     @Size(max = 500)
     private String profilePhotoUrl;
-
-    @Size(max = 100)
-    private String position;
-
-    @Size(max = 100)
-    private String department;
 
     public String getFullName() {
         return fullName;
@@ -88,19 +84,4 @@ public class SelfProfileUpdateRequest {
         this.profilePhotoUrl = profilePhotoUrl;
     }
 
-    public String getPosition() {
-        return position;
-    }
-
-    public void setPosition(String position) {
-        this.position = position;
-    }
-
-    public String getDepartment() {
-        return department;
-    }
-
-    public void setDepartment(String department) {
-        this.department = department;
-    }
 }

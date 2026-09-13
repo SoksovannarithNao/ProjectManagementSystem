@@ -2,6 +2,7 @@ package backend.service;
 
 import backend.dto.NotificationResponse;
 import backend.entity.Notification;
+import backend.entity.ProjectMember;
 import backend.entity.Task;
 import backend.entity.User;
 import backend.exception.NotFoundException;
@@ -99,6 +100,42 @@ public class NotificationService {
             notification.setTask(task);
             notificationRepository.save(notification);
         }
+    }
+
+    // Called by ProjectMemberService.inviteMember right after a new/re-sent
+    // invitation is saved. The invited user is the "Admin action -> correct
+    // recipient" notification this app was actually missing — see
+    // backend/README.md's Notifications section for why the old ADMIN
+    // notification requirement didn't work: no event ever created one.
+    public void notifyTeamInvitation(ProjectMember member, User inviter) {
+        User invitee = member.getUser();
+        if (!invitee.isTaskNotificationsEnabled()) {
+            return;
+        }
+        Notification notification = new Notification();
+        notification.setUser(invitee);
+        notification.setType("TEAM_INVITATION");
+        notification.setTitle("Team invitation");
+        notification.setMessage(inviter.getFullName() + " invited you to join \"" + member.getProject().getName() + "\"");
+        notification.setProject(member.getProject());
+        notificationRepository.save(notification);
+    }
+
+    // Called by ProjectMemberService.respondToInvitation — notifies the
+    // Team Admin who sent the invitation whether it was accepted or declined.
+    public void notifyInvitationResponded(ProjectMember member, boolean accepted) {
+        User inviter = member.getInvitedBy();
+        if (inviter == null || !inviter.isTaskNotificationsEnabled()) {
+            return;
+        }
+        Notification notification = new Notification();
+        notification.setUser(inviter);
+        notification.setType("TEAM_INVITATION_RESPONDED");
+        notification.setTitle(accepted ? "Invitation accepted" : "Invitation declined");
+        notification.setMessage(member.getUser().getFullName() + " " + (accepted ? "accepted" : "declined")
+                + " your invitation to join \"" + member.getProject().getName() + "\"");
+        notification.setProject(member.getProject());
+        notificationRepository.save(notification);
     }
 
     private String humanizeStatus(String status) {

@@ -6,6 +6,7 @@ import backend.service.MilestoneService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,18 +22,18 @@ public class MilestoneController {
     }
 
     @GetMapping
-    public List<MilestoneResponse> getAllMilestones() {
-        return milestoneService.getAllMilestones();
+    public List<MilestoneResponse> getAllMilestones(Authentication authentication) {
+        return milestoneService.getAllMilestones(authentication.getName());
     }
 
     @GetMapping("/{id}")
-    public MilestoneResponse getMilestoneById(@PathVariable Long id) {
-        return milestoneService.getMilestoneById(id);
+    public MilestoneResponse getMilestoneById(@PathVariable Long id, Authentication authentication) {
+        return milestoneService.getMilestoneById(id, authentication.getName());
     }
 
     @GetMapping("/project/{projectId}")
-    public List<MilestoneResponse> getMilestonesByProjectId(@PathVariable Long projectId) {
-        return milestoneService.getMilestonesByProjectId(projectId);
+    public List<MilestoneResponse> getMilestonesByProjectId(@PathVariable Long projectId, Authentication authentication) {
+        return milestoneService.getMilestonesByProjectId(projectId, authentication.getName());
     }
 
     @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")

@@ -7,6 +7,7 @@ import backend.service.TaskDependencyService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -22,18 +23,18 @@ public class TaskDependencyController {
     }
 
     @GetMapping
-    public List<TaskDependencyResponse> getAllTaskDependencies() {
-        return taskDependencyService.getAllTaskDependencies();
+    public List<TaskDependencyResponse> getAllTaskDependencies(Authentication authentication) {
+        return taskDependencyService.getAllTaskDependencies(authentication.getName());
     }
 
     @GetMapping("/task/{taskId}")
-    public List<TaskDependencyResponse> getDependenciesByTaskId(@PathVariable Long taskId) {
-        return taskDependencyService.getDependenciesByTaskId(taskId);
+    public List<TaskDependencyResponse> getDependenciesByTaskId(@PathVariable Long taskId, Authentication authentication) {
+        return taskDependencyService.getDependenciesByTaskId(taskId, authentication.getName());
     }
 
     @GetMapping("/depends-on/{taskId}")
-    public List<TaskDependencyResponse> getDependentTasks(@PathVariable Long taskId) {
-        return taskDependencyService.getDependentTasks(taskId);
+    public List<TaskDependencyResponse> getDependentTasks(@PathVariable Long taskId, Authentication authentication) {
+        return taskDependencyService.getDependentTasks(taskId, authentication.getName());
     }
 
     @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")

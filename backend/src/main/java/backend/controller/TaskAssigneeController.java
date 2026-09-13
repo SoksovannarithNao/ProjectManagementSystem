@@ -27,18 +27,18 @@ public class TaskAssigneeController {
     }
 
     @GetMapping("/{id}")
-    public TaskAssigneeResponse getTaskAssigneeById(@PathVariable Long id) {
-        return taskAssigneeService.getTaskAssigneeById(id);
+    public TaskAssigneeResponse getTaskAssigneeById(@PathVariable Long id, Authentication authentication) {
+        return taskAssigneeService.getTaskAssigneeById(id, authentication.getName());
     }
 
     @GetMapping("/task/{taskId}")
-    public List<TaskAssigneeResponse> getAssigneesByTaskId(@PathVariable Long taskId) {
-        return taskAssigneeService.getAssigneesByTaskId(taskId);
+    public List<TaskAssigneeResponse> getAssigneesByTaskId(@PathVariable Long taskId, Authentication authentication) {
+        return taskAssigneeService.getAssigneesByTaskId(taskId, authentication.getName());
     }
 
     @GetMapping("/user/{userId}")
-    public List<TaskAssigneeResponse> getTasksByUserId(@PathVariable Long userId) {
-        return taskAssigneeService.getTasksByUserId(userId);
+    public List<TaskAssigneeResponse> getTasksByUserId(@PathVariable Long userId, Authentication authentication) {
+        return taskAssigneeService.getTasksByUserId(userId, authentication.getName());
     }
 
     @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")

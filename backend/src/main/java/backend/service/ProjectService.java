@@ -22,14 +22,17 @@ public class ProjectService {
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final UserRepository userRepository;
+    private final ProjectAccessGuard projectAccessGuard;
 
     public ProjectService(
             ProjectRepository projectRepository,
             ProjectMemberRepository projectMemberRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            ProjectAccessGuard projectAccessGuard) {
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.userRepository = userRepository;
+        this.projectAccessGuard = projectAccessGuard;
     }
 
     // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
@@ -54,8 +57,12 @@ public class ProjectService {
     }
 
     @Transactional(readOnly = true)
-    public ProjectResponse getProjectById(Long id) {
-        return new ProjectResponse(getProjectEntityById(id));
+    public ProjectResponse getProjectById(Long id, String username) {
+        Project project = getProjectEntityById(id);
+        User caller = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+        projectAccessGuard.assertAccess(caller, project.getId());
+        return new ProjectResponse(project);
     }
 
     @Transactional(readOnly = true)
