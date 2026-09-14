@@ -25,7 +25,12 @@ public class DepartmentController {
         return departmentService.getAllDepartments();
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")
+    // Global lookup-table management — genuinely system-wide, unrelated to
+    // any one project, so gated by the system role rather than any
+    // project_role. PROJECT_MANAGER/TEAM_LEADER used to also qualify before
+    // those global roles were replaced by project-scoped roles (see V5
+    // migration) — removed here since neither can exist anymore.
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public DepartmentResponse createDepartment(@Valid @RequestBody DepartmentRequest request) {

@@ -35,7 +35,7 @@ export function Kanban() {
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
-  const [activeTask, setActiveTask] = useState(null)
+  const [activeTaskId, setActiveTaskId] = useState(null)
   const [showNewTask, setShowNewTask] = useState(false)
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState(() => new Set())
@@ -53,6 +53,15 @@ export function Kanban() {
   const activeFilterCount = priorityFilter.size + (projectFilter ? 1 : 0)
 
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
+
+  // Derived (never copied into its own state) so the open detail panel
+  // always reflects the live list — see the identical pattern (and its
+  // comment) in Tasks.jsx.
+  const activeTask = useMemo(() => {
+    if (activeTaskId == null) return null
+    const t = (tasks ?? []).find((task) => task.id === activeTaskId)
+    return t ? { ...t, assigneeIds: assigneeMap.get(t.id) ?? [] } : null
+  }, [activeTaskId, tasks, assigneeMap])
 
   const filteredTasks = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -95,7 +104,7 @@ export function Kanban() {
           <>
             <Dropdown
               button={({ toggle }) => (
-                <button className="btn btn-secondary" onClick={toggle}>
+                <button className="btn btn-secondary min-w-[112px]" onClick={toggle}>
                   <SlidersHorizontal size={15} /> Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
                 </button>
               )}
@@ -164,7 +173,7 @@ export function Kanban() {
         {columns.map((col) => (
           <div
             key={col.id}
-            className="bg-subtle border-divider flex w-[268px] shrink-0 flex-col gap-2.5 rounded-md border p-3.5"
+            className="bg-container border-divider flex w-[268px] shrink-0 flex-col gap-2.5 rounded-md border p-3.5"
           >
             <div className="flex items-center justify-between px-1 pt-0.5 pb-1.5">
               <span className="inline-flex items-center gap-2">
@@ -176,46 +185,48 @@ export function Kanban() {
               </span>
             </div>
             <div className="flex flex-col gap-2.5">
-              {loading &&
-                Array.from({ length: 2 }).map((_, i) => (
-                  <div key={i} className="bg-card border-border rounded-[13px] border p-[13px]">
-                    <Skeleton className="mb-2.5 h-2.5 w-16" />
-                    <Skeleton className="mb-2.5 h-3.5 w-full" />
-                    <Skeleton className="h-4 w-10" />
-                  </div>
-                ))}
-              {!loading && col.tasks.length === 0 && (
-                <EmptyState icon={LayoutGrid} title="No tasks" />
-              )}
-              {col.tasks.map((task, i) => {
-                const assigneeIds = assigneeMap.get(task.id) ?? []
-                const member = getMember(assigneeIds[0])
-                return (
-                  <button
-                    key={task.id}
-                    className="bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in rounded-[13px] border p-[13px] text-left transition hover:-translate-y-px"
-                    style={{ animationDelay: `${Math.min(i, 8) * 30}ms`, animationFillMode: 'backwards' }}
-                    onClick={() => setActiveTask({ ...task, assigneeIds })}
-                  >
-                    <span className="text-faint text-[10.5px] font-[650] tracking-[0.04em] uppercase">
-                      {task.project?.name}
-                    </span>
-                    <p className="text-ink my-2 text-[13px] leading-normal font-semibold">{task.title}</p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted text-[11px]">{formatDate(task.dueDate)}</span>
-                      {member && (
-                        <Avatar
-                          initials={member.initials}
-                          color={member.color}
-                          photoUrl={member.photoUrl}
-                          size={24}
-                          title={member.name}
-                        />
-                      )}
+              <div className="scroll-y flex max-h-[650px] flex-col gap-2.5 pr-0.5">
+                {loading &&
+                  Array.from({ length: 2 }).map((_, i) => (
+                    <div key={i} className="bg-card border-border rounded-[13px] border p-[13px]">
+                      <Skeleton className="mb-2.5 h-2.5 w-16" />
+                      <Skeleton className="mb-2.5 h-3.5 w-full" />
+                      <Skeleton className="h-4 w-10" />
                     </div>
-                  </button>
-                )
-              })}
+                  ))}
+                {!loading && col.tasks.length === 0 && (
+                  <EmptyState icon={LayoutGrid} title="No tasks" />
+                )}
+                {col.tasks.map((task, i) => {
+                  const assigneeIds = assigneeMap.get(task.id) ?? []
+                  const member = getMember(assigneeIds[0])
+                  return (
+                    <button
+                      key={task.id}
+                      className="bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in shrink-0 rounded-[13px] border p-[13px] text-left transition hover:-translate-y-px"
+                      style={{ animationDelay: `${Math.min(i, 8) * 30}ms`, animationFillMode: 'backwards' }}
+                      onClick={() => setActiveTaskId(task.id)}
+                    >
+                      <span className="text-faint text-[10.5px] font-[650] tracking-[0.04em] uppercase">
+                        {task.project?.name}
+                      </span>
+                      <p className="text-ink my-2 text-[13px] leading-normal font-semibold">{task.title}</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted text-[11px]">{formatDate(task.dueDate)}</span>
+                        {member && (
+                          <Avatar
+                            initials={member.initials}
+                            color={member.color}
+                            photoUrl={member.photoUrl}
+                            size={24}
+                            title={member.name}
+                          />
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
               {col.status === 'TO_DO' && canAddTasks && (
                 <button
                   className="text-faint hover:bg-card hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-none p-2.5 text-[12.5px] transition-colors"
@@ -233,7 +244,7 @@ export function Kanban() {
         <TaskDetailPanel
           key={activeTask.id}
           task={activeTask}
-          onClose={() => setActiveTask(null)}
+          onClose={() => setActiveTaskId(null)}
           onChange={refetchAll}
         />
       )}

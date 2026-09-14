@@ -12,6 +12,7 @@ import backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Service
@@ -50,7 +51,12 @@ public class SubtaskService {
         Subtask subtask = new Subtask();
         subtask.setTask(task);
         applyRequest(subtask, request);
-        return new SubtaskResponse(subtaskRepository.save(subtask));
+        SubtaskResponse response = new SubtaskResponse(subtaskRepository.save(subtask));
+        // A new subtask defaults to TO_DO — adding one to an already-COMPLETED
+        // task breaks the "parent can only be COMPLETED when every subtask is"
+        // invariant just as much as reopening an existing one does.
+        reopenParentIfNoLongerFullyComplete(task);
+        return response;
     }
 
     public SubtaskResponse updateSubtask(Long id, SubtaskRequest request, String username) {
@@ -59,7 +65,35 @@ public class SubtaskService {
         projectAccessGuard.assertAccess(caller, subtask.getTask().getProject().getId());
 
         applyRequest(subtask, request);
-        return new SubtaskResponse(subtaskRepository.save(subtask));
+        SubtaskResponse response = new SubtaskResponse(subtaskRepository.save(subtask));
+        reopenParentIfNoLongerFullyComplete(subtask.getTask());
+        return response;
+    }
+
+    // "If a parent task is already DONE and a subtask is changed back to
+    // incomplete, the parent must not remain incorrectly marked as DONE."
+    // The backend is the source of truth for this invariant — TaskService
+    // refuses to let a task BECOME COMPLETED while any subtask is open (see
+    // TaskService.assertNotCompletingWithOpenSubtasks), but a subtask being
+    // added or reopened AFTER the parent is already COMPLETED goes through
+    // this service instead, so the same invariant has to be re-checked and
+    // repaired here rather than left silently violated. Reopens to
+    // IN_PROGRESS (not back to whatever it was before) and recomputes
+    // progress from the actual completed/total subtask ratio, so the task
+    // never visually shows 100%/DONE while work remains.
+    private void reopenParentIfNoLongerFullyComplete(Task task) {
+        if (!"COMPLETED".equals(task.getStatus())) {
+            return;
+        }
+        List<Subtask> siblings = subtaskRepository.findByTaskIdOrderByIdAsc(task.getId());
+        long total = siblings.size();
+        long completed = siblings.stream().filter(s -> "COMPLETED".equals(s.getStatus())).count();
+        if (total > 0 && completed < total) {
+            task.setStatus("IN_PROGRESS");
+            task.setCompletedAt(null);
+            task.setProgress(BigDecimal.valueOf(completed * 100 / total));
+            taskRepository.save(task);
+        }
     }
 
     public void deleteSubtask(Long id, String username) {

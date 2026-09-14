@@ -15,9 +15,12 @@ import java.util.Set;
 // project?" check, used by every service that reads or writes a
 // project-scoped resource (projects, tasks, milestones, dependencies,
 // assignees, project_members). ADMINISTRATOR (a SYSTEM-level role, unrelated
-// to any one project — see User.role) always has full access; everyone
-// else's authority comes entirely from their ACTIVE project_members row (a
-// PENDING invitation does not count) and its project_role:
+// to any one project — see User.role) always has full access; the USER
+// system role (assigned to every self-registered account) grants nothing
+// here — it's not checked anywhere in this class. Everyone who isn't
+// ADMINISTRATOR has their authority come entirely from their ACTIVE
+// project_members row (a PENDING invitation does not count) and its
+// project_role:
 //   OWNER  — full authority, including delete/transfer-ownership
 //   ADMIN  — manages content and members, but not delete/transfer-ownership
 //   MEMBER — can create/edit content, cannot manage members

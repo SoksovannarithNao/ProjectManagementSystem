@@ -6,9 +6,14 @@ import {
   CheckCircle2,
   CircleDot,
   Circle,
+  CheckSquare,
+  Square,
+  ChevronRight,
+  ChevronDown,
   MoreHorizontal,
   GripVertical,
   ClipboardList,
+  FolderKanban,
   Pencil,
   Trash2,
   Check,
@@ -25,38 +30,23 @@ import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
 import { canEditProjectContent, canManageProject } from '../api/permissions'
 import { useApi } from '../api/useApi'
-import { getTasks, advanceTaskStatus, deleteTask } from '../api/tasks'
+import { getTasks, advanceTaskStatus, canAdvanceStatus, deleteTask } from '../api/tasks'
+import { getSubtasksByTask } from '../api/subtasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
 import { buildTaskAssigneeMap, buildMyProjectRoleMap } from '../api/relations'
 import { humanizeEnum } from '../api/format'
 
-function hashStr(str) {
-  let h = 0
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
-  return h
-}
-
-const PILL_COLORS = [
-  { bg: '#E7F5EA', text: '#4B8B5E' },
-  { bg: '#FBEAEC', text: '#C2596B' },
-  { bg: '#FDEEE1', text: '#C07A3E' },
-  { bg: '#FCF3D9', text: '#B08A2E' },
-  { bg: '#E8EFFC', text: '#4C6FB9' },
-  { bg: '#F2E9FB', text: '#8B5CB9' },
-]
-
-function pillColor(key) {
-  return PILL_COLORS[hashStr(key || '') % PILL_COLORS.length]
-}
-
-// Only "To do" can add a new task directly — tasks reach Doing/Done by being
-// moved forward from there (via the status control), never created into them.
-const SECTIONS = [
-  { key: 'todo', title: 'To do', match: (status) => status === 'TO_DO', canAdd: true },
-  { key: 'doing', title: 'Doing', match: (status) => status === 'IN_PROGRESS' || status === 'IN_REVIEW', canAdd: false },
-  { key: 'done', title: 'Done', match: (status) => status === 'COMPLETED' || status === 'CANCELLED', canAdd: false },
+// Distinct colors per section, using the same soft-background + colored-
+// foreground pairing as Badge.jsx (already proven legible elsewhere in the
+// app, e.g. priority badges) — plain colored text/icons directly on the
+// page background turned out to be too low-contrast on their own, since
+// this app's status hues are deliberately muted/pastel.
+const STATUS_GROUPS = [
+  { key: 'todo', title: 'To do', match: (status) => status === 'TO_DO', color: 'text-warning', soft: 'bg-warning-soft' },
+  { key: 'doing', title: 'Doing', match: (status) => status === 'IN_PROGRESS' || status === 'IN_REVIEW', color: 'text-info', soft: 'bg-info-soft' },
+  { key: 'done', title: 'Done', match: (status) => status === 'COMPLETED' || status === 'CANCELLED', color: 'text-success', soft: 'bg-success-soft' },
 ]
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
@@ -79,7 +69,7 @@ export function Tasks() {
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
-  const [activeTask, setActiveTask] = useState(null)
+  const [activeTaskId, setActiveTaskId] = useState(null)
   const [showNewTask, setShowNewTask] = useState(false)
   const [editingTask, setEditingTask] = useState(null)
   const [deletingTask, setDeletingTask] = useState(null)
@@ -88,6 +78,9 @@ export function Tasks() {
   const [priorityFilter, setPriorityFilter] = useState(() => new Set())
   const [projectFilter, setProjectFilter] = useState('')
   const [sortBy, setSortBy] = useState('dueDate')
+  const [expandedTaskIds, setExpandedTaskIds] = useState(() => new Set())
+  const [subtasksByTask, setSubtasksByTask] = useState(() => new Map())
+  const [loadingSubtasksFor, setLoadingSubtasksFor] = useState(() => new Set())
   const isSystemAdmin = role === 'ADMINISTRATOR'
   const myProjectRoleMap = useMemo(
     () => buildMyProjectRoleMap(projectMembers, profile?.id),
@@ -102,6 +95,17 @@ export function Tasks() {
 
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
   const list = useMemo(() => tasks ?? [], [tasks])
+
+  // Derived (never copied into its own state) so the open detail panel
+  // always reflects the live list — including a backend-side change to
+  // this task, like the auto-revert in
+  // SubtaskService.reopenParentIfNoLongerFullyComplete, which a frozen
+  // snapshot captured at click-time would never pick up after a refetch.
+  const activeTask = useMemo(() => {
+    if (activeTaskId == null) return null
+    const t = list.find((task) => task.id === activeTaskId)
+    return t ? { ...t, assigneeIds: assigneeMap.get(t.id) ?? [] } : null
+  }, [activeTaskId, list, assigneeMap])
   const activeFilterCount = priorityFilter.size + (projectFilter ? 1 : 0)
 
   const filteredList = useMemo(() => {
@@ -117,9 +121,70 @@ export function Tasks() {
     })
   }, [list, search, priorityFilter, projectFilter])
 
+  // Project name -> To do/Doing/Done -> its tasks (sorted by the current
+  // sort choice) -> each task's subtasks, fetched on demand when expanded
+  // (see toggleExpand) — there's no bulk "all subtasks for these tasks"
+  // endpoint, only GET /api/subtasks/task/{taskId}, same as TaskDetailPanel.
+  const projectGroups = useMemo(() => {
+    const groups = new Map()
+    for (const t of filteredList) {
+      const key = t.project?.id ?? 'none'
+      if (!groups.has(key)) {
+        groups.set(key, { id: key, name: t.project?.name || 'No project', tasks: [] })
+      }
+      groups.get(key).tasks.push(t)
+    }
+    return Array.from(groups.values())
+      .map((g) => {
+        const sorted = [...g.tasks].sort(SORTERS[sortBy])
+        const statusGroups = STATUS_GROUPS.map((sg) => ({
+          ...sg,
+          tasks: sorted.filter((t) => sg.match(t.status)),
+        })).filter((sg) => sg.tasks.length > 0)
+        return { ...g, tasks: sorted, statusGroups }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [filteredList, sortBy])
+
+  const loadSubtasksFor = async (taskId) => {
+    setLoadingSubtasksFor((prev) => new Set(prev).add(taskId))
+    try {
+      const data = await getSubtasksByTask(taskId)
+      setSubtasksByTask((prev) => new Map(prev).set(taskId, data))
+    } catch (err) {
+      notify(err.message || 'Failed to load subtasks', { tone: 'error' })
+    } finally {
+      setLoadingSubtasksFor((prev) => {
+        const next = new Set(prev)
+        next.delete(taskId)
+        return next
+      })
+    }
+  }
+
+  const toggleExpand = (taskId, e) => {
+    e.stopPropagation()
+    setExpandedTaskIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+    if (!subtasksByTask.has(taskId) && !loadingSubtasksFor.has(taskId)) {
+      loadSubtasksFor(taskId)
+    }
+  }
+
   const refetchAll = () => {
     refetch()
     refetchAssignees()
+    // TaskDetailPanel's own subtask edits (toggle/add/remove) don't touch
+    // this page's separately-fetched/cached subtask preview — without this,
+    // an already-expanded row kept showing the stale, pre-edit list after
+    // completing a subtask in the panel and closing it.
+    if (activeTask && subtasksByTask.has(activeTask.id)) {
+      loadSubtasksFor(activeTask.id)
+    }
   }
 
   const togglePriorityFilter = (p) => {
@@ -133,6 +198,7 @@ export function Tasks() {
 
   const advanceTask = async (task, e) => {
     e.stopPropagation()
+    if (!canAdvanceStatus(task.status)) return
     try {
       await advanceTaskStatus(task)
       refetch()
@@ -169,7 +235,7 @@ export function Tasks() {
           <>
             <Dropdown
               button={({ toggle }) => (
-                <button className="btn btn-secondary" onClick={toggle}>
+                <button className="btn btn-secondary min-w-[112px]" onClick={toggle}>
                   <SlidersHorizontal size={15} /> Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
                 </button>
               )}
@@ -265,81 +331,92 @@ export function Tasks() {
       />
 
       <div className="flex flex-col gap-6">
-        {SECTIONS.map((section) => {
-          const sectionTasks = filteredList.filter((t) => section.match(t.status)).sort(SORTERS[sortBy])
-          return (
-            <div
-              key={section.key}
-              className="rounded-2xl p-4 sm:p-5"
-              style={{ background: 'rgba(40, 43, 50, 0.2)' }}
-            >
-              <div className="mb-3.5 flex items-center justify-between px-1">
-                <div className="flex items-baseline gap-2">
-                  <h3 className="text-ink text-[15px] font-[650]">{section.title}</h3>
-                  <span className="text-[17px] font-bold" style={{ color: 'rgba(40, 24, 27, 0.85)' }}>{sectionTasks.length}</span>
-                </div>
-                {section.canAdd && canAddTasks && (
-                  <button
-                    className="hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#3a3a3d] transition-colors"
-                    onClick={() => setShowNewTask(true)}
+        {!loading && projectGroups.length === 0 && (
+          <EmptyState
+            icon={ClipboardList}
+            title={list.length === 0 ? 'No tasks here yet' : 'No tasks match your search/filters'}
+            subtitle={canAddTasks && list.length === 0 ? 'Add one to get started.' : undefined}
+          />
+        )}
+
+        {loading &&
+          projectGroups.length === 0 &&
+          Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="bg-card border-border flex items-center gap-3 rounded-[13px] border px-4 py-3">
+              <Skeleton className="h-[18px] w-[18px] shrink-0 rounded-full" />
+              <Skeleton className="h-3.5 flex-1" />
+              <Skeleton className="h-6 w-[110px] shrink-0 rounded-full" />
+            </div>
+          ))}
+
+        {projectGroups.map((group) => (
+          <div key={group.id} className="bg-container rounded-2xl p-4 sm:p-5">
+            <div className="mb-3.5 flex items-center gap-2 px-1">
+              <FolderKanban size={15} className="text-faint" />
+              <h3 className="text-ink text-[15px] font-[650]">{group.name}</h3>
+              <span className="text-ink text-[17px] font-bold">{group.tasks.length}</span>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              {group.statusGroups.map((sg) => (
+                <div key={sg.key} className="flex flex-col gap-2.5">
+                  <span
+                    className={`${sg.soft} ${sg.color} inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-[650] tracking-[0.04em] uppercase`}
                   >
-                    <Plus size={14} /> Add task
-                  </button>
-                )}
-              </div>
+                    {sg.title} · {sg.tasks.length}
+                  </span>
+                  {sg.tasks.map((t, i) => {
+                const assigneeIds = assigneeMap.get(t.id) ?? []
+                const canManage = canManageProject(myProjectRoleMap.get(t.project?.id), isSystemAdmin)
+                const done = t.status === 'COMPLETED'
+                const cancelled = t.status === 'CANCELLED'
+                const doing = t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW'
+                const advanceable = canAdvanceStatus(t.status)
+                const advanceLabel = t.status === 'TO_DO'
+                  ? 'Move to Doing'
+                  : doing
+                    ? 'Mark as Done'
+                    : cancelled
+                      ? 'Task cancelled'
+                      : 'Task completed'
+                const expanded = expandedTaskIds.has(t.id)
+                const subtasks = subtasksByTask.get(t.id) ?? []
 
-              <div className="flex flex-col gap-2.5">
-                {loading &&
-                  Array.from({ length: 2 }).map((_, i) => (
+                return (
+                  <div key={t.id} className="flex flex-col gap-1.5">
                     <div
-                      key={i}
-                      className="bg-card border-border flex items-center gap-3 rounded-[13px] border px-4 py-3"
-                    >
-                      <Skeleton className="h-[18px] w-[18px] shrink-0 rounded-full" />
-                      <Skeleton className="h-3.5 flex-1" />
-                      <Skeleton className="h-6 w-[110px] shrink-0 rounded-full" />
-                    </div>
-                  ))}
-                {!loading && sectionTasks.length === 0 && (
-                  <EmptyState
-                    icon={ClipboardList}
-                    title={list.length === 0 ? 'No tasks here yet' : 'No tasks match your search/filters'}
-                    subtitle={section.canAdd && canAddTasks && list.length === 0 ? 'Add one to get started.' : undefined}
-                  />
-                )}
-                {sectionTasks.map((t, i) => {
-                  const assigneeIds = assigneeMap.get(t.id) ?? []
-                  const pill = pillColor(t.project?.name)
-                  const canManage = canManageProject(myProjectRoleMap.get(t.project?.id), isSystemAdmin)
-                  const done = t.status === 'COMPLETED'
-                  const doing = t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW'
-                  const advanceLabel = t.status === 'TO_DO'
-                    ? 'Move to Doing'
-                    : doing
-                      ? 'Mark as Done'
-                      : 'Reopen as To do'
-
-                  return (
-                    <div
-                      key={t.id}
-                      onClick={() => setActiveTask({ ...t, assigneeIds })}
+                      onClick={() => setActiveTaskId(t.id)}
                       className="group bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in flex cursor-pointer flex-wrap items-center gap-3 rounded-[13px] border px-4 py-3 transition hover:-translate-y-px sm:flex-nowrap"
                       style={{ animationDelay: `${Math.min(i, 8) * 30}ms`, animationFillMode: 'backwards' }}
                     >
+                      <button
+                        onClick={(e) => toggleExpand(t.id, e)}
+                        className="text-faint hover:text-ink hover:bg-subtle -m-1.5 shrink-0 rounded-full p-1.5 transition-colors"
+                        aria-label={expanded ? 'Hide subtasks' : 'Show subtasks'}
+                        title={expanded ? 'Hide subtasks' : 'Show subtasks'}
+                      >
+                        {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </button>
+
                       <GripVertical size={14} className="text-faint hidden shrink-0 sm:block" />
 
                       <button
                         onClick={(e) => advanceTask(t, e)}
-                        className="shrink-0"
+                        disabled={!advanceable}
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${advanceable ? '' : 'cursor-default'} ${
+                          done ? 'bg-success-soft' : cancelled ? 'bg-danger-soft' : doing ? 'bg-info-soft' : 'bg-warning-soft'
+                        }`}
                         aria-label={advanceLabel}
                         title={advanceLabel}
                       >
                         {done ? (
-                          <CheckCircle2 size={18} color="var(--status-success)" />
+                          <CheckCircle2 size={16} className="text-success" />
+                        ) : cancelled ? (
+                          <CheckCircle2 size={16} className="text-danger" />
                         ) : doing ? (
-                          <CircleDot size={18} className="text-info" />
+                          <CircleDot size={16} className="text-info" />
                         ) : (
-                          <Circle size={18} className="text-faint" />
+                          <Circle size={16} className="text-warning" />
                         )}
                       </button>
 
@@ -358,12 +435,6 @@ export function Tasks() {
                         <div className="flex w-7 shrink-0 items-center justify-center">
                           {assigneeIds.length > 0 && <AvatarGroup memberIds={assigneeIds} size={28} />}
                         </div>
-                        <span
-                          className="w-[110px] shrink-0 rounded-full px-2.5 py-1 text-center text-[11px] font-semibold whitespace-nowrap"
-                          style={{ background: pill.bg, color: pill.text }}
-                        >
-                          {t.project?.name}
-                        </span>
                         {canManage && (
                           <Dropdown
                             align="right"
@@ -408,19 +479,45 @@ export function Tasks() {
                         )}
                       </div>
                     </div>
-                  )
-                })}
-              </div>
+
+                    {expanded && (
+                      <div className="ml-9 flex flex-col gap-1.5">
+                        {loadingSubtasksFor.has(t.id) && <Skeleton className="h-8 w-full" />}
+                        {!loadingSubtasksFor.has(t.id) && subtasks.length === 0 && (
+                          <p className="text-faint px-1 text-[12px]">No subtasks</p>
+                        )}
+                        {subtasks.map((s) => (
+                          <div
+                            key={s.id}
+                            className="bg-card border-border flex items-center gap-2 rounded-md border px-3 py-2 text-[12.5px]"
+                          >
+                            {s.status === 'COMPLETED' ? (
+                              <CheckSquare size={14} className="text-success shrink-0" />
+                            ) : (
+                              <Square size={14} className="text-faint shrink-0" />
+                            )}
+                            <span className={s.status === 'COMPLETED' ? 'text-faint line-through' : 'text-ink'}>
+                              {s.title}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+                </div>
+              ))}
             </div>
-          )
-        })}
+          </div>
+        ))}
       </div>
 
       {activeTask && (
         <TaskDetailPanel
           key={activeTask.id}
           task={activeTask}
-          onClose={() => setActiveTask(null)}
+          onClose={() => setActiveTaskId(null)}
           onChange={refetchAll}
         />
       )}

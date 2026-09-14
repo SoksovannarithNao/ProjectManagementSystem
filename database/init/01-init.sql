@@ -26,15 +26,21 @@ CREATE TABLE roles (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Deliberately a single system-level role. Project/task authorization is
--- entirely project-scoped now (see project_members.project_role below) —
--- ADMINISTRATOR exists only for genuinely global concerns unrelated to any
--- one project: managing user accounts, managing this roles list, and a
--- "sees every project/task" bypass (ProjectAccessGuard.isAdmin). A normal
--- user has no row here at all (users.role_id is nullable) — their authority
--- comes entirely from which projects they're a member of and their role
--- there, not from a global role.
+-- Two system-level roles. Project/task authorization is entirely
+-- project-scoped (see project_members.project_role below) — neither role
+-- below grants any project-specific power beyond what ADMINISTRATOR's
+-- bypass gives it:
+--   USER          — assigned to every self-registered account by default
+--                   (UserService.registerSelfServiceUser). No special
+--                   access of any kind; purely an account-level label. All
+--                   real authority still comes from project_members rows.
+--   ADMINISTRATOR — genuinely global concerns unrelated to any one project:
+--                   managing user accounts, managing this roles list, and a
+--                   "sees every project/task" bypass (ProjectAccessGuard.isAdmin).
+--                   Only granted by promoting an existing account; never
+--                   assigned at registration.
 INSERT INTO roles (name, description) VALUES
+    ('USER', 'Standard registered account — no special access; all authority comes from project membership'),
     ('ADMINISTRATOR', 'Full access to user accounts, system roles, and every project/report');
 
 -- ==================== permissions / role_permissions ==================== --
@@ -247,6 +253,50 @@ CREATE TABLE project_members (
 CREATE INDEX idx_project_members_project_id ON project_members (project_id);
 CREATE INDEX idx_project_members_user_id ON project_members (user_id);
 CREATE INDEX idx_project_members_status ON project_members (status);
+
+-- "A project must always have at least one ACTIVE owner." Without this, an
+-- OWNER could demote/remove themselves (or be removed via a user account
+-- deletion, which cascades into this table) and permanently orphan the
+-- project — granting OWNER requires already being one (see backend
+-- ProjectAccessGuard.assertIsOwner), so nobody could ever become OWNER
+-- again. Mirrors ProjectMemberService.assertNotRemovingLastOwner at the
+-- application layer; kept here too since ON DELETE CASCADE from `users`
+-- reaches this table directly, bypassing that Java code path. To transfer
+-- ownership: promote the new OWNER first (now two active owners exist),
+-- then demote/remove the old one — the second step then sees the new owner
+-- already in place and passes.
+CREATE OR REPLACE FUNCTION check_project_has_active_owner()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_remaining_owners INTEGER;
+BEGIN
+    -- Only the removal/demotion of a currently-ACTIVE-OWNER row matters.
+    IF OLD.project_role <> 'OWNER' OR OLD.status <> 'ACTIVE' THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+    -- Still an active owner afterwards (e.g. an unrelated field changed) —
+    -- nothing to check.
+    IF TG_OP = 'UPDATE' AND NEW.project_role = 'OWNER' AND NEW.status = 'ACTIVE' THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT COUNT(*) INTO v_remaining_owners
+    FROM project_members
+    WHERE project_id = OLD.project_id AND project_role = 'OWNER' AND status = 'ACTIVE'
+      AND id <> OLD.id;
+
+    IF v_remaining_owners = 0 THEN
+        RAISE EXCEPTION 'Project % must keep at least one active owner — promote another member to OWNER first',
+            OLD.project_id
+            USING ERRCODE = '23514'; -- check_violation — see the milestone trigger below
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_project_members_owner_integrity
+    BEFORE UPDATE OR DELETE ON project_members
+    FOR EACH ROW EXECUTE FUNCTION check_project_has_active_owner();
 
 -- ==================== milestones ==================== --
 

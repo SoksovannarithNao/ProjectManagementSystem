@@ -27,6 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -64,12 +65,30 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
     }
 
+    // Scoped like every other directory in the app: a system ADMINISTRATOR
+    // sees everyone; everyone else sees only themselves plus users who
+    // share an ACTIVE project membership with them (i.e. people an OWNER/
+    // ADMIN actually invited them alongside) — not the whole org. Mirrors
+    // ProjectAccessGuard's "your visibility comes from project_members"
+    // principle, which this endpoint previously ignored entirely.
     @Transactional(readOnly = true)
-    public List<UserResponse> getAllUsers() {
-        return userRepository.findAllWithRoles()
-                .stream()
+    public List<UserResponse> getAllUsers(String callerUsername) {
+        User caller = getUserEntityByUsername(callerUsername);
+        List<User> users = userRepository.findAllWithRoles();
+        if (isSystemAdministrator(caller)) {
+            return users.stream().map(UserResponse::new).toList();
+        }
+
+        Set<Long> visibleIds = new HashSet<>(projectMemberRepository.findActiveCoMemberUserIds(caller.getId()));
+        visibleIds.add(caller.getId());
+        return users.stream()
+                .filter(u -> visibleIds.contains(u.getId()))
                 .map(UserResponse::new)
                 .toList();
+    }
+
+    private boolean isSystemAdministrator(User user) {
+        return user.getRole() != null && "ADMINISTRATOR".equals(user.getRole().getName());
     }
 
     @Transactional(readOnly = true)
@@ -128,6 +147,9 @@ public class UserService {
         user.setDepartment(resolveDepartment(request.getDepartmentId()));
         user.setRole(resolveRole(request.getRoleId()));
         if (request.getAccountStatus() != null) {
+            if (!"ACTIVE".equals(request.getAccountStatus()) && "ACTIVE".equals(user.getAccountStatus())) {
+                assertNotSoleOwnerOfAnyProject(user.getId());
+            }
             user.setAccountStatus(request.getAccountStatus());
         }
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
@@ -236,7 +258,7 @@ public class UserService {
             throw new AccessDeniedException("You cannot change your own position/department");
         }
 
-        if (!(caller.getRole() != null && "ADMINISTRATOR".equals(caller.getRole().getName()))) {
+        if (!isSystemAdministrator(caller)) {
             List<Long> callerAdminProjectIds = projectMemberRepository.findActiveAdminProjectIds(caller.getId());
             List<Long> targetProjectIds = projectMemberRepository.findProjectIdsByUserId(target.getId());
             boolean sharesAdministeredTeam = callerAdminProjectIds.stream().anyMatch(targetProjectIds::contains);
@@ -309,17 +331,36 @@ public class UserService {
     }
 
     public void deleteUser(Long id) {
+        assertNotSoleOwnerOfAnyProject(id);
         User user = getUserEntityById(id);
         userRepository.delete(user);
     }
 
+    // Refuses to deactivate/delete an account that is the sole ACTIVE OWNER
+    // of any project — otherwise that project would be permanently
+    // orphaned (granting OWNER requires already being one; see
+    // ProjectAccessGuard.assertIsOwner), mirroring the same invariant
+    // ProjectMemberService enforces when a member is demoted/removed
+    // directly. Ownership must be transferred to another member first.
+    private void assertNotSoleOwnerOfAnyProject(Long userId) {
+        List<Long> soleOwnerProjectIds = projectMemberRepository.findProjectIdsWhereSoleActiveOwner(userId);
+        if (!soleOwnerProjectIds.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "This user is the sole owner of " + soleOwnerProjectIds.size()
+                            + " project(s) — transfer ownership to another member before deactivating or deleting this account");
+        }
+    }
+
     // Self-registration: unlike createUser (admin-only, full field set),
     // this only collects username/email/password. fullName defaults to the
-    // username — the user fills in the rest later via Profile. No
-    // system-level role is assigned (see User.role) — a self-registered
-    // account is just a plain user; it gains project-level authority only by
-    // creating or being added to a project (see ProjectService/
-    // ProjectMemberService), never from a global role. PENDING_VERIFICATION
+    // username — the user fills in the rest later via Profile. Every
+    // self-registered account gets the global USER role (see User.role) —
+    // that role carries no permission bypass of any kind, it's purely an
+    // account-level label; a self-registered account is still just a plain
+    // user and gains project-level authority only by creating or being
+    // added to a project (see ProjectService/ProjectMemberService), never
+    // from a global role. ADMINISTRATOR is never assigned here — only by an
+    // existing admin promoting an account later. PENDING_VERIFICATION
     // (CustomUserDetailsService already treats anything but ACTIVE as
     // disabled, so this account can't log in until OtpService.verify flips
     // it to ACTIVE — see AuthService.verifyOtp).
@@ -340,8 +381,19 @@ public class UserService {
         user.setEmail(request.getEmail());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setAccountStatus("PENDING_VERIFICATION");
+        user.setRole(defaultUserRole());
 
         return userRepository.save(user);
+    }
+
+    // The USER role seeded in database/init/01-init.sql (see V7 migration
+    // for the delta on existing databases). Failing loudly here rather than
+    // leaving role_id NULL if it's somehow missing, since a missing seed row
+    // means the database wasn't migrated correctly.
+    private Role defaultUserRole() {
+        return roleRepository.findByName("USER")
+                .orElseThrow(() -> new IllegalStateException(
+                        "Default USER role is missing — check database seed data / run pending migrations"));
     }
 
     public void activateUser(String username) {

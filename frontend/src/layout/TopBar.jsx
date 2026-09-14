@@ -64,7 +64,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
         </div>
       </div>
 
-      <div className="flex items-center gap-2.5 max-sm:gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2.5 max-sm:gap-2">
         {actions}
         {showSearch && (
           <div className="border-border bg-subtle text-faint focus-within:border-lavender flex h-[42px] w-[180px] items-center gap-2 rounded-md border px-3.5 transition-[width,border-color] duration-[var(--duration-med)] ease-[var(--ease-standard)] focus-within:w-[220px] max-sm:hidden">
@@ -174,7 +174,14 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
         <Dropdown
           align="right"
           button={({ toggle }) => (
-            <button className="rounded-full" aria-label="Account menu" onClick={toggle}>
+            <button
+              className="hover:bg-subtle flex items-center gap-2.5 rounded-full py-1 pr-1 pl-2.5 max-sm:pl-1"
+              aria-label="Account menu"
+              onClick={toggle}
+            >
+              <span className="text-ink max-w-[160px] truncate text-[13px] font-semibold max-sm:hidden">
+                {displayName}
+              </span>
               <Avatar
                 initials={initialsFor(displayName)}
                 color="var(--accent-purple)"

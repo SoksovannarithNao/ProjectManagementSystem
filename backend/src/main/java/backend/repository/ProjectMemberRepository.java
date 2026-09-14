@@ -41,4 +41,34 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Lo
               AND pm.projectRole IN ('OWNER', 'ADMIN')
             """)
     List<Long> findActiveAdminProjectIds(@Param("userId") Long userId);
+
+    // How many ACTIVE OWNER rows a project currently has — used by
+    // ProjectMemberService to refuse demoting/removing a project's last
+    // owner (a project must never end up with zero owners; see
+    // ProjectMemberService.assertNotRemovingLastOwner).
+    long countByProjectIdAndProjectRoleAndStatus(Long projectId, String projectRole, String status);
+
+    // Projects where the given user is the ONLY ACTIVE OWNER — used by
+    // UserService to refuse deactivating (or deleting) an account that
+    // would leave one of these projects ownerless.
+    @Query("""
+            SELECT pm.project.id FROM ProjectMember pm
+            WHERE pm.user.id = :userId AND pm.status = 'ACTIVE' AND pm.projectRole = 'OWNER'
+              AND (SELECT COUNT(pm2) FROM ProjectMember pm2
+                   WHERE pm2.project.id = pm.project.id AND pm2.status = 'ACTIVE' AND pm2.projectRole = 'OWNER') = 1
+            """)
+    List<Long> findProjectIdsWhereSoleActiveOwner(@Param("userId") Long userId);
+
+    // Every user who shares at least one ACTIVE project membership with
+    // :userId (includes :userId itself, via the project(s) it's active on)
+    // — the visibility boundary for the org directory (GET /api/users). A
+    // brand-new account with zero project memberships gets nothing back
+    // from this query; UserService.getAllUsers adds the caller's own id
+    // regardless so they always see themselves.
+    @Query("""
+            SELECT DISTINCT pm2.user.id FROM ProjectMember pm
+            JOIN ProjectMember pm2 ON pm2.project.id = pm.project.id
+            WHERE pm.user.id = :userId AND pm.status = 'ACTIVE' AND pm2.status = 'ACTIVE'
+            """)
+    List<Long> findActiveCoMemberUserIds(@Param("userId") Long userId);
 }
