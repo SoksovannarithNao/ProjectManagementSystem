@@ -1,4 +1,4 @@
-import { apiFetch } from './client'
+import { apiFetch, apiUpload } from './client'
 
 export function getUsers() {
   return apiFetch('/users')
@@ -14,6 +14,16 @@ export function createUser(request) {
 
 export function updateOwnProfile(request) {
   return apiFetch('/users/me', { method: 'PUT', body: request })
+}
+
+export function uploadProfilePhoto(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiUpload('/users/me/photo', formData)
+}
+
+export function deleteProfilePhoto() {
+  return apiFetch('/users/me/photo', { method: 'DELETE' })
 }
 
 export function changeOwnPassword(request) {

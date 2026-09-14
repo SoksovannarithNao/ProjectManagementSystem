@@ -3,6 +3,7 @@ package backend.entity;
 import jakarta.persistence.*;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -33,8 +34,22 @@ public class User {
     @Column(name = "phone_number", length = 30)
     private String phoneNumber;
 
-    @Column(name = "profile_photo_url", length = 500)
-    private String profilePhotoUrl;
+    // The photo itself, stored in the database (not on local disk) so it
+    // travels with a pg_dump/restore or a managed-Postgres migration instead
+    // of being left behind on whichever host originally received the
+    // upload. Served publicly via PhotoController/profilePhotoToken — never
+    // exposed by user id, which would make every user's photo enumerable.
+    @Column(name = "profile_photo")
+    private byte[] profilePhoto;
+
+    @Column(name = "profile_photo_content_type", length = 50)
+    private String profilePhotoContentType;
+
+    // Random, regenerated on every upload — doubles as the public lookup key
+    // (PhotoController) and a cache-buster (UserResponse embeds it in the
+    // URL, so a new upload is a new URL, not a stale cached one).
+    @Column(name = "profile_photo_token")
+    private UUID profilePhotoToken;
 
     // Set only by a Team Admin (enforced in UserService.updateMemberPositionDepartment),
     // never by the user themselves via updateOwnProfile — see backend/README.md.
@@ -46,8 +61,12 @@ public class User {
     @JoinColumn(name = "department_id")
     private Department department;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "role_id", nullable = false)
+    // Nullable: a SYSTEM-level role (ADMINISTRATOR) or nothing — not a
+    // project permission. A normal user has no row here at all; their
+    // authority comes from project_members.project_role on whichever
+    // projects they belong to. See ProjectAccessGuard.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "role_id")
     private Role role;
 
     @Column(name = "account_status", nullable = false, length = 20)
@@ -125,12 +144,28 @@ public class User {
         this.phoneNumber = phoneNumber;
     }
 
-    public String getProfilePhotoUrl() {
-        return profilePhotoUrl;
+    public byte[] getProfilePhoto() {
+        return profilePhoto;
     }
 
-    public void setProfilePhotoUrl(String profilePhotoUrl) {
-        this.profilePhotoUrl = profilePhotoUrl;
+    public void setProfilePhoto(byte[] profilePhoto) {
+        this.profilePhoto = profilePhoto;
+    }
+
+    public String getProfilePhotoContentType() {
+        return profilePhotoContentType;
+    }
+
+    public void setProfilePhotoContentType(String profilePhotoContentType) {
+        this.profilePhotoContentType = profilePhotoContentType;
+    }
+
+    public UUID getProfilePhotoToken() {
+        return profilePhotoToken;
+    }
+
+    public void setProfilePhotoToken(UUID profilePhotoToken) {
+        this.profilePhotoToken = profilePhotoToken;
     }
 
     public Position getPosition() {

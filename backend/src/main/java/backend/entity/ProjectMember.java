@@ -25,8 +25,11 @@ public class ProjectMember {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    // OWNER/ADMIN/MEMBER/VIEWER — THE authorization boundary for
+    // project/task actions (see backend.service.ProjectAccessGuard), not
+    // users.role_id.
     @Column(name = "project_role", nullable = false, length = 20)
-    private String projectRole = "TEAM_MEMBER";
+    private String projectRole = "MEMBER";
 
     // PENDING = an invitation the user hasn't responded to yet; ACTIVE = a
     // real membership; DECLINED = the user turned the invitation down. Rows

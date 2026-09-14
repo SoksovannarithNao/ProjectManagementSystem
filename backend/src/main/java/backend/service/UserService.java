@@ -23,12 +23,24 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 @Transactional
 public class UserService {
+
+    // Content types accepted for a profile photo upload — deliberately
+    // narrow (real image formats only), checked server-side since a
+    // client-side accept="image/*" is only a UI hint, not a security
+    // boundary.
+    private static final Set<String> ALLOWED_PHOTO_TYPES =
+            Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -85,9 +97,6 @@ public class UserService {
     }
 
     public UserResponse createUser(UserCreateRequest request) {
-        Role role = roleRepository.findById(request.getRoleId())
-                .orElseThrow(() -> new NotFoundException("Role not found"));
-
         User user = new User();
         user.setFullName(request.getFullName());
         user.setUsername(request.getUsername());
@@ -96,10 +105,9 @@ public class UserService {
         user.setGender(request.getGender());
         user.setDateOfBirth(request.getDateOfBirth());
         user.setPhoneNumber(request.getPhoneNumber());
-        user.setProfilePhotoUrl(request.getProfilePhotoUrl());
         user.setPosition(resolvePosition(request.getPositionId()));
         user.setDepartment(resolveDepartment(request.getDepartmentId()));
-        user.setRole(role);
+        user.setRole(resolveRole(request.getRoleId()));
         if (request.getAccountStatus() != null) {
             user.setAccountStatus(request.getAccountStatus());
         }
@@ -109,8 +117,6 @@ public class UserService {
 
     public UserResponse updateUser(Long id, UserUpdateRequest request) {
         User user = getUserEntityById(id);
-        Role role = roleRepository.findById(request.getRoleId())
-                .orElseThrow(() -> new NotFoundException("Role not found"));
 
         user.setFullName(request.getFullName());
         user.setUsername(request.getUsername());
@@ -118,10 +124,9 @@ public class UserService {
         user.setGender(request.getGender());
         user.setDateOfBirth(request.getDateOfBirth());
         user.setPhoneNumber(request.getPhoneNumber());
-        user.setProfilePhotoUrl(request.getProfilePhotoUrl());
         user.setPosition(resolvePosition(request.getPositionId()));
         user.setDepartment(resolveDepartment(request.getDepartmentId()));
-        user.setRole(role);
+        user.setRole(resolveRole(request.getRoleId()));
         if (request.getAccountStatus() != null) {
             user.setAccountStatus(request.getAccountStatus());
         }
@@ -145,17 +150,78 @@ public class UserService {
         user.setGender(request.getGender());
         user.setDateOfBirth(request.getDateOfBirth());
         user.setPhoneNumber(request.getPhoneNumber());
-        user.setProfilePhotoUrl(request.getProfilePhotoUrl());
-        // Deliberately does NOT touch position/department — those are
-        // Team-Admin-managed only, via updateMemberPositionDepartment below.
+        // Deliberately does NOT touch position/department (Team-Admin-managed
+        // only, via updateMemberPositionDepartment below) or profilePhotoUrl
+        // (managed only via uploadOwnProfilePhoto/deleteOwnProfilePhoto below).
 
         return new UserResponse(userRepository.save(user));
     }
 
+    // Stores the bytes directly in the database (see User.profilePhoto) —
+    // not on local disk — so the photo travels with a pg_dump/restore or a
+    // managed-Postgres migration instead of being left behind on whichever
+    // host originally received the upload. Generates a fresh random token
+    // each time, which both replaces the old public URL (so nothing can
+    // serve a stale cached copy after a re-upload) and is itself the public
+    // lookup key (see PhotoController) — never the user id, which would
+    // make every user's photo enumerable.
+    public UserResponse uploadOwnProfilePhoto(String username, MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("No file was uploaded");
+        }
+        if (!ALLOWED_PHOTO_TYPES.contains(file.getContentType())) {
+            throw new IllegalArgumentException("Photo must be a JPEG, PNG, WEBP, or GIF image");
+        }
+
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (IOException ex) {
+            throw new UncheckedIOException("Failed to read the uploaded photo", ex);
+        }
+
+        User user = getUserEntityByUsername(username);
+        user.setProfilePhoto(bytes);
+        user.setProfilePhotoContentType(file.getContentType());
+        user.setProfilePhotoToken(UUID.randomUUID());
+        return new UserResponse(userRepository.save(user));
+    }
+
+    public UserResponse deleteOwnProfilePhoto(String username) {
+        User user = getUserEntityByUsername(username);
+        user.setProfilePhoto(null);
+        user.setProfilePhotoContentType(null);
+        user.setProfilePhotoToken(null);
+        return new UserResponse(userRepository.save(user));
+    }
+
+    // Public read path for PhotoController — no authentication, since an
+    // <img> tag can't attach the JWT this API otherwise requires everywhere
+    // else. Safe to expose that way because the token is an unguessable
+    // UUID, not a sequential user id.
+    @Transactional(readOnly = true)
+    public ProfilePhoto getProfilePhotoByToken(String token) {
+        UUID parsed;
+        try {
+            parsed = UUID.fromString(token);
+        } catch (IllegalArgumentException ex) {
+            throw new NotFoundException("Photo not found");
+        }
+        User user = userRepository.findByProfilePhotoToken(parsed)
+                .orElseThrow(() -> new NotFoundException("Photo not found"));
+        if (user.getProfilePhoto() == null) {
+            throw new NotFoundException("Photo not found");
+        }
+        return new ProfilePhoto(user.getProfilePhoto(), user.getProfilePhotoContentType());
+    }
+
+    public record ProfilePhoto(byte[] bytes, String contentType) {
+    }
+
     // Team-Admin-only: sets another user's Position/Department. "Team Admin"
-    // here means ADMINISTRATOR, or an ACTIVE PROJECT_MANAGER/TEAM_LEADER
-    // member of at least one project the target user is also an ACTIVE
-    // member of — i.e. someone who actually administers a team the target
+    // here means a system ADMINISTRATOR, or an ACTIVE OWNER/ADMIN member of
+    // at least one project the target user is also an ACTIVE member of —
+    // i.e. someone who actually administers a project/team the target
     // belongs to, not just any elevated role holder. See ProjectMemberService
     // for the same "team admin" notion used to gate invites. Deliberately
     // refuses self-targeting (even for ADMINISTRATOR) — these fields must be
@@ -170,7 +236,7 @@ public class UserService {
             throw new AccessDeniedException("You cannot change your own position/department");
         }
 
-        if (!"ADMINISTRATOR".equals(caller.getRole().getName())) {
+        if (!(caller.getRole() != null && "ADMINISTRATOR".equals(caller.getRole().getName()))) {
             List<Long> callerAdminProjectIds = projectMemberRepository.findActiveAdminProjectIds(caller.getId());
             List<Long> targetProjectIds = projectMemberRepository.findProjectIdsByUserId(target.getId());
             boolean sharesAdministeredTeam = callerAdminProjectIds.stream().anyMatch(targetProjectIds::contains);
@@ -182,6 +248,17 @@ public class UserService {
         target.setPosition(resolvePosition(request.getPositionId()));
         target.setDepartment(resolveDepartment(request.getDepartmentId()));
         return new UserResponse(userRepository.save(target));
+    }
+
+    // Optional — an admin-created/edited account may have no system-level
+    // role at all (the common case; see User.role), or be explicitly
+    // granted one (currently only ADMINISTRATOR exists).
+    private Role resolveRole(Long roleId) {
+        if (roleId == null) {
+            return null;
+        }
+        return roleRepository.findById(roleId)
+                .orElseThrow(() -> new NotFoundException("Role not found"));
     }
 
     private Position resolvePosition(Long positionId) {
@@ -238,8 +315,11 @@ public class UserService {
 
     // Self-registration: unlike createUser (admin-only, full field set),
     // this only collects username/email/password. fullName defaults to the
-    // username — the user fills in the rest later via Profile. Always
-    // TEAM_MEMBER (the lowest-privilege role) and PENDING_VERIFICATION
+    // username — the user fills in the rest later via Profile. No
+    // system-level role is assigned (see User.role) — a self-registered
+    // account is just a plain user; it gains project-level authority only by
+    // creating or being added to a project (see ProjectService/
+    // ProjectMemberService), never from a global role. PENDING_VERIFICATION
     // (CustomUserDetailsService already treats anything but ACTIVE as
     // disabled, so this account can't log in until OtpService.verify flips
     // it to ACTIVE — see AuthService.verifyOtp).
@@ -254,15 +334,11 @@ public class UserService {
             throw new IllegalArgumentException("Password and confirmation do not match");
         }
 
-        Role role = roleRepository.findByName("TEAM_MEMBER")
-                .orElseThrow(() -> new IllegalStateException("Default TEAM_MEMBER role is not configured"));
-
         User user = new User();
         user.setFullName(request.getUsername());
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
-        user.setRole(role);
         user.setAccountStatus("PENDING_VERIFICATION");
 
         return userRepository.save(user);

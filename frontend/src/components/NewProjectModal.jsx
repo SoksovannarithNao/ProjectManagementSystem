@@ -1,30 +1,29 @@
 import { useState } from 'react'
 import { Modal } from './ui/Modal'
 import { useToast } from './ui/Toast'
-import { useMembers } from '../data/UsersContext'
 import { createProject } from '../api/projects'
 import { humanizeEnum } from '../api/format'
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 
+// No manager picker — the authenticated caller always becomes the project's
+// manager/OWNER (see backend ProjectService.createProject); there's no
+// global role required to create a project, and no way for a normal user
+// to hand ownership to someone else at creation time.
 export function NewProjectModal({ onClose, onCreated }) {
   const notify = useToast()
-  const { members } = useMembers()
   const [name, setName] = useState('')
   const [projectCode, setProjectCode] = useState('')
   const [description, setDescription] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [managerId, setManagerId] = useState('')
   const [priority, setPriority] = useState('MEDIUM')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const effectiveManagerId = managerId || (members[0] ? String(members[0].id) : '')
-
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!name.trim() || !projectCode.trim() || !startDate || !endDate || !effectiveManagerId) return
+    if (!name.trim() || !projectCode.trim() || !startDate || !endDate) return
     setSubmitting(true)
     setError('')
     try {
@@ -34,7 +33,6 @@ export function NewProjectModal({ onClose, onCreated }) {
         description: description.trim() || null,
         startDate,
         endDate,
-        managerId: Number(effectiveManagerId),
         priority,
         status: 'PLANNING',
         progress: 0,
@@ -110,38 +108,20 @@ export function NewProjectModal({ onClose, onCreated }) {
           </label>
         </div>
 
-        <div className="flex gap-3">
-          <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Manager</span>
-            <select
-              value={effectiveManagerId}
-              onChange={(e) => setManagerId(e.target.value)}
-              className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
-              required
-            >
-              {!members.length && <option value="">Loading…</option>}
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Priority</span>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
-            >
-              {PRIORITY_OPTIONS.map((p) => (
-                <option key={p} value={p}>
-                  {humanizeEnum(p)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-muted text-[12.5px] font-semibold">Priority</span>
+          <select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+            className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+          >
+            {PRIORITY_OPTIONS.map((p) => (
+              <option key={p} value={p}>
+                {humanizeEnum(p)}
+              </option>
+            ))}
+          </select>
+        </label>
 
         {error && <p className="text-danger text-[12.5px] font-semibold">{error}</p>}
 
@@ -149,7 +129,7 @@ export function NewProjectModal({ onClose, onCreated }) {
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={submitting || !effectiveManagerId}>
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
             {submitting ? 'Creating…' : 'Create Project'}
           </button>
         </div>

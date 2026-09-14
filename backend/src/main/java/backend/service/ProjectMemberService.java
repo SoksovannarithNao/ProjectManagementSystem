@@ -10,7 +10,6 @@ import backend.exception.NotFoundException;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,7 +52,7 @@ public class ProjectMemberService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
         List<ProjectMember> members;
-        if ("ADMINISTRATOR".equals(caller.getRole().getName())) {
+        if (projectAccessGuard.isAdmin(caller)) {
             members = projectMemberRepository.findAll();
         } else {
             List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
@@ -109,22 +108,21 @@ public class ProjectMemberService {
     // Team-Admin-only: invitations sent for a project, awaiting a response.
     public List<ProjectMemberResponse> getPendingInvitations(Long projectId, String username) {
         Project project = requireProject(projectId);
-        assertTeamAdmin(requireUser(username), project);
+        projectAccessGuard.assertCanManage(requireUser(username), project.getId());
         return projectMemberRepository.findByProjectIdAndStatus(projectId, "PENDING")
                 .stream()
                 .map(ProjectMemberResponse::new)
                 .toList();
     }
 
-    // Only a Team Admin (the project's manager, or an ACTIVE
-    // PROJECT_MANAGER/TEAM_LEADER member of it, or a global ADMINISTRATOR)
-    // may invite a user to a project ("team"). Re-invites a previously
-    // DECLINED row rather than creating a second one — the (project_id,
-    // user_id) UNIQUE constraint means there can only ever be one.
+    // Only OWNER/ADMIN of the project (or a system ADMINISTRATOR) may invite
+    // a user to it. Re-invites a previously DECLINED row rather than
+    // creating a second one — the (project_id, user_id) UNIQUE constraint
+    // means there can only ever be one.
     public ProjectMemberResponse inviteMember(TeamInviteRequest request, String callerUsername) {
         User caller = requireUser(callerUsername);
         Project project = requireProject(request.getProjectId());
-        assertTeamAdmin(caller, project);
+        projectAccessGuard.assertCanManage(caller, project.getId());
 
         User target = userRepository.findByUsernameIgnoreCase(request.getUsername())
                 .orElseThrow(() -> new NotFoundException("No user found with that username"));
@@ -149,7 +147,7 @@ public class ProjectMemberService {
             member = new ProjectMember();
             member.setProject(project);
             member.setUser(target);
-            member.setProjectRole("TEAM_MEMBER");
+            member.setProjectRole("MEMBER");
             member.setStatus("PENDING");
             member.setInvitedBy(caller);
         }
@@ -178,26 +176,6 @@ public class ProjectMemberService {
         return new ProjectMemberResponse(saved);
     }
 
-    // ADMINISTRATOR, the project's designated manager, or an ACTIVE
-    // PROJECT_MANAGER/TEAM_LEADER member of THIS SPECIFIC project — not just
-    // any global elevated role, since a Team Admin should only administer
-    // teams they actually lead.
-    private void assertTeamAdmin(User caller, Project project) {
-        if (projectAccessGuard.isAdmin(caller)) {
-            return;
-        }
-        if (project.getManager().getId().equals(caller.getId())) {
-            return;
-        }
-        boolean isAdminMember = projectMemberRepository.findByProjectIdAndUserId(project.getId(), caller.getId())
-                .filter(pm -> "ACTIVE".equals(pm.getStatus()))
-                .map(pm -> "PROJECT_MANAGER".equals(pm.getProjectRole()) || "TEAM_LEADER".equals(pm.getProjectRole()))
-                .orElse(false);
-        if (!isAdminMember) {
-            throw new AccessDeniedException("You are not a Team Admin for this project");
-        }
-    }
-
     private User requireUser(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new NotFoundException("User not found"));
@@ -208,20 +186,35 @@ public class ProjectMemberService {
                 .orElseThrow(() -> new NotFoundException("Project not found"));
     }
 
-    public ProjectMemberResponse createProjectMember(ProjectMemberRequest request) {
+    // Requires OWNER/ADMIN (or system ADMINISTRATOR) of the target project;
+    // granting OWNER specifically requires being OWNER (or ADMINISTRATOR) —
+    // an ADMIN may add MEMBER/VIEWER members but can't promote themselves or
+    // anyone else to OWNER.
+    public ProjectMemberResponse createProjectMember(ProjectMemberRequest request, String username) {
+        User caller = requireUser(username);
+        projectAccessGuard.assertCanManage(caller, request.getProjectId());
+        if ("OWNER".equals(request.getProjectRole())) {
+            projectAccessGuard.assertIsOwner(caller, request.getProjectId());
+        }
         ProjectMember projectMember = new ProjectMember();
         applyRequest(projectMember, request);
         return new ProjectMemberResponse(projectMemberRepository.save(projectMember));
     }
 
-    public ProjectMemberResponse updateProjectMember(Long id, ProjectMemberRequest request) {
+    public ProjectMemberResponse updateProjectMember(Long id, ProjectMemberRequest request, String username) {
+        User caller = requireUser(username);
         ProjectMember projectMember = getProjectMemberEntityById(id);
+        projectAccessGuard.assertCanManage(caller, projectMember.getProject().getId());
+        if ("OWNER".equals(request.getProjectRole())) {
+            projectAccessGuard.assertIsOwner(caller, projectMember.getProject().getId());
+        }
         applyRequest(projectMember, request);
         return new ProjectMemberResponse(projectMemberRepository.save(projectMember));
     }
 
-    public void deleteProjectMember(Long id) {
+    public void deleteProjectMember(Long id, String username) {
         ProjectMember projectMember = getProjectMemberEntityById(id);
+        projectAccessGuard.assertCanManage(requireUser(username), projectMember.getProject().getId());
         projectMemberRepository.delete(projectMember);
     }
 

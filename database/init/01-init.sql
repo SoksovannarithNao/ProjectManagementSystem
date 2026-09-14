@@ -26,11 +26,16 @@ CREATE TABLE roles (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Deliberately a single system-level role. Project/task authorization is
+-- entirely project-scoped now (see project_members.project_role below) —
+-- ADMINISTRATOR exists only for genuinely global concerns unrelated to any
+-- one project: managing user accounts, managing this roles list, and a
+-- "sees every project/task" bypass (ProjectAccessGuard.isAdmin). A normal
+-- user has no row here at all (users.role_id is nullable) — their authority
+-- comes entirely from which projects they're a member of and their role
+-- there, not from a global role.
 INSERT INTO roles (name, description) VALUES
-    ('ADMINISTRATOR', 'Full access to users, roles, projects, and reports'),
-    ('PROJECT_MANAGER', 'Creates and manages projects, teams, and milestones'),
-    ('TEAM_LEADER', 'Manages tasks and team members within a project'),
-    ('TEAM_MEMBER', 'Works on tasks assigned to them');
+    ('ADMINISTRATOR', 'Full access to user accounts, system roles, and every project/report');
 
 -- ==================== permissions / role_permissions ==================== --
 -- Granular authorization on top of the 4 fixed roles. Role_Requirment.md's
@@ -63,24 +68,15 @@ CREATE TABLE role_permissions (
 
 CREATE INDEX idx_role_permissions_permission_id ON role_permissions (permission_id);
 
--- Default matrix. ADMINISTRATOR and PROJECT_MANAGER share the same action
--- set at this flat, action-only granularity — Role_Requirment.md gives PMs
--- full lifecycle ownership (create/edit/delete/assign/approve/report) of
--- their own projects, and distinguishing "their projects" from "every
--- project" would need a resource-scoped permission model, not just more
--- action codes. That's flagged as a future enhancement in the README,
--- alongside the ownership-scoping gap already noted in backend/README.md.
+-- ADMINISTRATOR gets every action at this flat, action-only granularity.
+-- Project-scoped roles (OWNER/ADMIN/MEMBER/VIEWER on project_members) are
+-- deliberately NOT rows here — this table only ever described the old
+-- global-role matrix, and nothing in the backend actually queries it (see
+-- README's Authorization section) — project/task permission is computed
+-- directly from project_members.project_role instead.
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
-WHERE r.name IN ('ADMINISTRATOR', 'PROJECT_MANAGER');
-
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p
-WHERE r.name = 'TEAM_LEADER' AND p.code IN ('VIEW', 'CREATE', 'EDIT', 'ASSIGN', 'GENERATE_REPORTS');
-
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p
-WHERE r.name = 'TEAM_MEMBER' AND p.code IN ('VIEW', 'EDIT');
+WHERE r.name = 'ADMINISTRATOR';
 
 -- ==================== positions / departments ==================== --
 -- Org-wide lookup lists (Requirement: Position/Department must be managed by
@@ -118,12 +114,25 @@ CREATE TABLE users (
     gender           VARCHAR(20),
     date_of_birth    DATE,
     phone_number     VARCHAR(30),
-    profile_photo_url VARCHAR(500),
+    -- The photo itself, stored in the database rather than on local disk —
+    -- see backend/README.md — so it travels with a pg_dump/restore or a
+    -- managed-Postgres migration instead of being left behind on whichever
+    -- host originally received the upload. profile_photo_token is the
+    -- public lookup key (regenerated on every upload) — never the user's
+    -- id, which would make every user's photo enumerable.
+    profile_photo         BYTEA,
+    profile_photo_content_type  VARCHAR(50),
+    profile_photo_token   UUID,
     -- Set only by a Team Admin (via project_members-scoped authorization in
     -- the backend), never by the user themselves — see backend/README.md.
     position_id      BIGINT REFERENCES positions (id) ON DELETE SET NULL,
     department_id    BIGINT REFERENCES departments (id) ON DELETE SET NULL,
-    role_id          BIGINT NOT NULL REFERENCES roles (id) ON DELETE RESTRICT,
+    -- Nullable: this is a SYSTEM-level role (ADMINISTRATOR or nothing), not
+    -- a project permission. A normal user has no row here at all — their
+    -- authority comes from project_members.project_role on whichever
+    -- projects they belong to, not from this column. Self-registration
+    -- never sets this (see UserService.registerSelfServiceUser).
+    role_id          BIGINT REFERENCES roles (id) ON DELETE RESTRICT,
     -- PENDING_VERIFICATION is the state a self-registered account starts in
     -- (see otp_verifications below) — CustomUserDetailsService only treats
     -- ACTIVE as enabled, so a pending account already can't log in without
@@ -147,6 +156,9 @@ CREATE UNIQUE INDEX idx_users_email_lower ON users (LOWER(email));
 CREATE INDEX idx_users_role_id ON users (role_id);
 CREATE INDEX idx_users_position_id ON users (position_id);
 CREATE INDEX idx_users_department_id ON users (department_id);
+-- Public photo lookup key (PhotoController) — partial since most users have
+-- no photo at all (NULL), and unique so the token is a reliable lookup.
+CREATE UNIQUE INDEX idx_users_profile_photo_token ON users (profile_photo_token) WHERE profile_photo_token IS NOT NULL;
 
 CREATE TRIGGER trg_users_updated_at
     BEFORE UPDATE ON users
@@ -209,8 +221,14 @@ CREATE TABLE project_members (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     project_id   BIGINT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
     user_id      BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    project_role VARCHAR(20) NOT NULL DEFAULT 'TEAM_MEMBER'
-                 CHECK (project_role IN ('PROJECT_MANAGER', 'TEAM_LEADER', 'TEAM_MEMBER')),
+    -- This is THE authorization boundary for project/task actions (see
+    -- backend ProjectAccessGuard) — not users.role_id. OWNER is granted
+    -- automatically to whoever creates the project (ProjectService); ADMIN
+    -- has the same content/member-management powers minus deleting or
+    -- transferring ownership; MEMBER can create/edit content; VIEWER is
+    -- read-only. The same user can hold a different role in every project.
+    project_role VARCHAR(20) NOT NULL DEFAULT 'MEMBER'
+                 CHECK (project_role IN ('OWNER', 'ADMIN', 'MEMBER', 'VIEWER')),
     -- The "team invitation" workflow lives on this table rather than a
     -- separate one — a project's membership IS its team, so an invitation is
     -- just a project_members row that hasn't been accepted yet. A row stays

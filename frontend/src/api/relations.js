@@ -28,6 +28,21 @@ export function buildProjectMemberMap(projectMembers) {
   return map
 }
 
+// projectId -> the current user's own ACTIVE project_role there (OWNER/
+// ADMIN/MEMBER/VIEWER), for deriving what actions to show per project —
+// mirrors the backend's ProjectAccessGuard.activeRole. A PENDING invitation
+// doesn't count (same as the backend), and a project the user isn't a
+// member of at all has no entry.
+export function buildMyProjectRoleMap(projectMembers, currentUserId) {
+  const map = new Map()
+  for (const pm of projectMembers ?? []) {
+    const projectId = pm.project?.id
+    if (projectId == null || pm.user?.id !== currentUserId || pm.status !== 'ACTIVE') continue
+    map.set(projectId, pm.projectRole)
+  }
+  return map
+}
+
 export function countByValue(idLists) {
   const counts = new Map()
   for (const ids of idLists) {

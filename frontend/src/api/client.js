@@ -32,19 +32,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
-  const headers = { 'Content-Type': 'application/json' }
-  if (!skipAuth) {
-    const auth = getStoredAuth()
-    if (auth?.token) headers.Authorization = `Bearer ${auth.token}`
-  }
-
-  const response = await fetch(`/api${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-
+async function handleResponse(response, skipAuth) {
   if (response.status === 204) return null
 
   const text = await response.text()
@@ -59,4 +47,37 @@ export async function apiFetch(path, { method = 'GET', body, skipAuth = false } 
   }
 
   return data
+}
+
+export async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
+  const headers = { 'Content-Type': 'application/json' }
+  if (!skipAuth) {
+    const auth = getStoredAuth()
+    if (auth?.token) headers.Authorization = `Bearer ${auth.token}`
+  }
+
+  const response = await fetch(`/api${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+
+  return handleResponse(response, skipAuth)
+}
+
+// For multipart/form-data uploads (e.g. a profile photo) — no Content-Type
+// header (the browser sets one with the correct multipart boundary itself
+// once it sees a FormData body) and no JSON.stringify.
+export async function apiUpload(path, formData, { method = 'PUT' } = {}) {
+  const headers = {}
+  const auth = getStoredAuth()
+  if (auth?.token) headers.Authorization = `Bearer ${auth.token}`
+
+  const response = await fetch(`/api${path}`, {
+    method,
+    headers,
+    body: formData,
+  })
+
+  return handleResponse(response, false)
 }

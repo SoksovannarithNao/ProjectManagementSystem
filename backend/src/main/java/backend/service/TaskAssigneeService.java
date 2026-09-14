@@ -50,7 +50,7 @@ public class TaskAssigneeService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
         List<TaskAssignee> assignees;
-        if ("ADMINISTRATOR".equals(caller.getRole().getName())) {
+        if (projectAccessGuard.isAdmin(caller)) {
             assignees = taskAssigneeRepository.findAll();
         } else {
             List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
@@ -106,11 +106,13 @@ public class TaskAssigneeService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
-    public TaskAssigneeResponse createTaskAssignee(TaskAssigneeRequest request) {
+    // Requires OWNER/ADMIN (or system ADMINISTRATOR) of the task's project.
+    public TaskAssigneeResponse createTaskAssignee(TaskAssigneeRequest request, String username) {
         Task task = taskRepository.findById(request.getTaskId())
                 .orElseThrow(() -> new NotFoundException("Task not found"));
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new NotFoundException("User not found"));
+        projectAccessGuard.assertCanManage(requireUser(username), task.getProject().getId());
 
         TaskAssignee taskAssignee = new TaskAssignee();
         taskAssignee.setTask(task);
@@ -121,8 +123,9 @@ public class TaskAssigneeService {
         return new TaskAssigneeResponse(saved);
     }
 
-    public void deleteTaskAssignee(Long id) {
+    public void deleteTaskAssignee(Long id, String username) {
         TaskAssignee taskAssignee = getTaskAssigneeEntityById(id);
+        projectAccessGuard.assertCanManage(requireUser(username), taskAssignee.getTask().getProject().getId());
         taskAssigneeRepository.delete(taskAssignee);
     }
 }

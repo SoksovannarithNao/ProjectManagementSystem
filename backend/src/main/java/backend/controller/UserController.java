@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -69,6 +70,23 @@ public class UserController {
         userService.changeOwnPassword(authentication.getName(), request);
     }
 
+    // multipart/form-data with a single "file" part. Stored as bytes in the
+    // database (see User.profilePhoto) and served back publicly by token via
+    // PhotoController (see SecurityConfig) since an <img> tag can't attach
+    // the JWT this API otherwise requires everywhere else.
+    @PutMapping("/me/photo")
+    public UserResponse uploadOwnProfilePhoto(
+            Authentication authentication,
+            @RequestParam("file") MultipartFile file
+    ) {
+        return userService.uploadOwnProfilePhoto(authentication.getName(), file);
+    }
+
+    @DeleteMapping("/me/photo")
+    public UserResponse deleteOwnProfilePhoto(Authentication authentication) {
+        return userService.deleteOwnProfilePhoto(authentication.getName());
+    }
+
     // Appearance/notification preferences (Settings page) — separate from
     // updateOwnProfile (personal info, Profile page).
     @PutMapping("/me/preferences")
@@ -80,8 +98,8 @@ public class UserController {
     }
 
     // Not role-gated at the annotation level — UserService enforces the
-    // actual "Team Admin for this specific member" check (ADMINISTRATOR, or
-    // an active PROJECT_MANAGER/TEAM_LEADER of a project this member also
+    // actual "Team Admin for this specific member" check (system
+    // ADMINISTRATOR, or an active OWNER/ADMIN of a project this member also
     // belongs to), same pattern as the self-scoped endpoints above.
     @PutMapping("/{id}/position-department")
     public UserResponse updateMemberPositionDepartment(

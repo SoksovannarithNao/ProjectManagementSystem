@@ -78,16 +78,10 @@ public class AuthService {
         loginRateLimiter.recordSuccess(rateLimitKey);
 
         User user = userService.getUserEntityByUsername(request.getUsername());
+        String roleName = user.getRole() != null ? user.getRole().getName() : null;
 
-        String token = jwtService.generateToken(
-                user.getUsername(),
-                user.getRole().getName()
-        );
+        String token = jwtService.generateToken(user.getUsername(), roleName);
 
-        return new LoginResponse(
-                token,
-                user.getUsername(),
-                user.getRole().getName()
-        );
+        return new LoginResponse(token, user.getUsername(), roleName);
     }
 }

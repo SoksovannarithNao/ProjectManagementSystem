@@ -25,16 +25,20 @@ public class JwtService {
         this.expirationMs = expirationMs;
     }
 
+    // role is null for an ordinary user (no system-level role — see
+    // User.role) — omit the claim entirely rather than passing null, so a
+    // plain user's token decodes with zero granted authorities.
     public String generateToken(String username, String role) {
         Date now = new Date();
         Date expiration = new Date(now.getTime() + expirationMs);
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(username)
-                .claim("role", role)
                 .issuedAt(now)
-                .expiration(expiration)
-                .signWith(signingKey)
-                .compact();
+                .expiration(expiration);
+        if (role != null) {
+            builder.claim("role", role);
+        }
+        return builder.signWith(signingKey).compact();
     }
 }

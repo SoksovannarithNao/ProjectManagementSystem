@@ -175,7 +175,12 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
           align="right"
           button={({ toggle }) => (
             <button className="rounded-full" aria-label="Account menu" onClick={toggle}>
-              <Avatar initials={initialsFor(displayName)} color="var(--accent-purple)" size={40} />
+              <Avatar
+                initials={initialsFor(displayName)}
+                color="var(--accent-purple)"
+                photoUrl={profile?.profilePhotoUrl}
+                size={40}
+              />
             </button>
           )}
           panelClassName="w-[220px] p-1.5"

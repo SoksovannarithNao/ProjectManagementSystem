@@ -46,7 +46,7 @@ public class ProjectService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
         List<Project> projects;
-        if ("ADMINISTRATOR".equals(caller.getRole().getName())) {
+        if (projectAccessGuard.isAdmin(caller)) {
             projects = projectRepository.findAll();
         } else {
             List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
@@ -71,27 +71,39 @@ public class ProjectService {
                 .orElseThrow(() -> new NotFoundException("Project not found"));
     }
 
-    public ProjectResponse createProject(ProjectRequest request) {
+    // Any authenticated user may create a project — that's the whole point
+    // of project-scoped authorization: you don't need a global role to own
+    // your own project. The caller always becomes the manager/OWNER unless
+    // they're a system ADMINISTRATOR explicitly assigning someone else (the
+    // one pre-existing capability this preserves — e.g. an admin setting up
+    // a project on another user's behalf).
+    public ProjectResponse createProject(ProjectRequest request, String callerUsername) {
+        User caller = requireUser(callerUsername);
         Project project = new Project();
-        applyRequest(project, request);
+        applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
         ensureManagerIsMember(saved);
         return new ProjectResponse(saved);
     }
 
-    public ProjectResponse updateProject(Long id, ProjectRequest request) {
+    public ProjectResponse updateProject(Long id, ProjectRequest request, String callerUsername) {
+        User caller = requireUser(callerUsername);
+        projectAccessGuard.assertCanManage(caller, id);
         Project project = getProjectEntityById(id);
-        applyRequest(project, request);
+        applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
         ensureManagerIsMember(saved);
         return new ProjectResponse(saved);
     }
 
     // getAllProjects/getAllTasks scope non-admins to projects they're a
-    // project_member of, so the manager must always be one — otherwise a
-    // Project Manager couldn't see a project (or reassigned-to-them project)
-    // they were just made responsible for. Matches how database/init/02-seed.sql
-    // seeds every project's manager as a project_member with that same role.
+    // project_member of, so the manager must always be one — otherwise
+    // whoever's responsible for a project couldn't see it. Matches how
+    // database/init/02-seed.sql seeds every project's manager as a
+    // project_member with that same role. Only used for a brand-new
+    // membership row (createProject) or when an ADMINISTRATOR reassigns the
+    // manager on updateProject — never downgrades an existing OWNER/ADMIN's
+    // role.
     private void ensureManagerIsMember(Project project) {
         Long managerId = project.getManager().getId();
         if (projectMemberRepository.existsByProjectIdAndUserId(project.getId(), managerId)) {
@@ -100,18 +112,39 @@ public class ProjectService {
         ProjectMember member = new ProjectMember();
         member.setProject(project);
         member.setUser(project.getManager());
-        member.setProjectRole("PROJECT_MANAGER");
+        member.setProjectRole("OWNER");
         projectMemberRepository.save(member);
     }
 
-    public void deleteProject(Long id) {
+    // OWNER-only (or system ADMINISTRATOR) — matches ADMIN's project-level
+    // permissions excluding delete/transfer-ownership.
+    public void deleteProject(Long id, String callerUsername) {
+        User caller = requireUser(callerUsername);
+        projectAccessGuard.assertIsOwner(caller, id);
         Project project = getProjectEntityById(id);
         projectRepository.delete(project);
     }
 
-    private void applyRequest(Project project, ProjectRequest request) {
-        User manager = userRepository.findById(request.getManagerId())
-                .orElseThrow(() -> new NotFoundException("Manager (user) not found"));
+    private User requireUser(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+    }
+
+    // On create (project.getManager() is still null), the caller becomes
+    // the manager. On update, the existing manager is kept. Either way, a
+    // system ADMINISTRATOR may override by explicitly naming someone else
+    // via request.managerId — the one pre-existing capability this
+    // preserves; a non-admin caller's managerId (if the frontend even sends
+    // one) is ignored.
+    private void applyRequest(Project project, ProjectRequest request, User caller) {
+        User defaultManager = project.getManager() != null ? project.getManager() : caller;
+        User manager = defaultManager;
+        if (request.getManagerId() != null
+                && !request.getManagerId().equals(defaultManager.getId())
+                && projectAccessGuard.isAdmin(caller)) {
+            manager = userRepository.findById(request.getManagerId())
+                    .orElseThrow(() -> new NotFoundException("Manager (user) not found"));
+        }
 
         project.setProjectCode(request.getProjectCode());
         project.setName(request.getName());

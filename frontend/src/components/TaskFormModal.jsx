@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Modal } from './ui/Modal'
 import { useToast } from './ui/Toast'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
+import { getProjectMembers } from '../api/projectMembers'
 import { createTask, taskResponseToRequest, updateTask } from '../api/tasks'
 import { getTaskAssignees, createTaskAssignee, deleteTaskAssignee } from '../api/taskAssignees'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
-import { canManageTask } from '../api/permissions'
+import { canEditProjectContent, canManageProject } from '../api/permissions'
+import { buildMyProjectRoleMap } from '../api/relations'
 import { humanizeEnum } from '../api/format'
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
@@ -22,11 +24,23 @@ function todayIso() {
 export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose, onSaved }) {
   const isEdit = Boolean(task)
   const notify = useToast()
-  const { role } = useAuth()
+  const { role, profile } = useAuth()
   const { members } = useMembers()
-  const canAssign = canManageTask(role)
+  const isSystemAdmin = role === 'ADMINISTRATOR'
   const { data: projects } = useApi(getProjects)
+  const { data: projectMembers } = useApi(getProjectMembers)
   const { data: taskAssignees } = useApi(getTaskAssignees)
+  const myProjectRoleMap = useMemo(
+    () => buildMyProjectRoleMap(projectMembers, profile?.id),
+    [projectMembers, profile]
+  )
+  // Only offer projects the caller can actually create/edit tasks in
+  // (OWNER/ADMIN/MEMBER, not VIEWER) — the backend enforces this
+  // authoritatively regardless, this just avoids an obvious 403.
+  const selectableProjects = useMemo(
+    () => (projects ?? []).filter((p) => canEditProjectContent(myProjectRoleMap.get(p.id), isSystemAdmin)),
+    [projects, myProjectRoleMap, isSystemAdmin]
+  )
   const [title, setTitle] = useState(task?.title ?? '')
   const [projectId, setProjectId] = useState(
     task?.project?.id ? String(task.project.id) : defaultProjectId ? String(defaultProjectId) : ''
@@ -41,7 +55,11 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const effectiveProjectId = projectId || (projects?.[0] ? String(projects[0].id) : '')
+  const effectiveProjectId = projectId || (selectableProjects[0] ? String(selectableProjects[0].id) : '')
+  // Assigning a task to someone else requires OWNER/ADMIN of ITS project —
+  // a MEMBER can create/edit tasks but not hand them to other people (see
+  // ProjectAccessGuard.canManage on the backend).
+  const canAssign = canManageProject(myProjectRoleMap.get(Number(effectiveProjectId)), isSystemAdmin)
 
   // Reconcile the task's single assignee against the task-assignees join
   // table — Task itself carries no assignee field, assignment is a separate
@@ -143,8 +161,8 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
             className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
             required
           >
-            {!projects?.length && <option value="">Loading projects…</option>}
-            {projects?.map((p) => (
+            {!selectableProjects.length && <option value="">No projects available</option>}
+            {selectableProjects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>

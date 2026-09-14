@@ -31,14 +31,14 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Lo
     @Query("SELECT pm.project.id FROM ProjectMember pm WHERE pm.user.id = :userId AND pm.status = 'ACTIVE'")
     List<Long> findProjectIdsByUserId(@Param("userId") Long userId);
 
-    // Projects where this user is an ACTIVE PROJECT_MANAGER/TEAM_LEADER —
-    // i.e. the projects ("teams") they administer. Used to authorize the
-    // Team-Admin-only actions (invite, position/department management) that
-    // aren't scoped to one specific project up front.
+    // Projects where this user is an ACTIVE OWNER/ADMIN — i.e. the projects
+    // they administer. Used to authorize the Team-Admin-only actions (e.g.
+    // position/department management) that aren't scoped to one specific
+    // project up front.
     @Query("""
             SELECT pm.project.id FROM ProjectMember pm
             WHERE pm.user.id = :userId AND pm.status = 'ACTIVE'
-              AND pm.projectRole IN ('PROJECT_MANAGER', 'TEAM_LEADER')
+              AND pm.projectRole IN ('OWNER', 'ADMIN')
             """)
     List<Long> findActiveAdminProjectIds(@Param("userId") Long userId);
 }

@@ -1,17 +1,21 @@
-import { useState } from 'react'
-import { User, Lock, Users } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { User, Lock, Pencil } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
+import { Avatar } from '../components/ui/Avatar'
 import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
-import { updateOwnProfile, changeOwnPassword } from '../api/users'
-import { humanizeEnum } from '../api/format'
+import { updateOwnProfile, changeOwnPassword, uploadProfilePhoto, deleteProfilePhoto } from '../api/users'
+import { initialsFor } from '../api/format'
 import { PASSWORD_REQUIREMENTS_MESSAGE, isPasswordComplex } from '../api/validation'
 
 const GENDER_OPTIONS = ['', 'Male', 'Female', 'Other']
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024
+const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 
 export function Profile() {
-  const { profile, username, role, refreshProfile } = useAuth()
+  const { profile, username, refreshProfile } = useAuth()
   const notify = useToast()
+  const photoInputRef = useRef(null)
 
   const [fullName, setFullName] = useState(profile?.fullName ?? '')
   const [email, setEmail] = useState(profile?.email ?? '')
@@ -20,6 +24,7 @@ export function Profile() {
   const [phoneNumber, setPhoneNumber] = useState(profile?.phoneNumber ?? '')
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileError, setProfileError] = useState('')
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -45,6 +50,45 @@ export function Profile() {
       setProfileError(err.message || 'Failed to update profile')
     } finally {
       setSavingProfile(false)
+    }
+  }
+
+  const handlePhotoSelected = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file next time
+    if (!file) return
+
+    if (!ALLOWED_PHOTO_TYPES.includes(file.type)) {
+      notify('Photo must be a JPEG, PNG, WEBP, or GIF image', { tone: 'error' })
+      return
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      notify('Photo is too large (max 5MB)', { tone: 'error' })
+      return
+    }
+
+    setUploadingPhoto(true)
+    try {
+      await uploadProfilePhoto(file)
+      await refreshProfile()
+      notify('Profile photo updated', { tone: 'success' })
+    } catch (err) {
+      notify(err.message || 'Failed to upload photo', { tone: 'error' })
+    } finally {
+      setUploadingPhoto(false)
+    }
+  }
+
+  const handleRemovePhoto = async () => {
+    setUploadingPhoto(true)
+    try {
+      await deleteProfilePhoto()
+      await refreshProfile()
+      notify('Profile photo removed', { tone: 'success' })
+    } catch (err) {
+      notify(err.message || 'Failed to remove photo', { tone: 'error' })
+    } finally {
+      setUploadingPhoto(false)
     }
   }
 
@@ -84,12 +128,64 @@ export function Profile() {
             <h3 className="section-title text-base">Personal Information</h3>
           </div>
 
+          <div className="mb-5 flex items-center gap-4">
+            <button
+              type="button"
+              className="group relative shrink-0 cursor-pointer rounded-full border-none bg-none p-0 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => photoInputRef.current?.click()}
+              disabled={uploadingPhoto}
+              aria-label={profile?.profilePhotoUrl ? 'Change profile photo' : 'Upload profile photo'}
+              title={profile?.profilePhotoUrl ? 'Change profile photo' : 'Upload profile photo'}
+            >
+              <Avatar
+                initials={initialsFor(fullName || username)}
+                color="var(--accent-purple)"
+                photoUrl={profile?.profilePhotoUrl}
+                size={64}
+              />
+              <span className="bg-charcoal text-white group-hover:bg-lavender pointer-events-none absolute right-0 bottom-0 flex h-6 w-6 items-center justify-center rounded-full border-2 border-card transition-colors">
+                <Pencil size={11} />
+              </span>
+            </button>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={handlePhotoSelected}
+              className="hidden"
+            />
+            <div className="flex flex-col items-start gap-2">
+              <span className="text-faint text-[11.5px]">JPEG, PNG, WEBP, or GIF — up to 5MB</span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="btn btn-secondary px-3 py-1.5 text-[12.5px]"
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                >
+                  {uploadingPhoto
+                    ? 'Uploading…'
+                    : profile?.profilePhotoUrl
+                      ? 'Change Photo'
+                      : 'Upload Photo'}
+                </button>
+                {profile?.profilePhotoUrl && (
+                  <button
+                    type="button"
+                    className="text-danger text-[11.5px] font-semibold"
+                    onClick={handleRemovePhoto}
+                    disabled={uploadingPhoto}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="bg-subtle border-border mb-5 flex flex-wrap gap-x-8 gap-y-2 rounded-md border px-4 py-3 text-[12.5px]">
             <span className="text-muted">
               Username: <span className="text-ink font-semibold">{username}</span>
-            </span>
-            <span className="text-muted">
-              Role: <span className="text-ink font-semibold">{humanizeEnum(profile?.role || role)}</span>
             </span>
           </div>
 
@@ -160,30 +256,6 @@ export function Profile() {
               </button>
             </div>
           </form>
-        </section>
-
-        <section className="card px-6 py-5">
-          <div className="mb-4 flex items-center gap-2.5">
-            <Users size={17} className="text-muted" />
-            <h3 className="section-title text-base">Team Information</h3>
-          </div>
-          <p className="text-faint mb-4 text-[12px]">
-            Set by your Team Admin — you can't edit these yourself.
-          </p>
-          <div className="flex gap-3">
-            <div className="bg-subtle border-border flex-1 rounded-md border px-4 py-3">
-              <span className="text-faint block text-[11.5px] font-semibold">Position</span>
-              <span className="text-ink text-[13.5px] font-semibold">
-                {profile?.positionName || 'Not set'}
-              </span>
-            </div>
-            <div className="bg-subtle border-border flex-1 rounded-md border px-4 py-3">
-              <span className="text-faint block text-[11.5px] font-semibold">Department</span>
-              <span className="text-ink text-[13.5px] font-semibold">
-                {profile?.departmentName || 'Not set'}
-              </span>
-            </div>
-          </div>
         </section>
 
         <section className="card px-6 py-5">

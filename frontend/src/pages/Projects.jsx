@@ -5,15 +5,12 @@ import { ProjectCard } from '../components/ProjectCard'
 import { NewProjectModal } from '../components/NewProjectModal'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
-import { useAuth } from '../auth/AuthContext'
-import { canCreateProject } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
 import { buildProjectMemberMap, toProjectCard } from '../api/relations'
 
 export function Projects() {
-  const { role } = useAuth()
   const { data: projects, loading, refetch } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
   const [showNewProject, setShowNewProject] = useState(false)
@@ -42,11 +39,9 @@ export function Projects() {
         onSearchChange={setSearch}
         searchPlaceholder="Search projects"
         actions={
-          canCreateProject(role) && (
-            <button className="btn btn-primary" onClick={() => setShowNewProject(true)}>
-              <Plus size={16} /> New Project
-            </button>
-          )
+          <button className="btn btn-primary" onClick={() => setShowNewProject(true)}>
+            <Plus size={16} /> New Project
+          </button>
         }
       />
 
@@ -62,7 +57,7 @@ export function Projects() {
         <EmptyState
           icon={FolderKanban}
           title="No projects yet"
-          subtitle={canCreateProject(role) ? 'Create your first project to get started.' : 'Check back once one is created.'}
+          subtitle="Create your first project to get started."
         />
       )}
 

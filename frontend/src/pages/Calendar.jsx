@@ -5,9 +5,11 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import { TaskFormModal } from '../components/TaskFormModal'
 import { useAuth } from '../auth/AuthContext'
-import { canCreateTask } from '../api/permissions'
+import { canEditProjectContent } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getTasks } from '../api/tasks'
+import { getProjectMembers } from '../api/projectMembers'
+import { buildMyProjectRoleMap } from '../api/relations'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const VIEWS = ['Month', 'Week', 'Day']
@@ -57,8 +59,18 @@ function toISODate(d) {
 }
 
 export function Calendar() {
-  const { role } = useAuth()
-  const canAdd = canCreateTask(role)
+  const { role, profile } = useAuth()
+  const { data: projectMembers } = useApi(getProjectMembers)
+  const myProjectRoleMap = useMemo(
+    () => buildMyProjectRoleMap(projectMembers, profile?.id),
+    [projectMembers, profile]
+  )
+  // Whether there's at least one project the caller can add tasks to —
+  // TaskFormModal itself only offers projects the caller can actually
+  // create tasks in.
+  const canAdd =
+    role === 'ADMINISTRATOR' ||
+    Array.from(myProjectRoleMap.values()).some((r) => canEditProjectContent(r, false))
   const { data: tasks, loading, refetch } = useApi(getTasks)
   const today = useMemo(() => new Date(), [])
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()))

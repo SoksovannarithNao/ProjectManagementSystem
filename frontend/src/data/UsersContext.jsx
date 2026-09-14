@@ -23,6 +23,7 @@ export function UsersProvider({ children }) {
       username: u.username,
       initials: initialsFor(u.fullName),
       color: colorForId(u.id),
+      photoUrl: u.profilePhotoUrl,
       role: u.role,
       email: u.email,
       positionId: u.positionId,

@@ -29,42 +29,46 @@ INSERT INTO departments (name) VALUES
 ('Marketing'), ('Human Resources');
 
 -- ==================== users ====================
--- 24 users: 1 Administrator, 3 Project Managers, 5 Team Leaders, 13 Team
--- Members (including one INACTIVE and one SUSPENDED for edge cases), plus
--- one brand-new "newuser" account attached to nothing at all.
+-- 24 users: 1 system Administrator (users.role_id — unrelated to any
+-- project), and 23 ordinary users with no global role at all (role_id
+-- NULL). Their project-level authority comes entirely from
+-- project_members.project_role below — the same person is 'pm.olivia' the
+-- OWNER of one project and just a VIEWER or MEMBER of another. Includes one
+-- INACTIVE and one SUSPENDED account for edge cases, plus one brand-new
+-- "newuser" account attached to nothing at all.
 
 INSERT INTO users (full_name, username, email, password_hash, gender, date_of_birth, phone_number, position_id, department_id, role_id, account_status) VALUES
 ('Alex Rivera',      'admin.system',     'admin.system@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1985-02-11', '+1-555-0201', (SELECT id FROM positions WHERE name = 'System Administrator'),    (SELECT id FROM departments WHERE name = 'IT Operations'),    (SELECT id FROM roles WHERE name = 'ADMINISTRATOR'),   'ACTIVE'),
-('Olivia Bennett',   'pm.olivia',        'olivia.bennett@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1988-06-23', '+1-555-0202', (SELECT id FROM positions WHERE name = 'Product Manager'),          (SELECT id FROM departments WHERE name = 'Product'),          (SELECT id FROM roles WHERE name = 'PROJECT_MANAGER'), 'ACTIVE'),
-('Marcus Delgado',   'pm.marcus',        'marcus.delgado@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1984-11-05', '+1-555-0203', (SELECT id FROM positions WHERE name = 'Program Manager'),          (SELECT id FROM departments WHERE name = 'Product'),          (SELECT id FROM roles WHERE name = 'PROJECT_MANAGER'), 'ACTIVE'),
-('Priya Nathan',     'pm.priya',         'priya.nathan@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1990-03-30', '+1-555-0204', (SELECT id FROM positions WHERE name = 'Product Manager'),          (SELECT id FROM departments WHERE name = 'Product'),          (SELECT id FROM roles WHERE name = 'PROJECT_MANAGER'), 'ACTIVE'),
-('Owen Fitzgerald',  'lead.owen',        'owen.fitzgerald@taskflow.dev',   '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1991-07-14', '+1-555-0205', (SELECT id FROM positions WHERE name = 'Engineering Manager'),      (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_LEADER'),     'ACTIVE'),
-('Sara Kowalski',    'lead.sara',        'sara.kowalski@taskflow.dev',     '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1992-09-02', '+1-555-0206', (SELECT id FROM positions WHERE name = 'Team Lead'),                (SELECT id FROM departments WHERE name = 'Design'),           (SELECT id FROM roles WHERE name = 'TEAM_LEADER'),     'ACTIVE'),
-('Victor Osei',      'lead.victor',      'victor.osei@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1989-12-19', '+1-555-0207', (SELECT id FROM positions WHERE name = 'Team Lead'),                (SELECT id FROM departments WHERE name = 'Quality Assurance'),(SELECT id FROM roles WHERE name = 'TEAM_LEADER'),     'ACTIVE'),
-('Noah Whitfield',   'lead.noah',        'noah.whitfield@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1993-04-08', '+1-555-0208', (SELECT id FROM positions WHERE name = 'Team Lead'),                (SELECT id FROM departments WHERE name = 'Marketing'),        (SELECT id FROM roles WHERE name = 'TEAM_LEADER'),     'ACTIVE'),
-('Amy Castellano',   'lead.amy',         'amy.castellano@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1990-01-27', '+1-555-0209', (SELECT id FROM positions WHERE name = 'Engineering Manager'),      (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_LEADER'),     'ACTIVE'),
-('Chen Wu',          'dev.chen',         'chen.wu@taskflow.dev',           '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1994-05-16', '+1-555-0210', (SELECT id FROM positions WHERE name = 'Senior Software Engineer'), (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Raj Malhotra',     'dev.raj',          'raj.malhotra@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1995-08-21', '+1-555-0211', (SELECT id FROM positions WHERE name = 'Software Engineer'),        (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Mia Alvarez',      'dev.mia',          'mia.alvarez@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1996-02-03', '+1-555-0212', (SELECT id FROM positions WHERE name = 'Senior Software Engineer'), (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Tomas Novak',      'dev.tomas',        'tomas.novak@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1993-10-30', '+1-555-0213', (SELECT id FROM positions WHERE name = 'Software Engineer'),        (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Hana Suzuki',      'dev.hana',         'hana.suzuki@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1992-12-12', '+1-555-0214', (SELECT id FROM positions WHERE name = 'DevOps Engineer'),          (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Luna Petrova',     'design.luna',      'luna.petrova@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1995-03-19', '+1-555-0215', (SELECT id FROM positions WHERE name = 'UI/UX Designer'),           (SELECT id FROM departments WHERE name = 'Design'),           (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Kai Anderson',     'design.kai',       'kai.anderson@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1996-07-07', '+1-555-0216', (SELECT id FROM positions WHERE name = 'UI/UX Designer'),           (SELECT id FROM departments WHERE name = 'Design'),           (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Zoe Whitman',      'qa.zoe',           'zoe.whitman@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1994-11-24', '+1-555-0217', (SELECT id FROM positions WHERE name = 'QA Engineer'),              (SELECT id FROM departments WHERE name = 'Quality Assurance'),(SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Leo Marchetti',    'qa.leo',           'leo.marchetti@taskflow.dev',     '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1993-01-15', '+1-555-0218', (SELECT id FROM positions WHERE name = 'QA Engineer'),              (SELECT id FROM departments WHERE name = 'Quality Assurance'),(SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Grace Okafor',     'marketing.grace',  'grace.okafor@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1991-05-27', '+1-555-0219', (SELECT id FROM positions WHERE name = 'Marketing Specialist'),     (SELECT id FROM departments WHERE name = 'Marketing'),        (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Jonas Bergström',  'hr.jonas',         'jonas.bergstrom@taskflow.dev',   '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1987-09-09', '+1-555-0220', (SELECT id FROM positions WHERE name = 'HR Specialist'),            (SELECT id FROM departments WHERE name = 'Human Resources'),  (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
-('Ivy Sandoval',     'support.ivy',      'ivy.sandoval@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1995-06-06', '+1-555-0221', (SELECT id FROM positions WHERE name = 'Support Engineer'),         (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'ACTIVE'),
+('Olivia Bennett',   'pm.olivia',        'olivia.bennett@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1988-06-23', '+1-555-0202', (SELECT id FROM positions WHERE name = 'Product Manager'),          (SELECT id FROM departments WHERE name = 'Product'),          NULL, 'ACTIVE'),
+('Marcus Delgado',   'pm.marcus',        'marcus.delgado@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1984-11-05', '+1-555-0203', (SELECT id FROM positions WHERE name = 'Program Manager'),          (SELECT id FROM departments WHERE name = 'Product'),          NULL, 'ACTIVE'),
+('Priya Nathan',     'pm.priya',         'priya.nathan@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1990-03-30', '+1-555-0204', (SELECT id FROM positions WHERE name = 'Product Manager'),          (SELECT id FROM departments WHERE name = 'Product'),          NULL, 'ACTIVE'),
+('Owen Fitzgerald',  'lead.owen',        'owen.fitzgerald@taskflow.dev',   '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1991-07-14', '+1-555-0205', (SELECT id FROM positions WHERE name = 'Engineering Manager'),      (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'ACTIVE'),
+('Sara Kowalski',    'lead.sara',        'sara.kowalski@taskflow.dev',     '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1992-09-02', '+1-555-0206', (SELECT id FROM positions WHERE name = 'Team Lead'),                (SELECT id FROM departments WHERE name = 'Design'),           NULL,     'ACTIVE'),
+('Victor Osei',      'lead.victor',      'victor.osei@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1989-12-19', '+1-555-0207', (SELECT id FROM positions WHERE name = 'Team Lead'),                (SELECT id FROM departments WHERE name = 'Quality Assurance'),NULL,     'ACTIVE'),
+('Noah Whitfield',   'lead.noah',        'noah.whitfield@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1993-04-08', '+1-555-0208', (SELECT id FROM positions WHERE name = 'Team Lead'),                (SELECT id FROM departments WHERE name = 'Marketing'),        NULL,     'ACTIVE'),
+('Amy Castellano',   'lead.amy',         'amy.castellano@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1990-01-27', '+1-555-0209', (SELECT id FROM positions WHERE name = 'Engineering Manager'),      (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'ACTIVE'),
+('Chen Wu',          'dev.chen',         'chen.wu@taskflow.dev',           '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1994-05-16', '+1-555-0210', (SELECT id FROM positions WHERE name = 'Senior Software Engineer'), (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'ACTIVE'),
+('Raj Malhotra',     'dev.raj',          'raj.malhotra@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1995-08-21', '+1-555-0211', (SELECT id FROM positions WHERE name = 'Software Engineer'),        (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'ACTIVE'),
+('Mia Alvarez',      'dev.mia',          'mia.alvarez@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1996-02-03', '+1-555-0212', (SELECT id FROM positions WHERE name = 'Senior Software Engineer'), (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'ACTIVE'),
+('Tomas Novak',      'dev.tomas',        'tomas.novak@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1993-10-30', '+1-555-0213', (SELECT id FROM positions WHERE name = 'Software Engineer'),        (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'ACTIVE'),
+('Hana Suzuki',      'dev.hana',         'hana.suzuki@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1992-12-12', '+1-555-0214', (SELECT id FROM positions WHERE name = 'DevOps Engineer'),          (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'ACTIVE'),
+('Luna Petrova',     'design.luna',      'luna.petrova@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1995-03-19', '+1-555-0215', (SELECT id FROM positions WHERE name = 'UI/UX Designer'),           (SELECT id FROM departments WHERE name = 'Design'),           NULL,     'ACTIVE'),
+('Kai Anderson',     'design.kai',       'kai.anderson@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1996-07-07', '+1-555-0216', (SELECT id FROM positions WHERE name = 'UI/UX Designer'),           (SELECT id FROM departments WHERE name = 'Design'),           NULL,     'ACTIVE'),
+('Zoe Whitman',      'qa.zoe',           'zoe.whitman@taskflow.dev',       '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1994-11-24', '+1-555-0217', (SELECT id FROM positions WHERE name = 'QA Engineer'),              (SELECT id FROM departments WHERE name = 'Quality Assurance'),NULL,     'ACTIVE'),
+('Leo Marchetti',    'qa.leo',           'leo.marchetti@taskflow.dev',     '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1993-01-15', '+1-555-0218', (SELECT id FROM positions WHERE name = 'QA Engineer'),              (SELECT id FROM departments WHERE name = 'Quality Assurance'),NULL,     'ACTIVE'),
+('Grace Okafor',     'marketing.grace',  'grace.okafor@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1991-05-27', '+1-555-0219', (SELECT id FROM positions WHERE name = 'Marketing Specialist'),     (SELECT id FROM departments WHERE name = 'Marketing'),        NULL,     'ACTIVE'),
+('Jonas Bergström',  'hr.jonas',         'jonas.bergstrom@taskflow.dev',   '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1987-09-09', '+1-555-0220', (SELECT id FROM positions WHERE name = 'HR Specialist'),            (SELECT id FROM departments WHERE name = 'Human Resources'),  NULL,     'ACTIVE'),
+('Ivy Sandoval',     'support.ivy',      'ivy.sandoval@taskflow.dev',      '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Female', '1995-06-06', '+1-555-0221', (SELECT id FROM positions WHERE name = 'Support Engineer'),         (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'ACTIVE'),
 -- Edge-case accounts: a contractor whose account went INACTIVE and a former
 -- employee who was SUSPENDED, each still a nominal project_members row (see
 -- below) but excluded from task assignment by the check_assignee_not_suspended
 -- trigger — same pattern the original demo data used for this rule.
-('Felix Guerrero',   'contractor.felix', 'felix.guerrero@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1990-08-18', '+1-555-0222', (SELECT id FROM positions WHERE name = 'Software Engineer'),        (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'INACTIVE'),
-('Diego Fuentes',    'exemployee.diego', 'diego.fuentes@taskflow.dev',     '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1988-04-04', '+1-555-0223', (SELECT id FROM positions WHERE name = 'Software Engineer'),        (SELECT id FROM departments WHERE name = 'Engineering'),      (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'),     'SUSPENDED'),
+('Felix Guerrero',   'contractor.felix', 'felix.guerrero@taskflow.dev',    '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1990-08-18', '+1-555-0222', (SELECT id FROM positions WHERE name = 'Software Engineer'),        (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'INACTIVE'),
+('Diego Fuentes',    'exemployee.diego', 'diego.fuentes@taskflow.dev',     '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', 'Male',   '1988-04-04', '+1-555-0223', (SELECT id FROM positions WHERE name = 'Software Engineer'),        (SELECT id FROM departments WHERE name = 'Engineering'),      NULL,     'SUSPENDED'),
 -- The "brand-new registration" test account: no position/department, no
 -- project_members row anywhere below — must show up completely empty
 -- (0 teams/projects/tasks/subtasks/comments) everywhere in the app.
-('New User',         'newuser',          'newuser@taskflow.dev',           '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', NULL,     NULL,         NULL,          NULL, NULL, (SELECT id FROM roles WHERE name = 'TEAM_MEMBER'), 'ACTIVE');
+('New User',         'newuser',          'newuser@taskflow.dev',           '$2a$10$ES.bYeqN/GnbYn/Wgz8lp.L8flAurU4A7HiwnEmRFh604OXZxsb2G', NULL,     NULL,         NULL,          NULL, NULL, NULL, 'ACTIVE');
 
 -- ==================== projects ("teams") ====================
 -- No separate `teams` table exists in this schema — a project IS a team,
@@ -88,70 +92,77 @@ INSERT INTO projects (project_code, name, description, start_date, end_date, man
 -- ==================== project_members (ACTIVE — real team membership) ====================
 -- "Team A" (PRJ-2001) and "Team B" (PRJ-2009) below share NO users at all —
 -- kept deliberately disjoint to make cross-team data-isolation easy to test.
+-- Project roles are OWNER/ADMIN/MEMBER/VIEWER, scoped entirely to the one
+-- project each row names — e.g. pm.olivia is OWNER of PRJ-2001/2003/2007/2010
+-- while only a VIEWER of PRJ-2008 below, demonstrating that the same
+-- account can hold a different role (or none at all) per project.
 
 INSERT INTO project_members (project_id, user_id, project_role) VALUES
 -- PRJ-2001 Website Redesign — "Team A" (isolation test set)
-((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'pm.olivia'),   'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'lead.owen'),   'TEAM_LEADER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'dev.chen'),    'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'dev.mia'),     'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'design.luna'),'TEAM_MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'pm.olivia'),   'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'lead.owen'),   'ADMIN'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'dev.chen'),    'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'dev.mia'),     'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'design.luna'),'MEMBER'),
 
 -- PRJ-2002 Mobile Banking App
-((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'pm.marcus'),        'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'lead.owen'),        'TEAM_LEADER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'dev.raj'),          'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'dev.tomas'),        'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'qa.zoe'),           'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'dev.hana'),         'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'exemployee.diego'),'TEAM_MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'pm.marcus'),        'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'lead.owen'),        'ADMIN'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'dev.raj'),          'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'dev.tomas'),        'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'qa.zoe'),           'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'dev.hana'),         'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'exemployee.diego'),'MEMBER'),
 
 -- PRJ-2003 Core API Migration
-((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'pm.olivia'),  'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'lead.amy'),   'TEAM_LEADER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'dev.raj'),    'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'dev.hana'),   'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'support.ivy'),'TEAM_MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'pm.olivia'),  'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'lead.amy'),   'ADMIN'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'dev.raj'),    'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'dev.hana'),   'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2003'), (SELECT id FROM users WHERE username = 'support.ivy'),'MEMBER'),
 
 -- PRJ-2004 Design System 2.0
-((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'pm.priya'),   'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'lead.sara'),  'TEAM_LEADER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'design.luna'),'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'design.kai'), 'TEAM_MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'pm.priya'),   'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'lead.sara'),  'ADMIN'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'design.luna'),'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'design.kai'), 'MEMBER'),
 
 -- PRJ-2005 Internal Analytics Dashboard
-((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'pm.marcus'),        'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'lead.amy'),         'TEAM_LEADER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'dev.chen'),         'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'dev.tomas'),        'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'contractor.felix'),'TEAM_MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'pm.marcus'),        'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'lead.amy'),         'ADMIN'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'dev.chen'),         'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'dev.tomas'),        'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'contractor.felix'),'MEMBER'),
 
 -- PRJ-2006 Customer Support Portal
-((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'pm.priya'),   'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'lead.victor'),'TEAM_LEADER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'qa.leo'),     'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'support.ivy'),'TEAM_MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'pm.priya'),   'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'lead.victor'),'ADMIN'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'qa.leo'),     'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'support.ivy'),'MEMBER'),
 
 -- PRJ-2007 Q4 Marketing Campaign
-((SELECT id FROM projects WHERE project_code = 'PRJ-2007'), (SELECT id FROM users WHERE username = 'pm.olivia'),      'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2007'), (SELECT id FROM users WHERE username = 'lead.noah'),      'TEAM_LEADER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2007'), (SELECT id FROM users WHERE username = 'marketing.grace'),'TEAM_MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2007'), (SELECT id FROM users WHERE username = 'pm.olivia'),      'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2007'), (SELECT id FROM users WHERE username = 'lead.noah'),      'ADMIN'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2007'), (SELECT id FROM users WHERE username = 'marketing.grace'),'MEMBER'),
 
--- PRJ-2008 Social Media Platform Revamp
-((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'pm.priya'),       'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'lead.noah'),      'TEAM_LEADER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'marketing.grace'),'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'design.kai'),     'TEAM_MEMBER'),
+-- PRJ-2008 Social Media Platform Revamp — pm.olivia is only a VIEWER here
+-- (she OWNs PRJ-2001/2003/2007/2010 instead): same account, different role
+-- per project, nothing global about it.
+((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'pm.priya'),       'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'lead.noah'),      'ADMIN'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'marketing.grace'),'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'design.kai'),     'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'pm.olivia'),      'VIEWER'),
 
 -- PRJ-2009 HR Onboarding Portal — "Team B" (isolation test set, disjoint from Team A)
-((SELECT id FROM projects WHERE project_code = 'PRJ-2009'), (SELECT id FROM users WHERE username = 'pm.marcus'), 'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2009'), (SELECT id FROM users WHERE username = 'hr.jonas'),  'TEAM_MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2009'), (SELECT id FROM users WHERE username = 'pm.marcus'), 'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2009'), (SELECT id FROM users WHERE username = 'hr.jonas'),  'MEMBER'),
 
 -- PRJ-2010 Data Warehouse Upgrade
-((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'pm.olivia'),'PROJECT_MANAGER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'lead.amy'), 'TEAM_LEADER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'dev.hana'), 'TEAM_MEMBER'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'qa.zoe'),   'TEAM_MEMBER');
+((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'pm.olivia'),'OWNER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'lead.amy'), 'ADMIN'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'dev.hana'), 'MEMBER'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'qa.zoe'),   'VIEWER');
 
 -- ==================== team invitations (PENDING / DECLINED) ====================
 -- Real project_members rows with status != ACTIVE — no membership is
@@ -160,16 +171,16 @@ INSERT INTO project_members (project_id, user_id, project_role) VALUES
 -- invite/accept/decline workflow.
 
 INSERT INTO project_members (project_id, user_id, project_role, status, invited_by) VALUES
-((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'dev.tomas'),      'TEAM_MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.olivia')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'qa.leo'),         'TEAM_MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.marcus')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'dev.chen'),       'TEAM_MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.priya')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'dev.mia'),        'TEAM_MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.priya')),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'marketing.grace'),'TEAM_MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.olivia'));
+((SELECT id FROM projects WHERE project_code = 'PRJ-2001'), (SELECT id FROM users WHERE username = 'dev.tomas'),      'MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.olivia')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2002'), (SELECT id FROM users WHERE username = 'qa.leo'),         'MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.marcus')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2004'), (SELECT id FROM users WHERE username = 'dev.chen'),       'MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.priya')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2006'), (SELECT id FROM users WHERE username = 'dev.mia'),        'MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.priya')),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2010'), (SELECT id FROM users WHERE username = 'marketing.grace'),'MEMBER', 'PENDING', (SELECT id FROM users WHERE username = 'pm.olivia'));
 
 INSERT INTO project_members (project_id, user_id, project_role, status, invited_by, responded_at) VALUES
-((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'qa.leo'),   'TEAM_MEMBER', 'DECLINED', (SELECT id FROM users WHERE username = 'pm.marcus'), now() - interval '2 days'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2007'), (SELECT id FROM users WHERE username = 'hr.jonas'), 'TEAM_MEMBER', 'DECLINED', (SELECT id FROM users WHERE username = 'pm.olivia'), now() - interval '5 days'),
-((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'dev.raj'), 'TEAM_MEMBER', 'DECLINED', (SELECT id FROM users WHERE username = 'pm.priya'),  now() - interval '1 day');
+((SELECT id FROM projects WHERE project_code = 'PRJ-2005'), (SELECT id FROM users WHERE username = 'qa.leo'),   'MEMBER', 'DECLINED', (SELECT id FROM users WHERE username = 'pm.marcus'), now() - interval '2 days'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2007'), (SELECT id FROM users WHERE username = 'hr.jonas'), 'MEMBER', 'DECLINED', (SELECT id FROM users WHERE username = 'pm.olivia'), now() - interval '5 days'),
+((SELECT id FROM projects WHERE project_code = 'PRJ-2008'), (SELECT id FROM users WHERE username = 'dev.raj'), 'MEMBER', 'DECLINED', (SELECT id FROM users WHERE username = 'pm.priya'),  now() - interval '1 day');
 
 INSERT INTO notifications (user_id, type, title, message, project_id, is_read) VALUES
 ((SELECT id FROM users WHERE username = 'dev.tomas'),      'TEAM_INVITATION', 'Team invitation', 'Olivia Bennett invited you to join "Website Redesign"',            (SELECT id FROM projects WHERE project_code = 'PRJ-2001'), false),

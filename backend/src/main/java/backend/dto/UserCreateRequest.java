@@ -2,7 +2,6 @@ package backend.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -35,14 +34,12 @@ public class UserCreateRequest {
     @Size(max = 30)
     private String phoneNumber;
 
-    @Size(max = 500)
-    private String profilePhotoUrl;
-
     private Long positionId;
 
     private Long departmentId;
 
-    @NotNull
+    // Optional — a system-level role (currently only ADMINISTRATOR exists);
+    // most accounts should be created with none at all. See User.role.
     private Long roleId;
 
     @Pattern(regexp = "ACTIVE|INACTIVE|SUSPENDED")
@@ -102,14 +99,6 @@ public class UserCreateRequest {
 
     public void setPhoneNumber(String phoneNumber) {
         this.phoneNumber = phoneNumber;
-    }
-
-    public String getProfilePhotoUrl() {
-        return profilePhotoUrl;
-    }
-
-    public void setProfilePhotoUrl(String profilePhotoUrl) {
-        this.profilePhotoUrl = profilePhotoUrl;
     }
 
     public Long getPositionId() {

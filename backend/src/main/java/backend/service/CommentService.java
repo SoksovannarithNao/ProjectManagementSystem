@@ -14,17 +14,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Set;
 
 @Service
 @Transactional
 public class CommentService {
-
-    // Roles allowed to delete another member's comment (moderation), mirroring
-    // TaskService.TASK_FULL_EDIT_ROLES — editing someone else's comment text
-    // is never allowed, only deleting it.
-    private static final Set<String> COMMENT_MODERATION_ROLES =
-            Set.of("ADMINISTRATOR", "PROJECT_MANAGER", "TEAM_LEADER");
 
     private final CommentRepository commentRepository;
     private final TaskRepository taskRepository;
@@ -84,8 +77,7 @@ public class CommentService {
         Comment comment = requireComment(id);
 
         boolean isAuthor = comment.getUser().getId().equals(caller.getId());
-        boolean isModerator = COMMENT_MODERATION_ROLES.contains(caller.getRole().getName())
-                && projectAccessGuard.hasAccess(caller, comment.getTask().getProject().getId());
+        boolean isModerator = projectAccessGuard.canManage(caller, comment.getTask().getProject().getId());
         if (!isAuthor && !isModerator) {
             throw new AccessDeniedException("You do not have permission to delete this comment");
         }
