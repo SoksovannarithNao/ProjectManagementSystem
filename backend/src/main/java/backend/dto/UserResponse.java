@@ -35,13 +35,19 @@ public class UserResponse {
         this.gender = user.getGender();
         this.dateOfBirth = user.getDateOfBirth();
         this.phoneNumber = user.getPhoneNumber();
-        this.profilePhotoUrl = user.getProfilePhotoUrl();
+        // Computed, not stored — the photo itself lives in the DB (see
+        // User.profilePhoto) and is served publicly by token, not by user id
+        // (which would make every user's photo enumerable) or a stale
+        // stable-per-user URL (which a browser could cache past a re-upload).
+        this.profilePhotoUrl = user.getProfilePhotoToken() != null
+                ? "/api/photos/" + user.getProfilePhotoToken()
+                : null;
         this.positionId = user.getPosition() != null ? user.getPosition().getId() : null;
         this.positionName = user.getPosition() != null ? user.getPosition().getName() : null;
         this.departmentId = user.getDepartment() != null ? user.getDepartment().getId() : null;
         this.departmentName = user.getDepartment() != null ? user.getDepartment().getName() : null;
-        this.role = user.getRole().getName();
-        this.roleDescription = user.getRole().getDescription();
+        this.role = user.getRole() != null ? user.getRole().getName() : null;
+        this.roleDescription = user.getRole() != null ? user.getRole().getDescription() : null;
         this.accountStatus = user.getAccountStatus();
         this.themePreference = user.getThemePreference();
         this.taskNotificationsEnabled = user.isTaskNotificationsEnabled();

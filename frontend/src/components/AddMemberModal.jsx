@@ -24,6 +24,9 @@ export function AddMemberModal({ onClose, onCreated }) {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  // No global role by default — most accounts should have none at all (see
+  // User.role on the backend). The Role select below is only for
+  // explicitly granting a system-level role (currently just ADMINISTRATOR).
   const [roleId, setRoleId] = useState('')
   const [positionId, setPositionId] = useState(null)
   const [departmentId, setDepartmentId] = useState(null)
@@ -32,11 +35,9 @@ export function AddMemberModal({ onClose, onCreated }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const effectiveRoleId = roleId || (roles?.[0] ? String(roles[0].id) : '')
-
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!fullName.trim() || !username.trim() || !email.trim() || !password || !effectiveRoleId) return
+    if (!fullName.trim() || !username.trim() || !email.trim() || !password) return
     if (!isPasswordComplex(password)) {
       setError(PASSWORD_REQUIREMENTS_MESSAGE)
       return
@@ -49,7 +50,7 @@ export function AddMemberModal({ onClose, onCreated }) {
         username: username.trim(),
         email: email.trim(),
         password,
-        roleId: Number(effectiveRoleId),
+        roleId: roleId ? Number(roleId) : null,
         positionId,
         departmentId,
         accountStatus: 'ACTIVE',
@@ -117,14 +118,13 @@ export function AddMemberModal({ onClose, onCreated }) {
 
         <div className="flex gap-3">
           <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Role</span>
+            <span className="text-muted text-[12.5px] font-semibold">System role</span>
             <select
-              value={effectiveRoleId}
+              value={roleId}
               onChange={(e) => setRoleId(e.target.value)}
               className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
-              required
             >
-              {!roles?.length && <option value="">Loading…</option>}
+              <option value="">No system role (normal account)</option>
               {roles?.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
@@ -157,7 +157,7 @@ export function AddMemberModal({ onClose, onCreated }) {
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={submitting || !effectiveRoleId}>
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
             {submitting ? 'Adding…' : 'Add Member'}
           </button>
         </div>

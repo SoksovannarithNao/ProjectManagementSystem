@@ -1,30 +1,36 @@
-// Mirrors the @PreAuthorize role gates in the backend controllers — kept
-// here so the UI can hide actions a role can't actually perform instead of
-// letting the user hit a 403 after filling out a form.
-const TASK_CREATE_ROLES = new Set(['ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER'])
-const PROJECT_CREATE_ROLES = new Set(['ADMINISTRATOR', 'PROJECT_MANAGER'])
+// Mirrors the backend's project-scoped authorization (see
+// ProjectAccessGuard) — kept here so the UI can hide actions a caller can't
+// actually perform instead of letting them hit a 403 after filling out a
+// form. Project/task permissions come from the CALLER'S ROLE IN THAT
+// SPECIFIC PROJECT (project_members.project_role: OWNER/ADMIN/MEMBER/
+// VIEWER), not from any global role on the account — the same user can be
+// OWNER of one project and VIEWER of another. `isSystemAdmin` is the one
+// exception: a system-level ADMINISTRATOR (unrelated to any one project)
+// always has full access everywhere, same as the backend's bypass.
+const MANAGE_ROLES = new Set(['OWNER', 'ADMIN'])
+const CONTENT_ROLES = new Set(['OWNER', 'ADMIN', 'MEMBER'])
 const USER_MANAGE_ROLES = new Set(['ADMINISTRATOR'])
 
-export function canCreateTask(role) {
-  return TASK_CREATE_ROLES.has(role)
+// Create/edit tasks, milestones, and other content within a project.
+// Excludes VIEWER (read-only).
+export function canEditProjectContent(projectRole, isSystemAdmin) {
+  return isSystemAdmin || CONTENT_ROLES.has(projectRole)
 }
 
-// Same role set as create — DELETE /api/tasks/{id} and PUT (via the edit
-// form) are gated identically to POST on the backend.
-export function canManageTask(role) {
-  return TASK_CREATE_ROLES.has(role)
+// Manage a project itself (edit details, milestones, members, task
+// assignment/dependencies/deletion) — OWNER or ADMIN of that project.
+export function canManageProject(projectRole, isSystemAdmin) {
+  return isSystemAdmin || MANAGE_ROLES.has(projectRole)
 }
 
-export function canCreateProject(role) {
-  return PROJECT_CREATE_ROLES.has(role)
+// Delete/transfer ownership of a project, or promote a member to OWNER —
+// OWNER only (ADMIN can manage content/members but not this).
+export function isProjectOwner(projectRole, isSystemAdmin) {
+  return isSystemAdmin || projectRole === 'OWNER'
 }
 
+// System-level account management (creating other user accounts, granting
+// ADMINISTRATOR) — a global role, genuinely unrelated to any one project.
 export function canManageUsers(role) {
   return USER_MANAGE_ROLES.has(role)
-}
-
-// Same role set as task create/manage — POST/DELETE /api/project-members are
-// gated identically on the backend.
-export function canManageProjectMembers(role) {
-  return TASK_CREATE_ROLES.has(role)
 }

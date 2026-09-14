@@ -4,6 +4,7 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -48,6 +49,12 @@ public class SecurityConfig {
                     "/api/auth/verify-otp",
                     "/api/auth/resend-otp"
                 ).permitAll()
+                // Profile photos (PhotoController) are served publicly — an
+                // <img> tag can't attach the JWT this API otherwise requires.
+                // Keyed by an unguessable per-upload token (see
+                // User.profilePhotoToken), not a user id, so this doesn't
+                // expose anything enumerable.
+                .requestMatchers(HttpMethod.GET, "/api/photos/**").permitAll()
                 .anyRequest().authenticated()
             )
             .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt ->

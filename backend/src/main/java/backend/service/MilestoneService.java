@@ -85,20 +85,24 @@ public class MilestoneService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
-    public MilestoneResponse createMilestone(MilestoneRequest request) {
+    // Requires OWNER/ADMIN (or system ADMINISTRATOR) of the target project.
+    public MilestoneResponse createMilestone(MilestoneRequest request, String username) {
+        projectAccessGuard.assertCanManage(requireUser(username), request.getProjectId());
         Milestone milestone = new Milestone();
         applyRequest(milestone, request);
         return new MilestoneResponse(milestoneRepository.save(milestone));
     }
 
-    public MilestoneResponse updateMilestone(Long id, MilestoneRequest request) {
+    public MilestoneResponse updateMilestone(Long id, MilestoneRequest request, String username) {
         Milestone milestone = getMilestoneEntityById(id);
+        projectAccessGuard.assertCanManage(requireUser(username), milestone.getProject().getId());
         applyRequest(milestone, request);
         return new MilestoneResponse(milestoneRepository.save(milestone));
     }
 
-    public void deleteMilestone(Long id) {
+    public void deleteMilestone(Long id, String username) {
         Milestone milestone = getMilestoneEntityById(id);
+        projectAccessGuard.assertCanManage(requireUser(username), milestone.getProject().getId());
         milestoneRepository.delete(milestone);
     }
 

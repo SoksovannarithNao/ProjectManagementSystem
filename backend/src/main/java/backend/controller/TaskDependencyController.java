@@ -6,7 +6,6 @@ import backend.entity.TaskDependency.TaskDependencyId;
 import backend.service.TaskDependencyService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -37,23 +36,25 @@ public class TaskDependencyController {
         return taskDependencyService.getDependentTasks(taskId, authentication.getName());
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")
+    // Requires OWNER/ADMIN of the task's project — enforced in
+    // TaskDependencyService.
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public TaskDependencyResponse createTaskDependency(
-            @Valid @RequestBody TaskDependencyRequest request
+            @Valid @RequestBody TaskDependencyRequest request,
+            Authentication authentication
     ) {
-        return taskDependencyService.createTaskDependency(request);
+        return taskDependencyService.createTaskDependency(request, authentication.getName());
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping
     public void deleteTaskDependency(
             @RequestParam Long taskId,
-            @RequestParam Long dependsOnTaskId
+            @RequestParam Long dependsOnTaskId,
+            Authentication authentication
     ) {
         TaskDependencyId id = new TaskDependencyId(taskId, dependsOnTaskId);
-        taskDependencyService.deleteTaskDependency(id);
+        taskDependencyService.deleteTaskDependency(id, authentication.getName());
     }
 }

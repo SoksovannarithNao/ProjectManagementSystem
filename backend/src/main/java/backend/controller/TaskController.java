@@ -5,7 +5,6 @@ import backend.dto.TaskResponse;
 import backend.service.TaskService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -54,19 +53,20 @@ public class TaskController {
         return taskService.getTasksByStatus(status, authentication.getName());
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")
+    // Requires content-edit rights (OWNER/ADMIN/MEMBER, not VIEWER) on the
+    // target project — enforced in TaskService.createTask.
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
-    public TaskResponse createTask(@Valid @RequestBody TaskRequest request) {
-        return taskService.createTask(request);
+    public TaskResponse createTask(@Valid @RequestBody TaskRequest request, Authentication authentication) {
+        return taskService.createTask(request, authentication.getName());
     }
 
-    // Open to any authenticated role (not just PM/TL), since a TEAM_MEMBER
-    // must be able to update the status/progress of their own tasks.
-    // ADMINISTRATOR/PROJECT_MANAGER/TEAM_LEADER may still edit every field on
-    // any task; a TEAM_MEMBER may only act on a task they're assigned to, and
-    // only its status/progress take effect — see TaskService.updateTask and
-    // the README's Security section.
+    // Open to any authenticated user, since a project MEMBER must be able
+    // to update the status/progress of their own assigned tasks. A project
+    // OWNER/ADMIN (or system ADMINISTRATOR) may still edit every field on
+    // any task in that project; anyone else may only act on a task they're
+    // assigned to, and only its status/progress take effect — see
+    // TaskService.updateTask and the README's Security section.
     @PutMapping("/{id}")
     public TaskResponse updateTask(
             @PathVariable Long id,
@@ -76,10 +76,11 @@ public class TaskController {
         return taskService.updateTask(id, request, authentication.getName());
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")
+    // Requires OWNER/ADMIN of the task's project — enforced in
+    // TaskService.deleteTask.
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/{id}")
-    public void deleteTask(@PathVariable Long id) {
-        taskService.deleteTask(id);
+    public void deleteTask(@PathVariable Long id, Authentication authentication) {
+        taskService.deleteTask(id, authentication.getName());
     }
 }

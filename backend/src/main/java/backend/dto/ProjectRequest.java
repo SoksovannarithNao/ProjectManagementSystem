@@ -28,7 +28,9 @@ public class ProjectRequest {
     @NotNull
     private LocalDate endDate;
 
-    @NotNull
+    // Optional — normally omitted; the caller becomes the manager/OWNER
+    // automatically (see ProjectService.applyRequest). Only a system
+    // ADMINISTRATOR may set this to someone else.
     private Long managerId;
 
     @Pattern(regexp = "LOW|MEDIUM|HIGH|CRITICAL")

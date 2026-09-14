@@ -11,7 +11,7 @@ public class ProjectMemberRequest {
     @NotNull
     private Long userId;
 
-    @Pattern(regexp = "PROJECT_MANAGER|TEAM_LEADER|TEAM_MEMBER")
+    @Pattern(regexp = "OWNER|ADMIN|MEMBER|VIEWER")
     private String projectRole;
 
     public Long getProjectId() {

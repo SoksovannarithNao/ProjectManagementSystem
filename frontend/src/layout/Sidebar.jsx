@@ -15,7 +15,7 @@ import {
 import { Avatar } from '../components/ui/Avatar'
 import { HelpModal } from '../components/HelpModal'
 import { useAuth } from '../auth/AuthContext'
-import { humanizeEnum, initialsFor } from '../api/format'
+import { initialsFor } from '../api/format'
 import { useLayout } from './useLayout'
 
 const navItems = [
@@ -37,9 +37,8 @@ const itemActive =
 
 export function Sidebar() {
   const { mobileNavOpen, closeMobileNav } = useLayout()
-  const { profile, username, role } = useAuth()
+  const { profile, username } = useAuth()
   const displayName = profile?.fullName || username || ''
-  const displayRole = humanizeEnum(profile?.role || role || '')
   const [showHelp, setShowHelp] = useState(false)
 
   return (
@@ -109,12 +108,16 @@ export function Sidebar() {
             className="hover:bg-canvas duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-2.5 rounded-md px-2 pt-2.5 pb-2 transition-colors"
             onClick={closeMobileNav}
           >
-            <Avatar initials={initialsFor(displayName)} color="var(--accent-purple)" size={36} />
+            <Avatar
+              initials={initialsFor(displayName)}
+              color="var(--accent-purple)"
+              photoUrl={profile?.profilePhotoUrl}
+              size={36}
+            />
             <div className="flex min-w-0 flex-col">
               <span className="text-ink truncate text-[13px] font-semibold">
                 {displayName}
               </span>
-              <span className="text-faint text-[11.5px]">{displayRole}</span>
             </div>
           </NavLink>
         </div>

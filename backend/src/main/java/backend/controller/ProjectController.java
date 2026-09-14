@@ -5,7 +5,6 @@ import backend.dto.ProjectResponse;
 import backend.service.ProjectService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,26 +30,30 @@ public class ProjectController {
         return projectService.getProjectById(id, authentication.getName());
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER')")
+    // Any authenticated user may create a project — they automatically
+    // become its OWNER; see ProjectService.createProject.
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
-    public ProjectResponse createProject(@Valid @RequestBody ProjectRequest request) {
-        return projectService.createProject(request);
+    public ProjectResponse createProject(@Valid @RequestBody ProjectRequest request, Authentication authentication) {
+        return projectService.createProject(request, authentication.getName());
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER')")
+    // Requires OWNER/ADMIN of this specific project (or system
+    // ADMINISTRATOR) — enforced in ProjectService.updateProject.
     @PutMapping("/{id}")
     public ProjectResponse updateProject(
             @PathVariable Long id,
-            @Valid @RequestBody ProjectRequest request
+            @Valid @RequestBody ProjectRequest request,
+            Authentication authentication
     ) {
-        return projectService.updateProject(id, request);
+        return projectService.updateProject(id, request, authentication.getName());
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER')")
+    // Requires OWNER of this specific project (or system ADMINISTRATOR) —
+    // enforced in ProjectService.deleteProject.
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/{id}")
-    public void deleteProject(@PathVariable Long id) {
-        projectService.deleteProject(id);
+    public void deleteProject(@PathVariable Long id, Authentication authentication) {
+        projectService.deleteProject(id, authentication.getName());
     }
 }

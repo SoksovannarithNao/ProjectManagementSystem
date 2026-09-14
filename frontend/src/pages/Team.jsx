@@ -10,7 +10,7 @@ import { useToast } from '../components/ui/Toast'
 import { AddMemberModal } from '../components/AddMemberModal'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
-import { canManageUsers, canManageProjectMembers } from '../api/permissions'
+import { canManageUsers } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
 import { getProjectMembers, inviteMember, deleteProjectMember } from '../api/projectMembers'
@@ -39,7 +39,6 @@ export function Team() {
   const [addingPosition, setAddingPosition] = useState(false)
   const [addingDepartment, setAddingDepartment] = useState(false)
   const canInvite = canManageUsers(role)
-  const canManageMembership = canManageProjectMembers(role)
   const isAdmin = role === 'ADMINISTRATOR'
 
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
@@ -51,26 +50,25 @@ export function Team() {
   const selected = members.find((m) => m.id === activeId)
   const isSelf = selected?.id === profile?.id
 
-  // Projects the current user actually administers (manager, or an active
-  // PROJECT_MANAGER/TEAM_LEADER membership) — mirrors
-  // ProjectMemberService.assertTeamAdmin on the backend, so "Invite" only
-  // offers teams the caller can really send an invitation for.
+  // Projects the current user actually administers (an active OWNER/ADMIN
+  // membership, or a system ADMINISTRATOR) — mirrors
+  // ProjectAccessGuard.canManage on the backend, so "Invite"/"Remove" only
+  // offer teams the caller can really act on. null means "every project"
+  // (system ADMINISTRATOR).
   const administeredProjectIds = useMemo(() => {
     if (isAdmin || profile == null) return null
     const ids = new Set()
-    for (const p of projects ?? []) {
-      if (p.manager?.id === profile.id) ids.add(p.id)
-    }
     for (const pm of projectMembers ?? []) {
       if (
         pm.user?.id === profile.id &&
-        (pm.projectRole === 'PROJECT_MANAGER' || pm.projectRole === 'TEAM_LEADER')
+        pm.status === 'ACTIVE' &&
+        (pm.projectRole === 'OWNER' || pm.projectRole === 'ADMIN')
       ) {
         ids.add(pm.project?.id)
       }
     }
     return ids
-  }, [isAdmin, profile, projects, projectMembers])
+  }, [isAdmin, profile, projectMembers])
 
   const memberProjects = useMemo(() => {
     if (activeId == null) return []
@@ -88,6 +86,14 @@ export function Team() {
       (p) => !memberIds.has(p.id) && (administeredProjectIds == null || administeredProjectIds.has(p.id))
     )
   }, [projects, memberProjects, activeId, administeredProjectIds])
+
+  // Whether the caller administers (OWNER/ADMIN of, or system ADMINISTRATOR)
+  // at least one project the selected member is also in — gates
+  // position/department editing and per-project removal, matching
+  // UserService.updateMemberPositionDepartment's "Team Admin for THIS
+  // member" check on the backend (not a flat global permission).
+  const canManageSelectedMember =
+    isAdmin || memberProjects.some((p) => administeredProjectIds?.has(p.id))
 
   const isAddProjectIdValid = availableProjects.some((p) => String(p.id) === addProjectId)
   const effectiveAddProjectId = isAddProjectIdValid
@@ -197,7 +203,7 @@ export function Team() {
                   }`}
                   onClick={() => setSelectedId(m.id)}
                 >
-                  <Avatar initials={m.initials} color={m.color} size={38} />
+                  <Avatar initials={m.initials} color={m.color} photoUrl={m.photoUrl} size={38} />
                   <span className="flex min-w-0 flex-col">
                     <span className="text-ink truncate text-[13.5px] font-[650]">{m.name}</span>
                     <span className="text-faint truncate text-[11.5px]">@{m.username}</span>
@@ -213,7 +219,7 @@ export function Team() {
         {selected && (
           <section className="card px-[26px] py-6">
             <div className="border-divider mb-5 flex items-center gap-4 border-b pb-5">
-              <Avatar initials={selected.initials} color={selected.color} size={64} />
+              <Avatar initials={selected.initials} color={selected.color} photoUrl={selected.photoUrl} size={64} />
               <div>
                 <h2 className="text-[19px] font-bold tracking-[-0.01em]">{selected.name}</h2>
                 <p className="text-muted my-1 text-[13px]">@{selected.username}</p>
@@ -242,7 +248,7 @@ export function Team() {
 
             <div className="mb-[22px]">
               <h4 className="mb-3 text-[13px] font-[650]">Team Information</h4>
-              {canManageMembership && !isSelf ? (
+              {canManageSelectedMember && !isSelf ? (
                 <div className="flex gap-3">
                   <LookupSelect
                     label="Position"
@@ -293,7 +299,7 @@ export function Team() {
                     <span>{p.name}</span>
                     <span className="flex items-center gap-2">
                       <span className="text-muted font-[650]">{Math.round(Number(p.progress ?? 0))}%</span>
-                      {canManageMembership && (
+                      {(isAdmin || administeredProjectIds?.has(p.id)) && (
                         <button
                           type="button"
                           className="icon-btn h-7 w-7 hover:text-danger"
@@ -308,7 +314,7 @@ export function Team() {
                 ))}
               </div>
 
-              {canManageMembership && !isSelf && availableProjects.length > 0 && (
+              {!isSelf && availableProjects.length > 0 && (
                 <div className="mt-3 flex items-center gap-2">
                   <select
                     value={effectiveAddProjectId}

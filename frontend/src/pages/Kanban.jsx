@@ -9,12 +9,13 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { Dropdown } from '../components/ui/Dropdown'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
-import { canCreateTask } from '../api/permissions'
+import { canEditProjectContent } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getTasks } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
-import { buildTaskAssigneeMap } from '../api/relations'
+import { getProjectMembers } from '../api/projectMembers'
+import { buildTaskAssigneeMap, buildMyProjectRoleMap } from '../api/relations'
 import { groupTasksByStatus } from '../api/stats'
 import { formatDate, humanizeEnum } from '../api/format'
 
@@ -28,17 +29,27 @@ const COLUMN_ACCENT = {
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 
 export function Kanban() {
-  const { role } = useAuth()
+  const { role, profile } = useAuth()
   const { getMember } = useMembers()
   const { data: tasks, loading, refetch } = useApi(getTasks)
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects } = useApi(getProjects)
+  const { data: projectMembers } = useApi(getProjectMembers)
   const [activeTask, setActiveTask] = useState(null)
   const [showNewTask, setShowNewTask] = useState(false)
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState(() => new Set())
   const [projectFilter, setProjectFilter] = useState('')
-  const canAddTasks = canCreateTask(role)
+  const isSystemAdmin = role === 'ADMINISTRATOR'
+  const myProjectRoleMap = useMemo(
+    () => buildMyProjectRoleMap(projectMembers, profile?.id),
+    [projectMembers, profile]
+  )
+  // Whether there's at least one project the caller can add tasks to —
+  // gates the top-level "New Task" affordances; TaskFormModal itself only
+  // offers projects the caller can actually create tasks in.
+  const canAddTasks =
+    isSystemAdmin || Array.from(myProjectRoleMap.values()).some((r) => canEditProjectContent(r, false))
   const activeFilterCount = priorityFilter.size + (projectFilter ? 1 : 0)
 
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
@@ -193,7 +204,13 @@ export function Kanban() {
                     <div className="flex items-center justify-between">
                       <span className="text-muted text-[11px]">{formatDate(task.dueDate)}</span>
                       {member && (
-                        <Avatar initials={member.initials} color={member.color} size={24} title={member.name} />
+                        <Avatar
+                          initials={member.initials}
+                          color={member.color}
+                          photoUrl={member.photoUrl}
+                          size={24}
+                          title={member.name}
+                        />
                       )}
                     </div>
                   </button>

@@ -5,7 +5,6 @@ import backend.dto.TaskAssigneeResponse;
 import backend.service.TaskAssigneeService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -41,17 +40,17 @@ public class TaskAssigneeController {
         return taskAssigneeService.getTasksByUserId(userId, authentication.getName());
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")
+    // Requires OWNER/ADMIN of the task's project — enforced in
+    // TaskAssigneeService.
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
-    public TaskAssigneeResponse createTaskAssignee(@Valid @RequestBody TaskAssigneeRequest request) {
-        return taskAssigneeService.createTaskAssignee(request);
+    public TaskAssigneeResponse createTaskAssignee(@Valid @RequestBody TaskAssigneeRequest request, Authentication authentication) {
+        return taskAssigneeService.createTaskAssignee(request, authentication.getName());
     }
 
-    @PreAuthorize("hasAnyRole('ADMINISTRATOR', 'PROJECT_MANAGER', 'TEAM_LEADER')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/{id}")
-    public void deleteTaskAssignee(@PathVariable Long id) {
-        taskAssigneeService.deleteTaskAssignee(id);
+    public void deleteTaskAssignee(@PathVariable Long id, Authentication authentication) {
+        taskAssigneeService.deleteTaskAssignee(id, authentication.getName());
     }
 }

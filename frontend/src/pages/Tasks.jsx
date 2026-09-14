@@ -23,12 +23,13 @@ import { Dropdown } from '../components/ui/Dropdown'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
-import { canCreateTask, canManageTask } from '../api/permissions'
+import { canEditProjectContent, canManageProject } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getTasks, advanceTaskStatus, deleteTask } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
-import { buildTaskAssigneeMap } from '../api/relations'
+import { getProjectMembers } from '../api/projectMembers'
+import { buildTaskAssigneeMap, buildMyProjectRoleMap } from '../api/relations'
 import { humanizeEnum } from '../api/format'
 
 function hashStr(str) {
@@ -72,11 +73,12 @@ const SORTERS = {
 }
 
 export function Tasks() {
-  const { role } = useAuth()
+  const { role, profile } = useAuth()
   const notify = useToast()
   const { data: tasks, loading, refetch } = useApi(getTasks)
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects } = useApi(getProjects)
+  const { data: projectMembers } = useApi(getProjectMembers)
   const [activeTask, setActiveTask] = useState(null)
   const [showNewTask, setShowNewTask] = useState(false)
   const [editingTask, setEditingTask] = useState(null)
@@ -86,8 +88,17 @@ export function Tasks() {
   const [priorityFilter, setPriorityFilter] = useState(() => new Set())
   const [projectFilter, setProjectFilter] = useState('')
   const [sortBy, setSortBy] = useState('dueDate')
-  const canAddTasks = canCreateTask(role)
-  const canManage = canManageTask(role)
+  const isSystemAdmin = role === 'ADMINISTRATOR'
+  const myProjectRoleMap = useMemo(
+    () => buildMyProjectRoleMap(projectMembers, profile?.id),
+    [projectMembers, profile]
+  )
+  // Whether there's at least one project the caller can add tasks to —
+  // gates the top-level "New Task"/"Add task" affordances. Per-row
+  // edit/delete (canManage below) instead checks that specific task's own
+  // project role — see the "More actions" dropdown further down.
+  const canAddTasks =
+    isSystemAdmin || Array.from(myProjectRoleMap.values()).some((r) => canEditProjectContent(r, false))
 
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
   const list = useMemo(() => tasks ?? [], [tasks])
@@ -299,6 +310,7 @@ export function Tasks() {
                 {sectionTasks.map((t, i) => {
                   const assigneeIds = assigneeMap.get(t.id) ?? []
                   const pill = pillColor(t.project?.name)
+                  const canManage = canManageProject(myProjectRoleMap.get(t.project?.id), isSystemAdmin)
                   const done = t.status === 'COMPLETED'
                   const doing = t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW'
                   const advanceLabel = t.status === 'TO_DO'

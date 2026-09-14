@@ -17,7 +17,9 @@ import { ConfirmDialog } from './ui/ConfirmDialog'
 import { TaskFormModal } from './TaskFormModal'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
-import { canManageTask } from '../api/permissions'
+import { canManageProject } from '../api/permissions'
+import { buildMyProjectRoleMap } from '../api/relations'
+import { getProjectMembers } from '../api/projectMembers'
 import { setTaskStatus, deleteTask } from '../api/tasks'
 import { useApi } from '../api/useApi'
 import { getSubtasksByTask, createSubtask, updateSubtask, deleteSubtask } from '../api/subtasks'
@@ -30,7 +32,15 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
   const { getMember } = useMembers()
   const { profile, role } = useAuth()
   const notify = useToast()
-  const canManage = canManageTask(role)
+  const { data: projectMembers } = useApi(getProjectMembers)
+  const myProjectRoleMap = useMemo(
+    () => buildMyProjectRoleMap(projectMembers, profile?.id),
+    [projectMembers, profile]
+  )
+  // OWNER/ADMIN of THIS task's project (or system ADMINISTRATOR) — matches
+  // ProjectAccessGuard.canManage on the backend, which is what actually
+  // gates PUT/DELETE on this task and comment moderation.
+  const canManage = canManageProject(myProjectRoleMap.get(task?.project?.id), role === 'ADMINISTRATOR')
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -230,7 +240,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               <span className="text-faint text-[11.5px] font-semibold">Assignee</span>
               {assignee ? (
                 <span className="inline-flex items-center gap-2 text-[13px] font-semibold">
-                  <Avatar initials={assignee.initials} color={assignee.color} size={22} />
+                  <Avatar initials={assignee.initials} color={assignee.color} photoUrl={assignee.photoUrl} size={22} />
                   {assignee.name}
                 </span>
               ) : (
@@ -307,9 +317,15 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
             <div className="flex flex-col gap-3.5">
               {comments.map((c) => {
                 const isOwn = profile?.id != null && c.userId === profile.id
+                const author = getMember(c.userId)
                 return (
                   <div key={c.id} className="group flex gap-2.5">
-                    <Avatar initials={initialsFor(c.authorName)} color="var(--accent-purple)" size={28} />
+                    <Avatar
+                      initials={initialsFor(c.authorName)}
+                      color="var(--accent-purple)"
+                      photoUrl={author?.photoUrl}
+                      size={28}
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="mb-[3px] flex items-baseline gap-2">
                         <span className="text-[12.5px] font-[650]">{c.authorName}</span>

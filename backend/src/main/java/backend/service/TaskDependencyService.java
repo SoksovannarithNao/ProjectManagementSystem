@@ -94,11 +94,13 @@ public class TaskDependencyService {
                 .orElseThrow(() -> new NotFoundException("Task not found"));
     }
 
-    public TaskDependencyResponse createTaskDependency(TaskDependencyRequest request) {
+    // Requires OWNER/ADMIN (or system ADMINISTRATOR) of the task's project.
+    public TaskDependencyResponse createTaskDependency(TaskDependencyRequest request, String username) {
         Task task = taskRepository.findById(request.getTaskId())
                 .orElseThrow(() -> new NotFoundException("Task not found"));
         Task dependsOnTask = taskRepository.findById(request.getDependsOnTaskId())
                 .orElseThrow(() -> new NotFoundException("Depends-on task not found"));
+        projectAccessGuard.assertCanManage(requireUser(username), task.getProject().getId());
 
         TaskDependency dependency = new TaskDependency();
         dependency.setTask(task);
@@ -107,8 +109,9 @@ public class TaskDependencyService {
         return new TaskDependencyResponse(taskDependencyRepository.save(dependency));
     }
 
-    public void deleteTaskDependency(TaskDependencyId id) {
+    public void deleteTaskDependency(TaskDependencyId id, String username) {
         TaskDependency dependency = getTaskDependencyEntityById(id);
+        projectAccessGuard.assertCanManage(requireUser(username), dependency.getTask().getProject().getId());
         taskDependencyRepository.delete(dependency);
     }
 }

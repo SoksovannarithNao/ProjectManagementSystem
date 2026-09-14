@@ -20,17 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Set;
 
 @Service
 @Transactional
 public class TaskService {
-
-    // Roles allowed to edit every field of any task via PUT /api/tasks/{id}.
-    // Everyone else (TEAM_MEMBER) may only touch status/progress, and only on
-    // a task they're assigned to — see updateTask.
-    private static final Set<String> TASK_FULL_EDIT_ROLES =
-            Set.of("ADMINISTRATOR", "PROJECT_MANAGER", "TEAM_LEADER");
 
     private final TaskRepository taskRepository;
     private final ProjectRepository projectRepository;
@@ -73,7 +66,7 @@ public class TaskService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
         List<Task> tasks;
-        if ("ADMINISTRATOR".equals(caller.getRole().getName())) {
+        if (projectAccessGuard.isAdmin(caller)) {
             tasks = taskRepository.findAll();
         } else {
             List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
@@ -139,20 +132,34 @@ public class TaskService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
-    public TaskResponse createTask(TaskRequest request) {
+    // Requires the caller to have content-edit rights (OWNER/ADMIN/MEMBER,
+    // not VIEWER) on the task's project — see ProjectAccessGuard. createdBy
+    // is always the caller, unless a system ADMINISTRATOR explicitly names
+    // someone else via request.createdById — a plain caller's createdById
+    // (if the frontend even sends one) is never trusted, closing a
+    // spoofing gap this used to have.
+    public TaskResponse createTask(TaskRequest request, String username) {
+        User caller = requireUser(username);
+        projectAccessGuard.assertCanEditContent(caller, request.getProjectId());
+
         Task task = new Task();
         applyRequest(task, request);
+        // Override whatever applyRequest resolved from request.createdById:
+        // the caller is always the creator, unless they're a system
+        // ADMINISTRATOR explicitly naming someone else.
+        if (request.getCreatedById() == null || !projectAccessGuard.isAdmin(caller)) {
+            task.setCreatedBy(caller);
+        }
         return new TaskResponse(taskRepository.save(task));
     }
 
     public TaskResponse updateTask(Long id, TaskRequest request, String username) {
         Task task = getTaskEntityById(id);
-        User caller = userRepository.findByUsername(username)
-                .orElseThrow(() -> new NotFoundException("User not found"));
+        User caller = requireUser(username);
 
         String previousStatus = task.getStatus();
 
-        if (TASK_FULL_EDIT_ROLES.contains(caller.getRole().getName())) {
+        if (projectAccessGuard.canManage(caller, task.getProject().getId())) {
             applyRequest(task, request);
         } else {
             if (!taskAssigneeRepository.existsByTaskIdAndUserId(id, caller.getId())) {
@@ -174,10 +181,11 @@ public class TaskService {
         return new TaskResponse(saved);
     }
 
-    // A TEAM_MEMBER updating a task assigned to them may only change its
-    // status/progress — every other field in the request (title, project,
-    // dates, etc.) is silently ignored rather than rejected, since the
-    // frontend's full-replace PUT still sends the whole object.
+    // A caller without OWNER/ADMIN project rights, updating a task assigned
+    // to them, may only change its status/progress — every other field in
+    // the request (title, project, dates, etc.) is silently ignored rather
+    // than rejected, since the frontend's full-replace PUT still sends the
+    // whole object.
     private void applyStatusAndProgressOnly(Task task, TaskRequest request) {
         if (request.getStatus() != null) {
             task.setStatus(request.getStatus());
@@ -187,8 +195,10 @@ public class TaskService {
         }
     }
 
-    public void deleteTask(Long id) {
+    // Requires OWNER/ADMIN (or system ADMINISTRATOR) of the task's project.
+    public void deleteTask(Long id, String username) {
         Task task = getTaskEntityById(id);
+        projectAccessGuard.assertCanManage(requireUser(username), task.getProject().getId());
         taskRepository.delete(task);
     }
 
