@@ -208,6 +208,8 @@ public class ProjectMemberService {
         if ("OWNER".equals(request.getProjectRole())) {
             projectAccessGuard.assertIsOwner(caller, projectMember.getProject().getId());
         }
+        String effectiveNewRole = request.getProjectRole() != null ? request.getProjectRole() : projectMember.getProjectRole();
+        assertNotRemovingLastOwner(projectMember, effectiveNewRole);
         applyRequest(projectMember, request);
         return new ProjectMemberResponse(projectMemberRepository.save(projectMember));
     }
@@ -215,7 +217,30 @@ public class ProjectMemberService {
     public void deleteProjectMember(Long id, String username) {
         ProjectMember projectMember = getProjectMemberEntityById(id);
         projectAccessGuard.assertCanManage(requireUser(username), projectMember.getProject().getId());
+        assertNotRemovingLastOwner(projectMember, null);
         projectMemberRepository.delete(projectMember);
+    }
+
+    // A project must never end up with zero ACTIVE owners — once that
+    // happens, nobody could ever be promoted back to OWNER (granting OWNER
+    // requires already being one; see assertIsOwner), permanently orphaning
+    // the project. Applies unconditionally, even to a system ADMINISTRATOR
+    // caller — this is a data invariant, not a permission gate (mirrored at
+    // the database level by trg_project_members_owner_integrity). To
+    // transfer ownership: first promote the new OWNER (there are briefly two
+    // active owners), then demote/remove the old one — at that point this
+    // check sees the new owner already in place and allows it.
+    private void assertNotRemovingLastOwner(ProjectMember member, String newRole) {
+        boolean wasActiveOwner = "OWNER".equals(member.getProjectRole()) && "ACTIVE".equals(member.getStatus());
+        if (!wasActiveOwner || "OWNER".equals(newRole)) {
+            return;
+        }
+        long remainingOwners = projectMemberRepository.countByProjectIdAndProjectRoleAndStatus(
+                member.getProject().getId(), "OWNER", "ACTIVE");
+        if (remainingOwners <= 1) {
+            throw new IllegalArgumentException(
+                    "This is the project's only owner — promote another member to OWNER before changing or removing this membership");
+        }
     }
 
     private void applyRequest(ProjectMember projectMember, ProjectMemberRequest request) {

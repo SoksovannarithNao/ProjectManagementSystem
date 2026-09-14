@@ -27,9 +27,13 @@ public class UserController {
         this.userService = userService;
     }
 
+    // Scoped in the service to "yourself plus people who share an ACTIVE
+    // project with you" (system ADMINISTRATOR sees everyone) — previously
+    // returned the entire org to any authenticated user regardless of
+    // project membership.
     @GetMapping
-    public List<UserResponse> getAllUsers() {
-        return userService.getAllUsers();
+    public List<UserResponse> getAllUsers(Authentication authentication) {
+        return userService.getAllUsers(authentication.getName());
     }
 
     @GetMapping("/{id}")

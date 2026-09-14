@@ -51,7 +51,11 @@ class UserServiceTest {
 
     private UserService userService;
 
-    private Role teamMemberRole;
+    // An arbitrary role fixture for generic "assign a role by id" tests
+    // below — not exercising any role-specific authorization behavior, so
+    // any valid role name would do. USER is one of the two system roles
+    // that actually exist (see database/init/01-init.sql).
+    private Role assignedRole;
 
     @BeforeEach
     void setUp() {
@@ -59,13 +63,13 @@ class UserServiceTest {
                 userRepository, roleRepository, positionRepository, departmentRepository,
                 projectMemberRepository, passwordEncoder);
 
-        teamMemberRole = new Role();
-        teamMemberRole.setName("TEAM_MEMBER");
+        assignedRole = new Role();
+        assignedRole.setName("USER");
     }
 
     @Test
     void createUser_hashesThePasswordRatherThanStoringItAsIs() {
-        when(roleRepository.findById(4L)).thenReturn(Optional.of(teamMemberRole));
+        when(roleRepository.findById(4L)).thenReturn(Optional.of(assignedRole));
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         UserCreateRequest request = new UserCreateRequest();
@@ -87,7 +91,7 @@ class UserServiceTest {
 
     @Test
     void createUser_doesNotLeakPasswordHashInTheResponse() {
-        when(roleRepository.findById(4L)).thenReturn(Optional.of(teamMemberRole));
+        when(roleRepository.findById(4L)).thenReturn(Optional.of(assignedRole));
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         UserCreateRequest request = new UserCreateRequest();
@@ -110,10 +114,10 @@ class UserServiceTest {
         User existing = new User();
         existing.setUsername("test.user");
         existing.setPasswordHash("$2a$10$existingHashValueUnchanged");
-        existing.setRole(teamMemberRole);
+        existing.setRole(assignedRole);
 
         when(userRepository.findById(5L)).thenReturn(Optional.of(existing));
-        when(roleRepository.findById(4L)).thenReturn(Optional.of(teamMemberRole));
+        when(roleRepository.findById(4L)).thenReturn(Optional.of(assignedRole));
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         UserUpdateRequest request = new UserUpdateRequest();

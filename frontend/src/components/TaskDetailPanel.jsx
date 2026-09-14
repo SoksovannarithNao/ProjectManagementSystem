@@ -59,12 +59,40 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
   const [status, setStatus] = useState(task?.status)
   const [savingStatus, setSavingStatus] = useState(false)
 
+  // `task` is derived from the caller's own live task list (see Tasks.jsx/
+  // Kanban.jsx), so task.status can change out from under us — e.g.
+  // reopening the last completed subtask auto-reverts an already-COMPLETED
+  // parent (SubtaskService.reopenParentIfNoLongerFullyComplete). Re-sync
+  // the local optimistic-update copy whenever that happens, rather than
+  // only reading task.status once at mount. Updating state directly during
+  // render (guarded by the comparison) is the pattern React recommends for
+  // "adjust state when a prop changes" — see
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes.
+  const [syncedStatus, setSyncedStatus] = useState(task?.status)
+  if (task?.status !== syncedStatus) {
+    setSyncedStatus(task?.status)
+    setStatus(task?.status)
+  }
+
   const assigneeId = useMemo(() => task?.assigneeIds?.[0], [task])
   const assignee = getMember(assigneeId)
   const doneCount = subtasks.filter((s) => s.status === 'COMPLETED').length
+  // Mirrors the backend rule in TaskService.assertNotCompletingWithOpenSubtasks
+  // — a task with subtasks can only become COMPLETED once every subtask is.
+  // This only ever hides/blocks the option; the backend is still what
+  // actually enforces it (see that method's own comment on why).
+  const hasIncompleteSubtasks = subtasks.length > 0 && doneCount < subtasks.length
 
   if (!task) return null
 
+  // Every subtask mutation also calls onChange (not just refetchSubtasks)
+  // — a page that shows this same task elsewhere (e.g. My Tasks' expandable
+  // subtask preview) has its own separately-fetched/cached copy of this
+  // task's subtasks, which refetchSubtasks alone never touches. Without
+  // this, completing a subtask here left that other view showing the stale,
+  // pre-change list (and, since the parent's own status/progress can change
+  // as a side effect on the backend when this was the last open subtask,
+  // the task itself may also need refreshing there).
   const toggleSubtask = async (s) => {
     try {
       await updateSubtask(s.id, {
@@ -75,6 +103,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
         status: s.status === 'COMPLETED' ? 'TO_DO' : 'COMPLETED',
       })
       refetchSubtasks()
+      onChange?.()
     } catch (err) {
       notify(err.message || 'Failed to update subtask', { tone: 'error' })
     }
@@ -85,6 +114,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
     try {
       await createSubtask({ taskId: task.id, title: label.trim(), status: 'TO_DO' })
       refetchSubtasks()
+      onChange?.()
     } catch (err) {
       notify(err.message || 'Failed to add subtask', { tone: 'error' })
     }
@@ -94,6 +124,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
     try {
       await deleteSubtask(id)
       refetchSubtasks()
+      onChange?.()
     } catch (err) {
       notify(err.message || 'Failed to delete subtask', { tone: 'error' })
     }
@@ -137,6 +168,10 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
   }
 
   const handleStatusChange = async (nextStatus) => {
+    if (nextStatus === 'COMPLETED' && hasIncompleteSubtasks) {
+      notify('Complete all subtasks before marking this task as done.', { tone: 'error' })
+      return
+    }
     const previous = status
     setStatus(nextStatus)
     setSavingStatus(true)
@@ -201,7 +236,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
         <div className="flex-1 overflow-y-auto px-[22px] pt-5 pb-6">
           <h2 className="mb-3.5 text-xl font-bold tracking-[-0.015em]">{task.title}</h2>
 
-          <div className="mb-5 flex items-center gap-2">
+          <div className={`flex items-center gap-2 ${hasIncompleteSubtasks ? 'mb-1.5' : 'mb-5'}`}>
             <select
               value={status}
               onChange={(e) => handleStatusChange(e.target.value)}
@@ -209,13 +244,18 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               className="bg-subtle border-border h-8 rounded-full border px-2.5 text-[11.5px] font-semibold outline-none"
             >
               {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
+                <option key={s} value={s} disabled={s === 'COMPLETED' && hasIncompleteSubtasks}>
                   {humanizeEnum(s)}
                 </option>
               ))}
             </select>
             <Badge tone={task.priority}>{humanizeEnum(task.priority)}</Badge>
           </div>
+          {hasIncompleteSubtasks && (
+            <p className="text-warning mb-3.5 text-[11.5px] font-medium">
+              Complete all subtasks before marking this task as done.
+            </p>
+          )}
 
           <div className="bg-subtle border-border mb-[22px] grid grid-cols-2 gap-4 rounded-md border p-4 max-sm:grid-cols-1">
             <div className="flex flex-col gap-1.5">

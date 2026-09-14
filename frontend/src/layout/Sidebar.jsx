@@ -12,10 +12,7 @@ import {
   HelpCircle,
   X,
 } from 'lucide-react'
-import { Avatar } from '../components/ui/Avatar'
 import { HelpModal } from '../components/HelpModal'
-import { useAuth } from '../auth/AuthContext'
-import { initialsFor } from '../api/format'
 import { useLayout } from './useLayout'
 
 const navItems = [
@@ -37,8 +34,6 @@ const itemActive =
 
 export function Sidebar() {
   const { mobileNavOpen, closeMobileNav } = useLayout()
-  const { profile, username } = useAuth()
-  const displayName = profile?.fullName || username || ''
   const [showHelp, setShowHelp] = useState(false)
 
   return (
@@ -103,23 +98,6 @@ export function Sidebar() {
             <HelpCircle size={18} strokeWidth={2} />
             <span>Help &amp; Support</span>
           </button>
-          <NavLink
-            to="/profile"
-            className="hover:bg-canvas duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-2.5 rounded-md px-2 pt-2.5 pb-2 transition-colors"
-            onClick={closeMobileNav}
-          >
-            <Avatar
-              initials={initialsFor(displayName)}
-              color="var(--accent-purple)"
-              photoUrl={profile?.profilePhotoUrl}
-              size={36}
-            />
-            <div className="flex min-w-0 flex-col">
-              <span className="text-ink truncate text-[13px] font-semibold">
-                {displayName}
-              </span>
-            </div>
-          </NavLink>
         </div>
       </aside>
 

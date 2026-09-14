@@ -49,12 +49,22 @@ export function toggleTaskCompletion(task) {
 }
 
 // One click = one step forward in the workflow: To Do -> Doing -> Done,
-// never jumping straight from To Do to Done. Clicking an already-finished
-// task reopens it (back to To Do), same as unchecking a checkbox.
+// never jumping straight from To Do to Done. COMPLETED/CANCELLED are
+// terminal for this quick-advance control — a finished task should not be
+// silently reopened by an accidental click. Reopening is still possible,
+// just not by this control: use the explicit status dropdown in
+// TaskDetailPanel, a deliberate action rather than a stray click.
 function nextWorkflowStatus(status) {
   if (status === 'TO_DO') return 'IN_PROGRESS'
   if (status === 'IN_PROGRESS' || status === 'IN_REVIEW') return 'COMPLETED'
-  return 'TO_DO'
+  return status
+}
+
+// Whether advanceTaskStatus would actually change this task's status —
+// false for COMPLETED/CANCELLED, which are terminal for the quick-advance
+// control (see nextWorkflowStatus above).
+export function canAdvanceStatus(status) {
+  return nextWorkflowStatus(status) !== status
 }
 
 export function advanceTaskStatus(task) {

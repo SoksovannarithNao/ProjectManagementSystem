@@ -385,7 +385,7 @@ export function Dashboard() {
           {kanbanColumns.map((col) => (
             <div
               key={col.id}
-              className="bg-subtle flex w-60 shrink-0 flex-col gap-2.5 rounded-md p-3.5"
+              className="bg-container flex w-60 shrink-0 flex-col gap-2.5 rounded-md p-3.5"
             >
               <div className="text-ink flex items-center justify-between px-0.5 pb-1 text-[12.5px] font-[650]">
                 <span>{col.title}</span>

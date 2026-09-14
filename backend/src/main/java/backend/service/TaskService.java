@@ -11,6 +11,7 @@ import backend.exception.NotFoundException;
 import backend.repository.MilestoneRepository;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
+import backend.repository.SubtaskRepository;
 import backend.repository.TaskAssigneeRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
@@ -31,6 +32,7 @@ public class TaskService {
     private final MilestoneRepository milestoneRepository;
     private final UserRepository userRepository;
     private final TaskAssigneeRepository taskAssigneeRepository;
+    private final SubtaskRepository subtaskRepository;
     private final NotificationService notificationService;
     private final ProjectAccessGuard projectAccessGuard;
 
@@ -41,6 +43,7 @@ public class TaskService {
             MilestoneRepository milestoneRepository,
             UserRepository userRepository,
             TaskAssigneeRepository taskAssigneeRepository,
+            SubtaskRepository subtaskRepository,
             NotificationService notificationService,
             ProjectAccessGuard projectAccessGuard) {
         this.taskRepository = taskRepository;
@@ -49,6 +52,7 @@ public class TaskService {
         this.milestoneRepository = milestoneRepository;
         this.userRepository = userRepository;
         this.taskAssigneeRepository = taskAssigneeRepository;
+        this.subtaskRepository = subtaskRepository;
         this.notificationService = notificationService;
         this.projectAccessGuard = projectAccessGuard;
     }
@@ -158,6 +162,11 @@ public class TaskService {
         User caller = requireUser(username);
 
         String previousStatus = task.getStatus();
+        String effectiveStatus = request.getStatus() != null ? request.getStatus() : task.getStatus();
+        boolean newlyCompleting = !"COMPLETED".equals(previousStatus) && "COMPLETED".equals(effectiveStatus);
+        if (newlyCompleting) {
+            assertNotCompletingWithOpenSubtasks(id);
+        }
 
         if (projectAccessGuard.canManage(caller, task.getProject().getId())) {
             applyRequest(task, request);
@@ -179,6 +188,19 @@ public class TaskService {
         }
 
         return new TaskResponse(saved);
+    }
+
+    // "A task shouldn't be marked done while part of its own checklist
+    // isn't." Only gates the transition INTO completed (see the
+    // newlyCompleting check at the call site) — a task that's already
+    // COMPLETED (however it got that way) can still have its other fields
+    // edited via the same full-replace PUT without re-tripping this, since
+    // the request always resends the current status unchanged.
+    private void assertNotCompletingWithOpenSubtasks(Long taskId) {
+        if (subtaskRepository.existsByTaskIdAndStatusNot(taskId, "COMPLETED")) {
+            throw new IllegalArgumentException(
+                    "Cannot mark this task as completed while it still has incomplete subtasks");
+        }
     }
 
     // A caller without OWNER/ADMIN project rights, updating a task assigned

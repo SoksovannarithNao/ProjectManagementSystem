@@ -2,7 +2,7 @@
 
 @theme {
   --font-sans:
-    'Plus Jakarta Sans', Inter, 'Segoe UI', system-ui, -apple-system,
+    'Archivo', Inter, 'Segoe UI', system-ui, -apple-system,
     sans-serif;
 
   /* Primary */
@@ -10,18 +10,23 @@
   --color-dark-gray: #343438;
   --color-medium-gray: #66676b;
 
-  /* Backgrounds */
-  --color-canvas: #d6d6d6;
-  --color-subtle: #fafafb;
+  /* Backgrounds — canvas is the page background; container is the
+     project/board surface (Kanban columns, project groupings); subtle is
+     the general light-gray surface used for inputs and hover feedback;
+     card is the raised surface tasks/content sit on. Each is a visibly
+     distinct step so cards and containers don't blend into the page. */
+  --color-canvas: #f5f6f8;
+  --color-container: #e9ebef;
+  --color-subtle: #f0f2f5;
   --color-card: #ffffff;
 
   /* Borders */
-  --color-border: #e8e8ea;
-  --color-divider: #eeeef0;
+  --color-border: #e1e4e8;
+  --color-divider: #e1e4e8;
 
   /* Text */
-  --color-ink: #242426;
-  --color-muted: #77787c;
+  --color-ink: #17191c;
+  --color-muted: #6b7280;
   --color-faint: #a1a2a6;
 
   /* Accent */
@@ -30,15 +35,15 @@
   --color-purple: #b9b0c8;
 
   /* Status */
-  --color-success: #78a88a;
-  --color-warning: #d2a85a;
+  --color-success: #3ead7a;
+  --color-warning: #d99000;
   --color-danger: #c87979;
-  --color-info: #7e9fc4;
+  --color-info: #4f8edb;
 
-  --color-success-soft: #edf4f0;
-  --color-warning-soft: #faf3e7;
+  --color-success-soft: #e1f3ea;
+  --color-warning-soft: #f9eed9;
   --color-danger-soft: #f8ecec;
-  --color-info-soft: #edf1f7;
+  --color-info-soft: #e5eefa;
 
   /* Radius */
   --radius-sm: 8px;
@@ -129,6 +134,7 @@
  */
 :root[data-theme='dark'] {
   --color-canvas: #1c1c1e;
+  --color-container: #29292c;
   --color-subtle: #29292c;
   --color-card: #232326;
   --color-border: #38383c;
@@ -136,15 +142,16 @@
   --color-ink: #f2f2f3;
   --color-muted: #a7a8ac;
   --color-faint: #77787c;
-  --color-success-soft: rgba(120, 168, 138, 0.16);
-  --color-warning-soft: rgba(210, 168, 90, 0.16);
+  --color-success-soft: rgba(62, 173, 122, 0.16);
+  --color-warning-soft: rgba(217, 144, 0, 0.16);
   --color-danger-soft: rgba(200, 121, 121, 0.18);
-  --color-info-soft: rgba(126, 159, 196, 0.18);
+  --color-info-soft: rgba(79, 142, 219, 0.18);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     --color-canvas: #1c1c1e;
+    --color-container: #29292c;
     --color-subtle: #29292c;
     --color-card: #232326;
     --color-border: #38383c;
@@ -152,10 +159,10 @@
     --color-ink: #f2f2f3;
     --color-muted: #a7a8ac;
     --color-faint: #77787c;
-    --color-success-soft: rgba(120, 168, 138, 0.16);
-    --color-warning-soft: rgba(210, 168, 90, 0.16);
+    --color-success-soft: rgba(62, 173, 122, 0.16);
+    --color-warning-soft: rgba(217, 144, 0, 0.16);
     --color-danger-soft: rgba(200, 121, 121, 0.18);
-    --color-info-soft: rgba(126, 159, 196, 0.18);
+    --color-info-soft: rgba(79, 142, 219, 0.18);
   }
 }
 
@@ -188,6 +195,17 @@
 }
 
 @layer base {
+  /* Reserves the vertical scrollbar's width permanently — without this,
+   * any page whose content height crosses the viewport threshold (e.g.
+   * filtering a task list down to fewer rows) gains/loses the scrollbar
+   * and the entire layout visibly shifts sideways by its width. This is
+   * the actual "whole page shifts" cause reported alongside the Filter
+   * button width fix — that fix only stopped the toolbar row itself from
+   * reflowing; this stops the rest of the page from shifting too. */
+  html {
+    scrollbar-gutter: stable;
+  }
+
   body {
     @apply bg-canvas text-ink font-sans text-sm leading-normal antialiased;
     text-rendering: optimizeLegibility;
@@ -309,6 +327,10 @@
 
   .scroll-x {
     @apply max-w-full overflow-x-auto;
+  }
+
+  .scroll-y {
+    @apply max-h-full overflow-y-auto;
   }
 
   .skeleton {
