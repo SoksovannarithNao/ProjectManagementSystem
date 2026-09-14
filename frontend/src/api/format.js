@@ -1,3 +1,14 @@
+// The seed dataset names tasks "<work item> — <project name>" (see
+// database/init/02-seed.sql), which is redundant wherever the task is
+// already shown grouped/labeled under that same project (Tasks page project
+// groups, Kanban cards). Display-only — never used for editing, so a task's
+// actual stored title is untouched.
+export function taskDisplayTitle(title, projectName) {
+  if (!title || !projectName) return title ?? ''
+  const suffix = ` — ${projectName}`
+  return title.endsWith(suffix) ? title.slice(0, -suffix.length) : title
+}
+
 export function humanizeEnum(value) {
   if (!value) return ''
   return value

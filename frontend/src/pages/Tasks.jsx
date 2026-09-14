@@ -17,9 +17,15 @@ import {
   Pencil,
   Trash2,
   Check,
+  CalendarDays,
+  ListChecks,
+  AlertTriangle,
+  Lock,
 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { AvatarGroup } from '../components/ui/Avatar'
+import { Badge } from '../components/ui/Badge'
+import { ProgressBar } from '../components/ui/ProgressBar'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { TaskFormModal } from '../components/TaskFormModal'
 import { Skeleton } from '../components/ui/Skeleton'
@@ -36,7 +42,7 @@ import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
 import { buildTaskAssigneeMap, buildMyProjectRoleMap } from '../api/relations'
-import { humanizeEnum } from '../api/format'
+import { humanizeEnum, formatDate, taskDisplayTitle } from '../api/format'
 
 // Distinct colors per section, using the same soft-background + colored-
 // foreground pairing as Badge.jsx (already proven legible elsewhere in the
@@ -67,10 +73,10 @@ export function Tasks() {
   const notify = useToast()
   const { data: tasks, loading, refetch } = useApi(getTasks)
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
-  const { data: projects } = useApi(getProjects)
+  const { data: projects, refetch: refetchProjects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
   const [activeTaskId, setActiveTaskId] = useState(null)
-  const [showNewTask, setShowNewTask] = useState(false)
+  const [newTaskModal, setNewTaskModal] = useState(null)
   const [editingTask, setEditingTask] = useState(null)
   const [deletingTask, setDeletingTask] = useState(null)
   const [deleting, setDeleting] = useState(false)
@@ -136,6 +142,11 @@ export function Tasks() {
     }
     return Array.from(groups.values())
       .map((g) => {
+        // The overall %-complete shown in the group header — the project's
+        // own progress field (set on the Projects page), not derived from
+        // this filtered task list, so it stays the same regardless of the
+        // active search/priority filters.
+        g.project = g.id === 'none' ? null : projects?.find((p) => p.id === g.id) ?? null
         const sorted = [...g.tasks].sort(SORTERS[sortBy])
         const statusGroups = STATUS_GROUPS.map((sg) => ({
           ...sg,
@@ -144,7 +155,7 @@ export function Tasks() {
         return { ...g, tasks: sorted, statusGroups }
       })
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [filteredList, sortBy])
+  }, [filteredList, sortBy, projects])
 
   const loadSubtasksFor = async (taskId) => {
     setLoadingSubtasksFor((prev) => new Set(prev).add(taskId))
@@ -178,6 +189,11 @@ export function Tasks() {
   const refetchAll = () => {
     refetch()
     refetchAssignees()
+    // Project progress is derived server-side from its tasks (see
+    // database/init/01-init.sql's progress triggers) — a task mutation here
+    // can change its own project's %, so the group header would show a
+    // stale number until the next full page load without this.
+    refetchProjects()
     // TaskDetailPanel's own subtask edits (toggle/add/remove) don't touch
     // this page's separately-fetched/cached subtask preview — without this,
     // an already-expanded row kept showing the stale, pre-edit list after
@@ -199,6 +215,17 @@ export function Tasks() {
   const advanceTask = async (task, e) => {
     e.stopPropagation()
     if (!canAdvanceStatus(task.status)) return
+    // The one step this quick-advance control can attempt that's actually
+    // gated: Doing -> Done requires every subtask complete (see
+    // TaskDetailPanel's identical check and, ultimately,
+    // database/init/01-init.sql's check_task_not_completed_with_open_subtasks
+    // trigger, which would reject this the same way if this check weren't
+    // here first). Checked here so the button doesn't fire a doomed request.
+    const movingToDoing = task.status === 'IN_PROGRESS' || task.status === 'IN_REVIEW'
+    if (movingToDoing && task.totalSubtasks > 0 && task.completedSubtasks < task.totalSubtasks) {
+      notify('Complete all subtasks before marking this task as done.', { tone: 'error' })
+      return
+    }
     try {
       await advanceTaskStatus(task)
       refetch()
@@ -235,7 +262,7 @@ export function Tasks() {
           <>
             <Dropdown
               button={({ toggle }) => (
-                <button className="btn btn-secondary min-w-[112px]" onClick={toggle}>
+                <button className="btn btn-secondary" onClick={toggle}>
                   <SlidersHorizontal size={15} /> Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
                 </button>
               )}
@@ -322,7 +349,7 @@ export function Tasks() {
             </Dropdown>
 
             {canAddTasks && (
-              <button className="btn btn-primary" onClick={() => setShowNewTask(true)}>
+              <button className="btn btn-primary" onClick={() => setNewTaskModal({})}>
                 <Plus size={16} /> New Task
               </button>
             )}
@@ -349,12 +376,35 @@ export function Tasks() {
             </div>
           ))}
 
-        {projectGroups.map((group) => (
+        {projectGroups.map((group) => {
+          const canAddToProject =
+            group.project != null && (isSystemAdmin || canEditProjectContent(myProjectRoleMap.get(group.project.id), false))
+          const projectProgress = group.project ? Math.round(Number(group.project.progress ?? 0)) : null
+
+          return (
           <div key={group.id} className="bg-container rounded-2xl p-4 sm:p-5">
-            <div className="mb-3.5 flex items-center gap-2 px-1">
-              <FolderKanban size={15} className="text-faint" />
-              <h3 className="text-ink text-[15px] font-[650]">{group.name}</h3>
-              <span className="text-ink text-[17px] font-bold">{group.tasks.length}</span>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                <FolderKanban size={20} className="text-faint shrink-0" />
+                <h3 className="text-ink truncate text-[19px] font-[650]">{group.name}</h3>
+                {projectProgress != null && (
+                  <div className="flex min-w-37.5 items-center gap-2.5">
+                    <span className="w-11 shrink-0 text-[14px] text-faint font-semibold">{projectProgress}%</span>
+                    <div className="hidden w-28 sm:block">
+                      <ProgressBar percent={projectProgress} height={8} />
+                    </div>
+                  </div>
+                )}
+              </div>
+              {canAddToProject && (
+                <button
+                  type="button"
+                  className="btn btn-secondary h-8 px-3 text-[12px]"
+                  onClick={() => setNewTaskModal({ projectId: group.project.id })}
+                >
+                  <Plus size={14} /> Add Task
+                </button>
+              )}
             </div>
 
             <div className="flex flex-col gap-4">
@@ -371,14 +421,24 @@ export function Tasks() {
                 const done = t.status === 'COMPLETED'
                 const cancelled = t.status === 'CANCELLED'
                 const doing = t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW'
+                // The button always stays clickable while in Doing — even
+                // with incomplete subtasks — rather than going quietly
+                // disabled. Clicking it then is what surfaces the blocked
+                // reason (see advanceTask's notify call): an active message
+                // beats a silently inert control the user has to guess at.
+                // Mirrors TaskDetailPanel's hasIncompleteSubtasks for the
+                // same underlying check.
+                const blockedBySubtasks = doing && t.totalSubtasks > 0 && t.completedSubtasks < t.totalSubtasks
                 const advanceable = canAdvanceStatus(t.status)
                 const advanceLabel = t.status === 'TO_DO'
                   ? 'Move to Doing'
-                  : doing
-                    ? 'Mark as Done'
-                    : cancelled
-                      ? 'Task cancelled'
-                      : 'Task completed'
+                  : blockedBySubtasks
+                    ? 'Complete all subtasks before marking this task as done'
+                    : doing
+                      ? 'Mark as Done'
+                      : cancelled
+                        ? 'Task cancelled'
+                        : 'Task completed'
                 const expanded = expandedTaskIds.has(t.id)
                 const subtasks = subtasksByTask.get(t.id) ?? []
 
@@ -424,11 +484,35 @@ export function Tasks() {
                         <p
                           className={`truncate text-[13.5px] font-semibold ${done ? 'text-faint line-through' : 'text-ink'}`}
                         >
-                          {t.title}
+                          {taskDisplayTitle(t.title, t.project?.name)}
                         </p>
                         {t.description && (
                           <p className="text-muted mt-0.5 truncate text-[12px]">{t.description}</p>
                         )}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <Badge tone={t.priority}>{humanizeEnum(t.priority)}</Badge>
+                          {t.overdue && (
+                            <span className="bg-danger-soft text-danger inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap">
+                              <AlertTriangle size={12} /> Overdue
+                            </span>
+                          )}
+                          {t.blocked && (
+                            <span className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap">
+                              <Lock size={12} /> Blocked
+                            </span>
+                          )}
+                          {t.dueDate && (
+                            <span className="text-muted inline-flex items-center gap-1 text-[11px]">
+                              <CalendarDays size={12} /> {formatDate(t.dueDate)}
+                            </span>
+                          )}
+                          {t.totalSubtasks > 0 && (
+                            <span className="text-muted inline-flex items-center gap-1 text-[11px]">
+                              <ListChecks size={12} />
+                              {t.completedSubtasks}/{t.totalSubtasks} subtasks · {Math.round((t.completedSubtasks / t.totalSubtasks) * 100)}%
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex shrink-0 items-center gap-3">
@@ -510,7 +594,8 @@ export function Tasks() {
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
 
       {activeTask && (
@@ -522,7 +607,13 @@ export function Tasks() {
         />
       )}
 
-      {showNewTask && <TaskFormModal onClose={() => setShowNewTask(false)} onSaved={refetchAll} />}
+      {newTaskModal && (
+        <TaskFormModal
+          defaultProjectId={newTaskModal.projectId}
+          onClose={() => setNewTaskModal(null)}
+          onSaved={refetchAll}
+        />
+      )}
 
       {editingTask && (
         <TaskFormModal task={editingTask} onClose={() => setEditingTask(null)} onSaved={refetchAll} />

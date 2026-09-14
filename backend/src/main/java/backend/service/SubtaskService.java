@@ -7,12 +7,12 @@ import backend.entity.Task;
 import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.SubtaskRepository;
+import backend.repository.TaskDependencyRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 @Service
@@ -21,17 +21,23 @@ public class SubtaskService {
 
     private final SubtaskRepository subtaskRepository;
     private final TaskRepository taskRepository;
+    private final TaskDependencyRepository taskDependencyRepository;
     private final UserRepository userRepository;
+    private final ActivityLogService activityLogService;
     private final ProjectAccessGuard projectAccessGuard;
 
     public SubtaskService(
             SubtaskRepository subtaskRepository,
             TaskRepository taskRepository,
+            TaskDependencyRepository taskDependencyRepository,
             UserRepository userRepository,
+            ActivityLogService activityLogService,
             ProjectAccessGuard projectAccessGuard) {
         this.subtaskRepository = subtaskRepository;
         this.taskRepository = taskRepository;
+        this.taskDependencyRepository = taskDependencyRepository;
         this.userRepository = userRepository;
+        this.activityLogService = activityLogService;
         this.projectAccessGuard = projectAccessGuard;
     }
 
@@ -52,10 +58,12 @@ public class SubtaskService {
         subtask.setTask(task);
         applyRequest(subtask, request);
         SubtaskResponse response = new SubtaskResponse(subtaskRepository.save(subtask));
-        // A new subtask defaults to TO_DO — adding one to an already-COMPLETED
-        // task breaks the "parent can only be COMPLETED when every subtask is"
-        // invariant just as much as reopening an existing one does.
-        reopenParentIfNoLongerFullyComplete(task);
+        activityLogService.record(caller, task, "SUBTASK_ADDED", "Subtask \"" + subtask.getTitle() + "\" added");
+        // Parent task status is untouched here on purpose — it's manual and
+        // independent of subtask completion (see
+        // database/init/01-init.sql's task/subtask completion consistency
+        // section). Only its progress % is subtask-derived, and that's kept
+        // current by the DB trigger there, not from here.
         return response;
     }
 
@@ -64,36 +72,44 @@ public class SubtaskService {
         Subtask subtask = requireSubtask(id);
         projectAccessGuard.assertAccess(caller, subtask.getTask().getProject().getId());
 
+        String previousStatus = subtask.getStatus();
         applyRequest(subtask, request);
         SubtaskResponse response = new SubtaskResponse(subtaskRepository.save(subtask));
-        reopenParentIfNoLongerFullyComplete(subtask.getTask());
+        if (!"COMPLETED".equals(previousStatus) && "COMPLETED".equals(subtask.getStatus())) {
+            activityLogService.record(caller, subtask.getTask(), "SUBTASK_COMPLETED",
+                    "Subtask \"" + subtask.getTitle() + "\" completed");
+        }
+        startTaskIfStillToDo(caller, subtask.getTask());
         return response;
     }
 
-    // "If a parent task is already DONE and a subtask is changed back to
-    // incomplete, the parent must not remain incorrectly marked as DONE."
-    // The backend is the source of truth for this invariant — TaskService
-    // refuses to let a task BECOME COMPLETED while any subtask is open (see
-    // TaskService.assertNotCompletingWithOpenSubtasks), but a subtask being
-    // added or reopened AFTER the parent is already COMPLETED goes through
-    // this service instead, so the same invariant has to be re-checked and
-    // repaired here rather than left silently violated. Reopens to
-    // IN_PROGRESS (not back to whatever it was before) and recomputes
-    // progress from the actual completed/total subtask ratio, so the task
-    // never visually shows 100%/DONE while work remains.
-    private void reopenParentIfNoLongerFullyComplete(Task task) {
-        if (!"COMPLETED".equals(task.getStatus())) {
+    // The one deliberate exception to "task status is entirely manual,
+    // independent of subtask progress" (see 01-init.sql's task/subtask
+    // completion consistency section, and the Done-side gate that's the only
+    // other exception): touching a subtask on a task that hasn't been
+    // started yet is a clear "work has begun" signal, so it's auto-promoted
+    // TO_DO -> IN_PROGRESS the first time that happens. It never does
+    // anything else — a task already past TO_DO, or one a caller explicitly
+    // set back to TO_DO, is left alone.
+    //
+    // Skipped entirely for a task "Blocked" by an incomplete dependency:
+    // trg_tasks_dependencies_status_gate (01-init.sql) refuses to let a task
+    // move to IN_PROGRESS while it depends on something unfinished, and
+    // since this all runs in the same transaction as the subtask save,
+    // attempting it anyway would throw and roll back that subtask update
+    // too — silently leaving the task at TO_DO here is far less surprising
+    // than a routine subtask toggle failing for a reason that has nothing to
+    // do with the subtask itself.
+    private void startTaskIfStillToDo(User actor, Task task) {
+        if (!"TO_DO".equals(task.getStatus())) {
             return;
         }
-        List<Subtask> siblings = subtaskRepository.findByTaskIdOrderByIdAsc(task.getId());
-        long total = siblings.size();
-        long completed = siblings.stream().filter(s -> "COMPLETED".equals(s.getStatus())).count();
-        if (total > 0 && completed < total) {
-            task.setStatus("IN_PROGRESS");
-            task.setCompletedAt(null);
-            task.setProgress(BigDecimal.valueOf(completed * 100 / total));
-            taskRepository.save(task);
+        if (taskDependencyRepository.existsByTaskIdAndDependsOnTaskStatusNot(task.getId(), "COMPLETED")) {
+            return;
         }
+        task.setStatus("IN_PROGRESS");
+        Task saved = taskRepository.save(task);
+        activityLogService.record(actor, saved, "TASK_STATUS_CHANGED", "Status changed from To Do to In Progress");
     }
 
     public void deleteSubtask(Long id, String username) {
@@ -101,6 +117,8 @@ public class SubtaskService {
         Subtask subtask = requireSubtask(id);
         projectAccessGuard.assertAccess(caller, subtask.getTask().getProject().getId());
 
+        activityLogService.record(caller, subtask.getTask(), "SUBTASK_DELETED",
+                "Subtask \"" + subtask.getTitle() + "\" deleted");
         subtaskRepository.delete(subtask);
     }
 
