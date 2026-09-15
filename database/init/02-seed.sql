@@ -323,9 +323,17 @@ BEGIN
                     -- A COMPLETED task's subtasks must themselves all be
                     -- COMPLETED (trg_tasks_not_completed_with_open_subtasks
                     -- would otherwise reject/self-heal this the moment
-                    -- anything re-touches the row) — random status for every
-                    -- other final_status, since only COMPLETED is gated.
+                    -- anything re-touches the row). Symmetrically, a TO_DO
+                    -- task's subtasks must all still be TO_DO too — through
+                    -- the app, touching any subtask on a To Do task
+                    -- immediately promotes it to In Progress
+                    -- (SubtaskService.startTaskIfStillToDo), so "To Do" with
+                    -- a completed/in-progress subtask is a state a real user
+                    -- could never leave a task in. Random status only for
+                    -- every other final_status, since those two are the only
+                    -- ones gated/coupled to subtask state.
                     CASE WHEN final_status = 'COMPLETED' THEN 'COMPLETED'
+                         WHEN final_status = 'TO_DO' THEN 'TO_DO'
                          ELSE (ARRAY['TO_DO', 'IN_PROGRESS', 'COMPLETED'])[1 + floor(random() * 3)::int]
                     END
                 );

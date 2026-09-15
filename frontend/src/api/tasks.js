@@ -4,6 +4,10 @@ export function getTasks() {
   return apiFetch('/tasks')
 }
 
+export function getTasksByProjectId(projectId) {
+  return apiFetch(`/tasks/project/${projectId}`)
+}
+
 export function createTask(request) {
   return apiFetch('/tasks', { method: 'POST', body: request })
 }

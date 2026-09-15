@@ -37,12 +37,12 @@ import { useAuth } from '../auth/AuthContext'
 import { canEditProjectContent, canManageProject } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getTasks, advanceTaskStatus, canAdvanceStatus, deleteTask } from '../api/tasks'
-import { getSubtasksByTask } from '../api/subtasks'
+import { getSubtasksByTask, updateSubtask } from '../api/subtasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
 import { buildTaskAssigneeMap, buildMyProjectRoleMap } from '../api/relations'
-import { humanizeEnum, formatDate, taskDisplayTitle } from '../api/format'
+import { humanizeEnum, formatDate, taskDisplayTitle, blockedReason } from '../api/format'
 
 // Distinct colors per section, using the same soft-background + colored-
 // foreground pairing as Badge.jsx (already proven legible elsewhere in the
@@ -104,9 +104,9 @@ export function Tasks() {
 
   // Derived (never copied into its own state) so the open detail panel
   // always reflects the live list — including a backend-side change to
-  // this task, like the auto-revert in
-  // SubtaskService.reopenParentIfNoLongerFullyComplete, which a frozen
-  // snapshot captured at click-time would never pick up after a refetch.
+  // this task, like the auto-promotion to In Progress in
+  // SubtaskService.startTaskIfStillToDo, which a frozen snapshot captured
+  // at click-time would never pick up after a refetch.
   const activeTask = useMemo(() => {
     if (activeTaskId == null) return null
     const t = list.find((task) => task.id === activeTaskId)
@@ -154,7 +154,15 @@ export function Tasks() {
         })).filter((sg) => sg.tasks.length > 0)
         return { ...g, tasks: sorted, statusGroups }
       })
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => {
+        // Fully-done projects sink to the bottom regardless of name, so a
+        // project that still needs tracking is never below one that's
+        // finished — alphabetical only decides order within each bucket.
+        const aDone = a.project && Number(a.project.progress ?? 0) >= 100 ? 1 : 0
+        const bDone = b.project && Number(b.project.progress ?? 0) >= 100 ? 1 : 0
+        if (aDone !== bDone) return aDone - bDone
+        return a.name.localeCompare(b.name)
+      })
   }, [filteredList, sortBy, projects])
 
   const loadSubtasksFor = async (taskId) => {
@@ -170,6 +178,35 @@ export function Tasks() {
         next.delete(taskId)
         return next
       })
+    }
+  }
+
+  const toggleSubtaskInList = async (task, s, e) => {
+    e.stopPropagation()
+    try {
+      await updateSubtask(s.id, {
+        taskId: task.id,
+        title: s.title,
+        assigneeId: s.assigneeId,
+        dueDate: s.dueDate,
+        status: s.status === 'COMPLETED' ? 'TO_DO' : 'COMPLETED',
+      })
+      await loadSubtasksFor(task.id)
+      // completedSubtasks/totalSubtasks on the task row (and the quick-advance
+      // gating in advanceTask) come from the tasks list itself, not this
+      // page's separately-fetched subtask preview.
+      refetch()
+      // Mirrors SubtaskService.startTaskIfStillToDo's own silent skip: a
+      // blocked task can never legally become IN_PROGRESS (the DB's
+      // dependency gate forbids it), so a subtask touch here can't promote
+      // it out of To Do the way it would for an unblocked task. Surfaced
+      // here rather than left silent so the still-To-Do status after
+      // checking a box doesn't read as this feature being broken.
+      if (task.status === 'TO_DO' && task.blocked) {
+        notify(`${blockedReason(task)} — status stays To Do until then.`, { tone: 'info' })
+      }
+    } catch (err) {
+      notify(err.message || 'Failed to update subtask', { tone: 'error' })
     }
   }
 
@@ -228,7 +265,7 @@ export function Tasks() {
     }
     try {
       await advanceTaskStatus(task)
-      refetch()
+      refetchAll()
     } catch (err) {
       notify(err.message || 'Failed to update task', { tone: 'error' })
     }
@@ -241,7 +278,7 @@ export function Tasks() {
       await deleteTask(deletingTask.id)
       const title = deletingTask.title
       setDeletingTask(null)
-      refetch()
+      refetchAll()
       notify(`Task "${title}" deleted`, { tone: 'success' })
     } catch (err) {
       notify(err.message || 'Failed to delete task', { tone: 'error' })
@@ -497,7 +534,10 @@ export function Tasks() {
                             </span>
                           )}
                           {t.blocked && (
-                            <span className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap">
+                            <span
+                              title={blockedReason(t)}
+                              className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap"
+                            >
                               <Lock size={12} /> Blocked
                             </span>
                           )}
@@ -571,9 +611,11 @@ export function Tasks() {
                           <p className="text-faint px-1 text-[12px]">No subtasks</p>
                         )}
                         {subtasks.map((s) => (
-                          <div
+                          <button
                             key={s.id}
-                            className="bg-card border-border flex items-center gap-2 rounded-md border px-3 py-2 text-[12.5px]"
+                            type="button"
+                            onClick={(e) => toggleSubtaskInList(t, s, e)}
+                            className="bg-card border-border hover:bg-subtle flex items-center gap-2 rounded-md border px-3 py-2 text-left text-[12.5px] transition-colors"
                           >
                             {s.status === 'COMPLETED' ? (
                               <CheckSquare size={14} className="text-success shrink-0" />
@@ -583,7 +625,7 @@ export function Tasks() {
                             <span className={s.status === 'COMPLETED' ? 'text-faint line-through' : 'text-ink'}>
                               {s.title}
                             </span>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}

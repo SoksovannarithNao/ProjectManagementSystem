@@ -24,6 +24,8 @@ Everything else is a **short-lived feature branch**, deleted right after it merg
 <area>/<short-task-description>
 ```
 
+Use a specific `<area>` (`database`, `backend`, `api`, `frontend`) when a change is isolated to that one layer. Use `project/<short-task-description>` instead once a feature spans layers — most work in practice touches frontend + backend + database together (e.g. adding a page that needs a new endpoint and a schema change), and forcing that under one area's prefix is misleading.
+
 Examples:
 ```
 database/erd-design
@@ -34,7 +36,9 @@ backend/overdue-detection
 api/task-apis
 api/notification-apis
 frontend/kanban-board
-frontend/gantt-chart-prototype
+project/wire_function
+project/front_integration
+project/docker_compose
 ```
 
 Tie the branch (and its PR) to the matching GitHub Issue when possible, e.g. `frontend/12-kanban-board`.

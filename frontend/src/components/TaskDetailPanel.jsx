@@ -30,7 +30,7 @@ import { getSubtasksByTask, createSubtask, updateSubtask, deleteSubtask } from '
 import { getCommentsByTask, createComment, updateComment, deleteComment } from '../api/comments'
 import { getActivityByTask } from '../api/activityLog'
 import { getDependenciesByTask, createTaskDependency, deleteTaskDependency } from '../api/taskDependencies'
-import { formatDate, humanizeEnum, initialsFor, timeAgo } from '../api/format'
+import { formatDate, humanizeEnum, initialsFor, timeAgo, blockedReason } from '../api/format'
 
 const STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
 
@@ -92,8 +92,8 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
 
   // `task` is derived from the caller's own live task list (see Tasks.jsx/
   // Kanban.jsx), so task.status can change out from under us — e.g.
-  // reopening the last completed subtask auto-reverts an already-COMPLETED
-  // parent (SubtaskService.reopenParentIfNoLongerFullyComplete). Re-sync
+  // checking the first subtask on a still-To-Do task auto-promotes the
+  // parent to In Progress (SubtaskService.startTaskIfStillToDo). Re-sync
   // the local optimistic-update copy whenever that happens, rather than
   // only reading task.status once at mount. Updating state directly during
   // render (guarded by the comparison) is the pattern React recommends for
@@ -136,6 +136,15 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
       refetchSubtasks()
       refetchActivity()
       onChange?.()
+      // Mirrors SubtaskService.startTaskIfStillToDo's own silent skip: a
+      // blocked task can never legally become IN_PROGRESS (the DB's
+      // dependency gate forbids it), so a subtask touch here can't promote
+      // it out of To Do the way it would for an unblocked task. Surfaced
+      // here rather than left silent so the still-To-Do status after
+      // checking a box doesn't read as this feature being broken.
+      if (task.status === 'TO_DO' && task.blocked) {
+        notify(`${blockedReason(task)} — status stays To Do until then.`, { tone: 'info' })
+      }
     } catch (err) {
       notify(err.message || 'Failed to update subtask', { tone: 'error' })
     }
@@ -337,7 +346,10 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               </span>
             )}
             {task.blocked && (
-              <span className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold">
+              <span
+                title={blockedReason(task)}
+                className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold"
+              >
                 <Lock size={12} /> Blocked
               </span>
             )}

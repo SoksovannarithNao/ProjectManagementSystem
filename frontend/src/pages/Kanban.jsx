@@ -17,7 +17,7 @@ import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
 import { buildTaskAssigneeMap, buildMyProjectRoleMap } from '../api/relations'
 import { groupTasksByStatus } from '../api/stats'
-import { formatDate, humanizeEnum, taskDisplayTitle } from '../api/format'
+import { formatDate, humanizeEnum, taskDisplayTitle, blockedReason } from '../api/format'
 
 const COLUMN_ACCENT = {
   TO_DO: 'bg-faint',
@@ -217,7 +217,11 @@ export function Kanban() {
                         <span
                           className={`inline-flex items-center gap-1 text-[11px] ${task.overdue ? 'text-danger font-semibold' : 'text-muted'}`}
                         >
-                          {task.blocked && <Lock size={11} className="shrink-0" />}
+                          {task.blocked && (
+                            <span title={blockedReason(task)} className="inline-flex shrink-0">
+                              <Lock size={11} />
+                            </span>
+                          )}
                           {task.overdue && <AlertTriangle size={11} className="shrink-0" />}
                           {formatDate(task.dueDate)}
                         </span>

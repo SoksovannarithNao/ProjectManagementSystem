@@ -9,6 +9,17 @@ export function taskDisplayTitle(title, projectName) {
   return title.endsWith(suffix) ? title.slice(0, -suffix.length) : title
 }
 
+// Human-readable reason for a Blocked badge/toast — names what still needs
+// finishing (task.blockingTaskTitles, from TaskResponse) rather than just
+// flagging that something does. Falls back to a generic phrase if the task
+// is blocked but its dependency titles weren't sent (shouldn't happen from
+// the real API, but keeps this safe against a stale/partial task object).
+export function blockedReason(task) {
+  const titles = task?.blockingTaskTitles ?? []
+  if (titles.length === 0) return 'Blocked by an incomplete dependency'
+  return `Blocked by: ${titles.join(', ')}`
+}
+
 export function humanizeEnum(value) {
   if (!value) return ''
   return value

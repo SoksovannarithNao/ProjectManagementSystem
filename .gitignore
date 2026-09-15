@@ -47,6 +47,11 @@ frontend/yarn-error.log*
 frontend/pnpm-debug.log*
 frontend/.eslintcache
 
+# Playwright (frontend/e2e) — local run artifacts, not source
+frontend/test-results/
+frontend/playwright-report/
+frontend/playwright/.cache/
+
 # In case frontend isn't in a subfolder
 node_modules/
 dist/

@@ -23,11 +23,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 @Service
 @Transactional
@@ -151,12 +150,17 @@ public class TaskService {
         for (var row : subtaskRepository.countByTaskIds(taskIds)) {
             counts.put(row.getTaskId(), new long[] { row.getTotal(), row.getCompleted() });
         }
-        Set<Long> blockedTaskIds = new HashSet<>(taskDependencyRepository.findBlockedTaskIds(taskIds));
+        Map<Long, List<String>> blockingTitles = new HashMap<>();
+        for (var row : taskDependencyRepository.findBlockingTasks(taskIds)) {
+            blockingTitles.computeIfAbsent(row.getTaskId(), k -> new ArrayList<>()).add(row.getTitle());
+        }
         return tasks.stream()
                 .map(t -> {
                     long[] c = counts.getOrDefault(t.getId(), new long[] { 0, 0 });
                     TaskResponse response = new TaskResponse(t, c[0], c[1]);
-                    response.setBlocked(blockedTaskIds.contains(t.getId()));
+                    List<String> titles = blockingTitles.getOrDefault(t.getId(), List.of());
+                    response.setBlocked(!titles.isEmpty());
+                    response.setBlockingTaskTitles(titles);
                     return response;
                 })
                 .toList();

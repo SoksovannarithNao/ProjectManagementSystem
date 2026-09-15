@@ -21,11 +21,17 @@ public interface TaskDependencyRepository
     // update down with it in the same transaction.
     boolean existsByTaskIdAndDependsOnTaskStatusNot(Long taskId, String status);
 
-    // Distinct task ids (within a candidate list) that are "Blocked" — they
-    // depend on at least one task that isn't COMPLETED yet. One grouped query
-    // for a whole task list, same batching pattern as
+    // For every task in a candidate list that's "Blocked", one row per
+    // not-yet-COMPLETED dependency naming what it's blocked by — both
+    // whether a task is blocked and *what* it's waiting on come from this
+    // single grouped query, same batching pattern as
     // SubtaskRepository.countByTaskIds, instead of a per-task existence check.
-    @Query("select distinct td.task.id from TaskDependency td "
+    @Query("select td.task.id as taskId, td.dependsOnTask.title as title from TaskDependency td "
             + "where td.task.id in :taskIds and td.dependsOnTask.status <> 'COMPLETED'")
-    List<Long> findBlockedTaskIds(@Param("taskIds") List<Long> taskIds);
+    List<BlockingTaskRow> findBlockingTasks(@Param("taskIds") List<Long> taskIds);
+
+    interface BlockingTaskRow {
+        Long getTaskId();
+        String getTitle();
+    }
 }

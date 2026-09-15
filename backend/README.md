@@ -66,24 +66,26 @@ The authoritative, endpoint-by-endpoint contract lives in [api/openapi.yaml](../
 | Resource | Base path | Notes |
 | --- | --- | --- |
 | Health | `/api/health` | Public, no auth |
-| Auth | `/api/auth/login` | Public — issues a JWT |
+| Auth | `/api/auth/login`, `/register`, `/verify-otp`, `/resend-otp` | All public. `login` issues a JWT; the other three are the self-registration/email-OTP-verification flow (see [Security](#security)) |
+| Photos | `/api/photos/{token}` | Public, no auth — an `<img>` tag can't send a JWT, so profile photos are served by an unguessable per-upload token instead (see [Security](#security)) |
 | Users | `/api/users` | Write operations `ADMINISTRATOR`-only, except `PUT /api/users/{id}/position-department` (see below) |
 | Roles | `/api/roles` | Write operations `ADMINISTRATOR`-only |
-| Positions | `/api/positions` | Org-wide lookup list. Read: any authenticated user. Create: `ADMINISTRATOR`/`PROJECT_MANAGER`/`TEAM_LEADER` |
+| Positions | `/api/positions` | Org-wide lookup list. Read: any authenticated user. Create: `ADMINISTRATOR`-only |
 | Departments | `/api/departments` | Same shape as Positions |
-| Projects | `/api/projects` | Write operations `ADMINISTRATOR`/`PROJECT_MANAGER` |
-| Milestones | `/api/milestones` | Write operations `ADMINISTRATOR`/`PROJECT_MANAGER`/`TEAM_LEADER` |
-| Tasks | `/api/tasks` | Create/delete: `ADMINISTRATOR`/`PROJECT_MANAGER`/`TEAM_LEADER`. Update: those roles can edit any task in full; a `TEAM_MEMBER` may only update status/progress on a task assigned to them (see [Security](#security)) |
+| Projects | `/api/projects` | Create: any authenticated user (becomes that project's `OWNER`). Update/delete: `OWNER`/`ADMIN` of that specific project (delete requires `OWNER` specifically), or system `ADMINISTRATOR` (see [Security](#security)) |
+| Milestones | `/api/milestones` | Write operations: `OWNER`/`ADMIN` of that project, or `ADMINISTRATOR` |
+| Tasks | `/api/tasks` | Create: `OWNER`/`ADMIN`/`MEMBER` of that project. Update: `OWNER`/`ADMIN` can edit any task in full; anyone else may only update status/progress on a task assigned to them. Delete: `OWNER`/`ADMIN` (see [Security](#security)) |
 | Subtasks | `/api/subtasks` | Any ACTIVE member of the parent task's project (see [Security](#security)) |
-| Comments | `/api/comments` | Create/read: any ACTIVE project member. Edit: comment author only. Delete: author, or `ADMINISTRATOR`/`PROJECT_MANAGER`/`TEAM_LEADER` on that project |
-| Project Members | `/api/project-members` | Direct add/update/delete: `ADMINISTRATOR`/`PROJECT_MANAGER`/`TEAM_LEADER`. Team-invitation sub-endpoints (`/invite`, `/project/{id}/accept`, `/project/{id}/decline`, `/project/{id}/invitations`) — see [Team Invitations](#team-invitations) |
-| Task Assignees | `/api/task-assignees` | Write operations `ADMINISTRATOR`/`PROJECT_MANAGER`/`TEAM_LEADER` |
-| Task Dependencies | `/api/task-dependencies` | Write operations `ADMINISTRATOR`/`PROJECT_MANAGER`/`TEAM_LEADER` |
+| Comments | `/api/comments` | Create/read: any ACTIVE project member. Edit: comment author only. Delete: author, or an `OWNER`/`ADMIN` of that project |
+| Activity Logs | `/api/activity-logs` | Read-only, `GET /task/{taskId}`. Any ACTIVE member of that task's project — written internally by other services, never posted to directly (see [Activity Log](#activity-log)) |
+| Project Members | `/api/project-members` | Direct add/update/delete: `OWNER`/`ADMIN` of that project. Team-invitation sub-endpoints (`/invite`, `/project/{id}/accept`, `/project/{id}/decline`, `/project/{id}/invitations`) — see [Team Invitations](#team-invitations) |
+| Task Assignees | `/api/task-assignees` | Write operations: `OWNER`/`ADMIN` of that project |
+| Task Dependencies | `/api/task-dependencies` | Write operations: `OWNER`/`ADMIN` of that project |
 | Notifications | `/api/notifications` | No `@PreAuthorize` — every endpoint scopes to "the caller's own" by JWT identity instead (see [Notifications](#notifications)) |
 
-Also: `PUT /api/users/me` — self-service profile/password update, any authenticated user, no role gate beyond being logged in (see [Security](#security)). It no longer accepts `position`/`department` at all — those are Team-Admin-managed only, via `PUT /api/users/{id}/position-department` (not role-gated at the annotation level; `UserService.updateMemberPositionDepartment` enforces that the caller administers a project the target user also belongs to, and refuses self-targeting even for `ADMINISTRATOR`).
+Also: `PUT /api/users/me` — self-service profile/password update, any authenticated user, no role gate beyond being logged in (see [Security](#security)). It no longer accepts `position`/`department` at all — those are Team-Admin-managed only, via `PUT /api/users/{id}/position-department` (not role-gated at the annotation level; `UserService.updateMemberPositionDepartment` enforces that the caller administers a project the target user also belongs to, and refuses self-targeting even for `ADMINISTRATOR`). Related self-service endpoints on the same controller: `PUT /api/users/me/password`, `PUT /api/users/me/photo` (multipart upload) / `DELETE /api/users/me/photo`, `PUT /api/users/me/preferences` (theme/notification settings), and `GET /api/users/username/{username}`.
 
-Not yet implemented (no controller at all): attachments, work logs, activity logs, checklist items — these exist as tables in the schema but have no API surface. (Subtasks and comments *were* on this list — see [Team Invitations](#team-invitations) and the Notifications section below for what changed.)
+Not yet implemented (no controller at all): attachments, work logs, checklist items — these exist as tables in the schema but have no API surface. (Subtasks, comments, and activity logs *were* on this list — see [Team Invitations](#team-invitations), [Activity Log](#activity-log), and the Notifications section below for what changed.)
 
 Every write endpoint validates its request body (`@Valid` + Bean Validation) and every "not found" returns a real `404` with a clean JSON body (`{"status":404,"error":"Not Found","message":"..."}`) via `GlobalExceptionHandler` — not a raw stack trace.
 
@@ -91,22 +93,29 @@ Every write endpoint validates its request body (`@Valid` + Bean Validation) and
 
 Configured in `config/SecurityConfig.java`.
 
-**Authentication**: `POST /api/auth/login` (username + password) issues a JWT (HS512, signed with `app.jwt.secret` — override via the `JWT_SECRET` env var, expiry via `JWT_EXPIRATION_MS`, default 1 hour). Every other endpoint except `/api/health` requires `Authorization: Bearer <token>`. Passwords are hashed with BCrypt (`PasswordEncoder` bean) both at registration (`POST /api/users`) and on update, if a new password is supplied. `config/JwtSecretGuard.java` logs a `WARN` on startup if `app.jwt.secret` is still the built-in development default, so an accidental deployment without `JWT_SECRET` set is loud rather than silent (it doesn't fail startup — there's no profile system or real deploy target yet, so failing fast would just break local dev/CI).
+**Authentication**: `POST /api/auth/login` (username + password) issues a JWT (HS512, signed with `app.jwt.secret` — override via the `JWT_SECRET` env var, expiry via `JWT_EXPIRATION_MS`, default 1 hour). Every other endpoint except `/api/health`, `/api/photos/{token}`, and the rest of `/api/auth/**` requires `Authorization: Bearer <token>`. Passwords are hashed with BCrypt (`PasswordEncoder` bean) both at registration and on update, if a new password is supplied. `config/JwtSecretGuard.java` logs a `WARN` on startup if `app.jwt.secret` is still the built-in development default, so an accidental deployment without `JWT_SECRET` set is loud rather than silent (it doesn't fail startup — there's no profile system or real deploy target yet, so failing fast would just break local dev/CI).
+
+**Self-registration + email OTP**: `POST /api/auth/register` creates an account with `account_status = PENDING_VERIFICATION` and emails a one-time code (`OtpService` → `MailService`, SMTP via the docker-compose `mailpit` service locally — its web UI is at `http://localhost:8025`, not a real inbox). `POST /api/auth/verify-otp` checks the code against `otp_verifications` (bcrypt-hashed, capped attempts, expiring) and flips the account to `ACTIVE`; `POST /api/auth/resend-otp` issues a fresh code. All three are public, alongside `login`. A `PENDING_VERIFICATION` account can't log in — `login` and every JWT-gated endpoint only ever see `ACTIVE` accounts as valid.
 
 **Login rate limiting**: `service/LoginRateLimiter.java` tracks failed attempts in memory, keyed by `remoteAddr:username` (not username alone, so an attacker can't lock a known victim out of their own account by deliberately failing logins under that username from elsewhere; not IP alone, so legitimate users sharing an IP with an attacker aren't punished). After 5 failed attempts within 15 minutes for the same key, further attempts get `429 Too Many Requests` until the window rolls off; a successful login clears the counter. In-memory only — resets on restart, not shared across instances (fine for this single-instance app; would need a shared store like Redis to scale horizontally).
 
-**Authorization**: role-based via `@PreAuthorize` (`@EnableMethodSecurity`). The JWT embeds the user's role as a custom `role` claim (not the OAuth2-standard `scope`/`scp`), so a custom `JwtAuthenticationConverter` bean maps it to a `ROLE_<name>` granted authority — without this, every `hasRole(...)` check would silently fail regardless of the token's actual role. Policy, per resource, is coarse role gates (not per-row ownership), with one ownership-scoped exception:
+**Authorization — project-scoped, not global role gates**: the `roles` table now has only two entries — `USER` (assigned to every self-registered account, no special access at all) and `ADMINISTRATOR` (a genuinely system-wide bypass: managing user accounts, managing the roles list, and "sees every project" — nothing else). Almost everything else is authorized per project, from the caller's own `project_members.project_role` on that specific project — `OWNER` / `ADMIN` / `MEMBER` / `VIEWER` — checked in service code via `service/ProjectAccessGuard.java`, not `@PreAuthorize` role names (only the genuinely-global resources below still use `@PreAuthorize("hasRole('ADMINISTRATOR')")`):
 
-* `ADMINISTRATOR`-only: user and role management.
-* `ADMINISTRATOR` / `PROJECT_MANAGER`: create/update/delete projects.
-* `ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`: milestones, project members, task assignment, task dependencies, and task *creation*/*deletion*. These three roles may also fully edit **any** task via `PUT /api/tasks/{id}`.
-* `TEAM_MEMBER` on `PUT /api/tasks/{id}`: ownership-scoped rather than role-gated. `TaskService.updateTask` checks whether the caller is a current assignee of that task (`task_assignees`) — if not, `403 Forbidden`. If they are, only `status`/`progress` from the request body take effect; every other field (title, project, milestone, dates, etc.) is silently left unchanged, even though the client still sends the full `TaskRequest` shape (the existing full-replace PUT contract).
-* Any authenticated role: all `GET` endpoints — but see `ProjectAccessGuard` below; "any role can call it" doesn't mean "sees everything."
-* Any authenticated role, but self-scoped rather than role-gated: `PUT /api/users/me` (own profile/password) and every `/api/notifications` endpoint. These take a plain `Authentication authentication` controller parameter and resolve the acting user from `authentication.getName()` (the JWT's `sub` claim) instead of a path variable — so there's no id to tamper with in the first place. `NotificationService.markAsRead` additionally checks the row's `user_id` actually matches before mutating it, throwing `NotFoundException` (not `AccessDeniedException`) if it doesn't, so a client can't distinguish "not yours" from "doesn't exist."
+* `ADMINISTRATOR`-only: user and role management, and creating Positions/Departments (the org-wide lookup lists).
+* Any authenticated user may create a project — they automatically become its `OWNER`.
+* `OWNER`/`ADMIN` of that project (`ProjectAccessGuard.canManage`) — or system `ADMINISTRATOR`: update/delete the project itself (delete requires `OWNER` specifically — `isOwner` — not just `ADMIN`), milestones, project members, task assignment, task dependencies, and task *deletion*. These callers may also fully edit **any** task in the project via `PUT /api/tasks/{id}`.
+* `OWNER`/`ADMIN`/`MEMBER` of that project (`ProjectAccessGuard.canEditContent`, excludes `VIEWER`) — task *creation*.
+* Anyone else on `PUT /api/tasks/{id}`: ownership-scoped rather than role-gated. `TaskService.updateTask` checks whether the caller is a current assignee of that task (`task_assignees`) — if not, `403 Forbidden`. If they are, only `status`/`progress` from the request body take effect; every other field (title, project, milestone, dates, etc.) is silently left unchanged, even though the client still sends the full `TaskRequest` shape (the existing full-replace PUT contract).
+* Any authenticated user: all `GET` endpoints — but see `ProjectAccessGuard` below; "anyone can call it" doesn't mean "sees everything."
+* Any authenticated user, but self-scoped rather than role-gated: `PUT /api/users/me` and its `/me/password`, `/me/photo`, `/me/preferences` siblings (own profile/password/photo/preferences), and every `/api/notifications` endpoint. These take a plain `Authentication authentication` controller parameter and resolve the acting user from `authentication.getName()` (the JWT's `sub` claim) instead of a path variable — so there's no id to tamper with in the first place. `NotificationService.markAsRead` additionally checks the row's `user_id` actually matches before mutating it, throwing `NotFoundException` (not `AccessDeniedException`) if it doesn't, so a client can't distinguish "not yours" from "doesn't exist."
 
-**Project-scoped reads (`ProjectAccessGuard`)**: every `GET` endpoint that returns a single resource or a "by parent id" list (`GET /api/tasks/{id}`, `/tasks/project/{id}`, `/tasks/milestone/{id}`, `/tasks/status/{status}`, `/projects/{id}`, `/milestones/*`, `/task-dependencies/*`, `/task-assignees/*`, `/project-members/{id}`, `/project-members/project/{id}`, plus the new `/subtasks/*` and `/comments/*`) now checks the caller is `ADMINISTRATOR` or an ACTIVE `project_members` row for that specific project — 404 (not 403), so existence isn't leaked either. This closed a real gap: those endpoints previously had **no ownership check at all** (unlike their already-scoped `getAllX()` counterparts), so any authenticated user — including a brand-new, zero-membership one — could read another project's tasks/milestones/dependencies by guessing an id. `ProjectAccessGuard` (`service/ProjectAccessGuard.java`) is the one shared helper for this check, used by every service listed above.
+**A project can never lose its last active `OWNER`**: `ProjectMemberService.assertNotRemovingLastOwner` blocks demoting or removing a project's sole active `OWNER` (mirrored at the database level by the `trg_project_members_owner_integrity` trigger — the app-level check is a clean early error, the trigger is the actual backstop). Transferring ownership means promoting a new `OWNER` first, then the old one can be demoted/removed.
 
-**Team Admin (per-project, not just role)**: a few actions need "does the caller actually administer *this* project," not just a coarse global role — `ProjectMemberService.inviteMember` and `UserService.updateMemberPositionDepartment` both require `ADMINISTRATOR`, or the project's designated manager, or an ACTIVE `PROJECT_MANAGER`/`TEAM_LEADER` `project_members` row for that specific project (not just anyone holding that global role). `updateMemberPositionDepartment` additionally refuses self-targeting outright, even for `ADMINISTRATOR` — Position/Department must be set by someone else.
+**Project-scoped reads (`ProjectAccessGuard`)**: every `GET` endpoint that returns a single resource or a "by parent id" list (`GET /api/tasks/{id}`, `/tasks/project/{id}`, `/tasks/milestone/{id}`, `/tasks/status/{status}`, `/projects/{id}`, `/milestones/*`, `/task-dependencies/*`, `/task-assignees/*`, `/project-members/{id}`, `/project-members/project/{id}`, `/subtasks/*`, `/comments/*`, and `/activity-logs/task/{taskId}`) checks the caller is `ADMINISTRATOR` or an ACTIVE `project_members` row for that specific project — 404 (not 403), so existence isn't leaked either. `ProjectAccessGuard.assertAccess` (`service/ProjectAccessGuard.java`) is the one shared helper for this check, used by every service listed above.
+
+**Team Admin (per-project, not just role)**: a few actions need "does the caller actually administer *this* project," not just holding `ADMINISTRATOR` globally — `ProjectMemberService.inviteMember` and `UserService.updateMemberPositionDepartment` both require `ADMINISTRATOR`, or an ACTIVE `OWNER`/`ADMIN` `project_members` row for that specific project (`ProjectAccessGuard.canManage`). `updateMemberPositionDepartment` additionally refuses self-targeting outright, even for `ADMINISTRATOR` — Position/Department must be set by someone else.
+
+**Profile photos**: uploaded via `PUT /api/users/me/photo` (multipart, stored as bytes on the `User` row, not in object storage) and served publicly at `GET /api/photos/{token}` with no auth — an `<img src>` can't send a `Bearer` header, so the photo is keyed by an unguessable per-upload token (`User.profilePhotoToken`, rotated on every re-upload) rather than the user's id, which would make every user's photo enumerable, or a stable per-user URL, which a browser could keep serving stale content from past a re-upload.
 
 **CORS**: configured via a `CorsConfigurationSource` bean, origins set by `app.cors.allowed-origins` (comma-separated; `CORS_ALLOWED_ORIGINS` env var), defaulting to the Vite dev server and the docker-compose frontend port.
 
@@ -116,7 +125,7 @@ Configured in `config/SecurityConfig.java`.
 
 ## Database
 
-Connected to the schema owned by [database/init/01-init.sql](../database/init/01-init.sql) — 13 tables with JPA entities/controllers today (`users`, `roles`, `positions`, `departments`, `projects`, `project_members`, `milestones`, `tasks`, `subtasks`, `comments`, `task_assignees`, `task_dependencies`, `notifications`) plus `otp_verifications`, and 7 more (`checklist_items`, `attachments`, `work_logs`, `activity_logs`, `permissions`/`role_permissions`, `report_exports`/`kpi_snapshots`) that don't have JPA entities or a controller yet.
+Connected to the schema owned by [database/init/01-init.sql](../database/init/01-init.sql) — 15 of its 22 tables have JPA entities/controllers today (`users`, `roles`, `positions`, `departments`, `otp_verifications`, `projects`, `project_members`, `milestones`, `tasks`, `subtasks`, `comments`, `task_assignees`, `task_dependencies`, `notifications`, `activity_logs`). The remaining 7 (`checklist_items`, `attachments`, `work_logs`, `permissions`, `role_permissions`, `report_exports`, `kpi_snapshots`) don't have JPA entities or a controller yet.
 
 `spring.jpa.hibernate.ddl-auto=validate` — Hibernate checks the entity mappings against the real schema on startup and never alters it. See [database/README.md](../database/README.md) for the schema itself, seed data, business-rule triggers, and the Flyway migration setup.
 
@@ -140,6 +149,13 @@ There's no separate `teams` table — a `project` *is* a team, and its `project_
 * `GET /api/project-members/project/{projectId}/invitations` — Team-Admin-only; lists that project's `PENDING` invitations.
 * **A `PENDING` invitation grants no access whatsoever** — `ProjectMemberRepository.findProjectIdsByUserId` (the scoping boundary used by every `getAllX()` method) filters to `status = 'ACTIVE'`, and `check_assignee_is_project_member` (the DB trigger gating `task_assignees` inserts) does the same, so an invitee can't be assigned to a task, and can't see the project's tasks/milestones/members, until they actually accept.
 
+## Task & Subtask Rules
+
+Beyond the DB-level gates already covered by [database/README.md](../database/README.md) (a task can't become `COMPLETED` while it has an incomplete subtask; a task can't move to `IN_PROGRESS`/`IN_REVIEW`/`COMPLETED` while it depends on an incomplete task), the service layer adds two behaviors that live entirely in application code:
+
+* **Touching a subtask on a still-`TO_DO` task auto-promotes it to `IN_PROGRESS`** — `SubtaskService.startTaskIfStillToDo`, called at the end of every `updateSubtask`. It's a one-way, one-time move: it only ever fires while the task is still `TO_DO` (so it never fights a caller who explicitly set a task back to `TO_DO`, and never re-fires once the task has moved on), and it's skipped outright if the task is blocked by an incomplete dependency — attempting the move anyway would trip the DB's dependency gate and roll back the subtask update along with it, so this pre-checks `TaskDependencyRepository.existsByTaskIdAndDependsOnTaskStatusNot` first and just leaves the task at `TO_DO` if so.
+* **A task's "Blocked" state is surfaced to API consumers, not just enforced.** `TaskService.toResponses` batches a query (`TaskDependencyRepository.findBlockingTasks`) across a whole task list to set `TaskResponse.blocked`/`blockingTaskTitles` — `blocked` is true whenever the task depends on at least one not-yet-`COMPLETED` task, and `blockingTaskTitles` names exactly which ones, so a client can show *why* a task can't be started yet instead of just failing silently against the DB gate.
+
 ## Notifications
 
 `entity/Notification.java` maps the `notifications` table (which existed in the schema with no code behind it until now — see [database/README.md](../database/README.md)). Every endpoint (`controller/NotificationController.java`) is scoped to "the caller's own" by JWT identity rather than gated by role — see [Security](#security) above for the ownership-check details.
@@ -157,7 +173,7 @@ Of the 9 `type` values the `notifications.type` column's `CHECK` constraint allo
 
 Done — the React frontend (`frontend/`) calls this API directly over HTTP for every page (login, dashboard, projects, tasks, kanban, team, reports, calendar). It calls relative `/api/...` paths: nginx reverse-proxies those to this backend in the Docker build ([frontend/nginx.conf](../frontend/nginx.conf)), and a matching Vite dev-server proxy does the same for `npm run dev` — so no CORS round-trip or hardcoded backend URL is needed in either environment. `app.cors.allowed-origins` still exists as a fallback for any direct cross-origin call.
 
-Known integration gaps: there's no per-user activity/audit-log endpoint, so the frontend's Team page doesn't show one (previously mocked); comments don't trigger a `COMMENT_ADDED` notification yet (see above).
+Known integration gaps: the activity log is per-task only (`GET /api/activity-logs/task/{taskId}`, shown in the task detail panel's Activity tab) — there's still no project-wide or per-user activity/audit feed, so the Team page doesn't show one; comments don't trigger a `COMMENT_ADDED` notification yet (see above).
 
 ## Current Status
 
@@ -167,12 +183,13 @@ Spring Boot                  done
 Java 21                      done
 Database connection          done
 JPA entities & repositories  done
-Business REST APIs           done — 13 resources + auth + health
+Business REST APIs           done — 17 resources + auth + health + photos
 DTOs (no raw entities in/out) done
 Bean Validation on requests  done
 Global exception handling    done (404/400/401/403, no leaked stack traces)
 JWT authentication           done
-Role-based authorization     done — coarse, plus ownership-scoped task updates (see Security)
+Self-registration + OTP      done — POST /api/auth/register, /verify-otp, /resend-otp; email via Mailpit locally (see Security)
+Project-scoped authorization done — OWNER/ADMIN/MEMBER/VIEWER per project via ProjectAccessGuard, ADMINISTRATOR bypass (see Security)
 CORS                         done
 Password hashing             done
 Login rate limiting          done — in-memory, 5 attempts/15 min per IP+username (see Security)
@@ -180,11 +197,14 @@ Least-privilege DB role      done — backend connects as taskmanager_app, not t
 Unit tests                   partial — UserService + GlobalExceptionHandler covered, no controller/repository tests yet
 File logging                 done — errors/security events to a rotating backend/logs/log.txt (see Logging above)
 Notifications                 done — TASK_ASSIGNED/TASK_STATUS_CHANGED/TEAM_INVITATION/TEAM_INVITATION_RESPONDED, see Notifications above
-Self-service profile update  done — PUT /api/users/me, see Security above (no longer accepts position/department)
+Self-service profile update  done — PUT /api/users/me + /me/password + /me/photo + /me/preferences, see Security above
 Team invitations              done — see Team Invitations above
 Subtasks & comments           done — real entities/controllers, project-membership-scoped (see API Endpoints above)
 Position/Department          done — Team-Admin-managed lookup lists, see Security above
 Project-scoped read ownership done — ProjectAccessGuard closes the by-id/by-parent-id gap, see Security above
+Activity log (per task)      done — GET /api/activity-logs/task/{taskId}, see Task & Subtask Rules / API Endpoints above
+Task auto-promotion & Blocked done — subtask touch promotes To Do -> In Progress, dependency-blocked state surfaced to clients (see Task & Subtask Rules)
+Last-owner protection        done — a project can't be left with zero active OWNERs (see Security)
 Frontend/backend integration done — see frontend/README.md
 ```
 
@@ -194,8 +214,8 @@ Roughly in priority order:
 
 1. Wire authorization to the `permissions`/`role_permissions` tables instead of hardcoded role names (see [database/README.md](../database/README.md#authorization--permissions)).
 2. Pagination and search/filter on list endpoints (`GET /api/projects`, `/api/tasks`, etc. return everything, unbounded).
-3. Entities/controllers for the remaining 7 DB-only tables (`checklist_items`, `attachments`, `work_logs`, `activity_logs`, `permissions`, `role_permissions`, `report_exports`, `kpi_snapshots`, plus the reporting views).
-4. Business-rule enforcement in application logic that the requirements doc calls for but isn't implemented anywhere yet: task-dependency completion ordering ("can't start until depends-on is COMPLETED" — the DB only prevents *cycles*, not out-of-order starts).
+3. Entities/controllers for the remaining 7 DB-only tables (`checklist_items`, `attachments`, `work_logs`, `permissions`, `role_permissions`, `report_exports`, `kpi_snapshots`, plus the reporting views).
+4. A project-wide or per-user activity/audit feed — today's `activity_logs` API is per-task only (see [Task & Subtask Rules](#task--subtask-rules)), so there's still nothing backing a Team-page-style activity feed.
 5. Broader test coverage — controller/integration tests, not just the three service/handler-level unit test classes so far.
 6. Wire Flyway (see [database/README.md](../database/README.md#migrations)) so schema migrations apply automatically instead of via `docker-entrypoint-initdb.d`.
 7. `COMMENT_ADDED` notification — comments are now a real, persisted feature (see Team Invitations/API Endpoints above), but creating one doesn't notify anyone yet.

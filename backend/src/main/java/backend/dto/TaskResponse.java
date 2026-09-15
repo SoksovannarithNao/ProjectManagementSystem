@@ -5,6 +5,7 @@ import backend.entity.Task;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 public class TaskResponse {
 
@@ -27,6 +28,7 @@ public class TaskResponse {
     private long completedSubtasks;
     private boolean overdue;
     private boolean blocked;
+    private List<String> blockingTaskTitles = List.of();
 
     public TaskResponse(Task task) {
         this.id = task.getId();
@@ -140,9 +142,21 @@ public class TaskResponse {
     }
 
     // Set separately from a batched query across the whole task list (see
-    // TaskService.toResponses / TaskDependencyRepository.findBlockedTaskIds)
+    // TaskService.toResponses / TaskDependencyRepository.findBlockingTasks)
     // rather than computed per task here, same reasoning as totalSubtasks.
     public void setBlocked(boolean blocked) {
         this.blocked = blocked;
+    }
+
+    // Titles of this task's own not-yet-COMPLETED dependencies — what's
+    // actually keeping it Blocked, so the UI can say *what* to finish
+    // rather than just that it's stuck. Same batched-query origin as
+    // `blocked` itself.
+    public List<String> getBlockingTaskTitles() {
+        return blockingTaskTitles;
+    }
+
+    public void setBlockingTaskTitles(List<String> blockingTaskTitles) {
+        this.blockingTaskTitles = blockingTaskTitles;
     }
 }
