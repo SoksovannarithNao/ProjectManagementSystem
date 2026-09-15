@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Overrides Spring Boot's default logback config (which logs to both console
+  and file) to log to file only. Console output is what Docker captures into
+  `docker compose logs`/an attached terminal — this keeps that quiet while
+  everything (including Hibernate SQL) still lands in logs/log.txt, per the
+  rolling policy set via logging.logback.rollingpolicy.* in
+  application.properties.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml" />
+    <property name="LOG_FILE" value="${LOG_FILE:-${LOG_PATH:-.}/spring.log}" />
+    <include resource="org/springframework/boot/logging/logback/file-appender.xml" />
+
+    <root level="INFO">
+        <appender-ref ref="FILE" />
+    </root>
+</configuration>

@@ -24,6 +24,7 @@ public class TaskAssigneeService {
     private final UserRepository userRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final NotificationService notificationService;
+    private final ActivityLogService activityLogService;
     private final ProjectAccessGuard projectAccessGuard;
 
     public TaskAssigneeService(
@@ -32,12 +33,14 @@ public class TaskAssigneeService {
             UserRepository userRepository,
             ProjectMemberRepository projectMemberRepository,
             NotificationService notificationService,
+            ActivityLogService activityLogService,
             ProjectAccessGuard projectAccessGuard) {
         this.taskAssigneeRepository = taskAssigneeRepository;
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.notificationService = notificationService;
+        this.activityLogService = activityLogService;
         this.projectAccessGuard = projectAccessGuard;
     }
 
@@ -120,12 +123,16 @@ public class TaskAssigneeService {
 
         TaskAssignee saved = taskAssigneeRepository.save(taskAssignee);
         notificationService.notifyTaskAssigned(task, user);
+        activityLogService.record(requireUser(username), task, "TASK_ASSIGNED", user.getFullName() + " was assigned");
         return new TaskAssigneeResponse(saved);
     }
 
     public void deleteTaskAssignee(Long id, String username) {
         TaskAssignee taskAssignee = getTaskAssigneeEntityById(id);
-        projectAccessGuard.assertCanManage(requireUser(username), taskAssignee.getTask().getProject().getId());
+        User caller = requireUser(username);
+        projectAccessGuard.assertCanManage(caller, taskAssignee.getTask().getProject().getId());
+        activityLogService.record(caller, taskAssignee.getTask(), "TASK_UNASSIGNED",
+                taskAssignee.getUser().getFullName() + " was unassigned");
         taskAssigneeRepository.delete(taskAssignee);
     }
 }

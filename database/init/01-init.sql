@@ -721,6 +721,125 @@ CREATE TRIGGER trg_subtasks_updated_at
     BEFORE UPDATE ON subtasks
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ==================== task/subtask completion consistency ==================== --
+-- Task status is otherwise entirely manual and independent of subtask
+-- completion — a task may sit at TO_DO with every subtask done, and nothing
+-- here ever promotes or demotes a task's status on its own. The ONE
+-- restriction is a one-directional gate: a task cannot be moved TO
+-- COMPLETED while it still has an incomplete subtask. That, plus keeping
+-- progress% honest, is enforced by two mechanisms:
+--   1. A hard gate (check_task_not_completed_with_open_subtasks) that
+--      unconditionally rejects any UPDATE landing a task on status =
+--      'COMPLETED' while it has an incomplete subtask — this is what makes
+--      "DONE + 0/2 subtasks" impossible to write at all, from any caller
+--      (the Java layer has its own copy of this same check for a cleaner
+--      error before ever reaching the DB, but this is the backstop that
+--      actually can't be bypassed). It only ever blocks the transition INTO
+--      COMPLETED — it never reaches back to change a status once set, so a
+--      task that's already COMPLETED stays COMPLETED even if a subtask is
+--      later reopened or a new one added.
+--   2. Two progress-sync triggers (task.progress derived from its own
+--      subtasks' completion ratio, exactly like project.progress is derived
+--      from its tasks' status — see fn_compute_project_progress above): an
+--      AFTER trigger on subtasks keeps the parent task's progress % current
+--      the moment a subtask changes, and a BEFORE UPDATE trigger on tasks
+--      re-derives it from current subtask state on every direct task write
+--      too, so a stale/manual progress value in the request can never
+--      stick. Neither one touches status.
+-- A task with zero subtasks is unaffected by either — nothing here applies
+-- when there's nothing to be "incomplete".
+
+CREATE OR REPLACE FUNCTION check_task_not_completed_with_open_subtasks()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- OLD.status <> NEW.status matters: this must only fire on the
+    -- transition INTO COMPLETED, not on every subsequent write to a task
+    -- that's already (validly) COMPLETED. Without it, an unrelated later
+    -- write — even trg_fn_subtasks_sync_parent_task's own progress-only
+    -- UPDATE, fired by reopening a subtask afterward — would get rejected
+    -- too, since Postgres re-evaluates NEW.status = 'COMPLETED' against
+    -- whatever the row's *current* state is on every UPDATE, not just ones
+    -- that changed status. That would effectively (and wrongly) freeze an
+    -- already-COMPLETED task's row the moment any of its subtasks became
+    -- incomplete again — exactly the "status changes because of subtask
+    -- progress" coupling this feature deliberately avoids.
+    IF NEW.status = 'COMPLETED' AND OLD.status <> 'COMPLETED' AND EXISTS (
+        SELECT 1 FROM subtasks WHERE task_id = NEW.id AND status <> 'COMPLETED'
+    ) THEN
+        RAISE EXCEPTION 'Complete all subtasks before marking this task as done.'
+            USING ERRCODE = '23514'; -- check_violation — see the milestone trigger above
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- BEFORE UPDATE only (not INSERT) — a brand-new task can't have pre-existing
+-- subtasks yet, same reasoning as trg_projects_progress_derived below.
+CREATE TRIGGER trg_tasks_not_completed_with_open_subtasks
+    BEFORE UPDATE ON tasks
+    FOR EACH ROW EXECUTE FUNCTION check_task_not_completed_with_open_subtasks();
+
+CREATE OR REPLACE FUNCTION fn_compute_task_progress_from_subtasks(p_task_id BIGINT)
+RETURNS NUMERIC AS $$
+DECLARE
+    v_total     INTEGER;
+    v_completed INTEGER;
+BEGIN
+    SELECT count(*), count(*) FILTER (WHERE status = 'COMPLETED')
+    INTO v_total, v_completed
+    FROM subtasks WHERE task_id = p_task_id;
+
+    IF v_total = 0 THEN
+        RETURN NULL; -- no subtasks: progress isn't subtask-derived, leave as-is
+    END IF;
+    RETURN round(100.0 * v_completed / v_total, 2);
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+CREATE OR REPLACE FUNCTION trg_fn_subtasks_sync_parent_task()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_task_id  BIGINT := COALESCE(NEW.task_id, OLD.task_id);
+    v_progress NUMERIC;
+BEGIN
+    v_progress := fn_compute_task_progress_from_subtasks(v_task_id);
+    IF v_progress IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    -- Progress % only — status is deliberately untouched here. Task status
+    -- is manual/independent of subtask completion by design (a task can sit
+    -- at To Do with every subtask done, and a COMPLETED task stays COMPLETED
+    -- even if a subtask is later reopened — the one and only restriction is
+    -- the forward gate in check_task_not_completed_with_open_subtasks, which
+    -- blocks *entering* COMPLETED while a subtask is incomplete but never
+    -- reaches back to change a status once it's set).
+    UPDATE tasks SET progress = v_progress WHERE id = v_task_id;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_subtasks_sync_parent_task
+    AFTER INSERT OR UPDATE OR DELETE ON subtasks
+    FOR EACH ROW EXECUTE FUNCTION trg_fn_subtasks_sync_parent_task();
+
+CREATE OR REPLACE FUNCTION trg_fn_tasks_progress_derived_from_subtasks()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_progress NUMERIC;
+BEGIN
+    v_progress := fn_compute_task_progress_from_subtasks(NEW.id);
+    IF v_progress IS NOT NULL THEN
+        NEW.progress = v_progress;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_tasks_progress_derived_from_subtasks
+    BEFORE UPDATE ON tasks
+    FOR EACH ROW EXECUTE FUNCTION trg_fn_tasks_progress_derived_from_subtasks();
+
 -- ==================== checklist_items ==================== --
 -- Lightweight todo items inside a task, distinct from subtasks (no
 -- assignee/due date of their own — just "done or not").
@@ -865,11 +984,19 @@ CREATE TABLE activity_logs (
     user_id     BIGINT REFERENCES users (id) ON DELETE SET NULL,
     action      VARCHAR(30) NOT NULL
                 CHECK (action IN ('PROJECT_CREATED', 'PROJECT_UPDATED', 'PROJECT_COMPLETED',
-                                   'TASK_CREATED', 'TASK_ASSIGNED', 'TASK_STATUS_CHANGED',
-                                   'TASK_COMPLETED', 'COMMENT_ADDED', 'FILE_UPLOADED',
+                                   'TASK_CREATED', 'TASK_DELETED', 'TASK_ASSIGNED', 'TASK_UNASSIGNED',
+                                   'TASK_STATUS_CHANGED', 'TASK_PRIORITY_CHANGED', 'TASK_DUE_DATE_CHANGED',
+                                   'TASK_COMPLETED', 'SUBTASK_ADDED', 'SUBTASK_COMPLETED', 'SUBTASK_DELETED',
+                                   'COMMENT_ADDED', 'FILE_UPLOADED',
                                    'MILESTONE_CREATED', 'MILESTONE_COMPLETED')),
+    -- task_id is nullable and ON DELETE SET NULL (not CASCADE, unlike every
+    -- other task_id FK in this file) specifically so a TASK_DELETED entry
+    -- survives the task row it describes being deleted — logging it, then
+    -- letting a CASCADE wipe it out in the same statement, would defeat the
+    -- point of an audit trail. project_id (still CASCADE) is enough to keep
+    -- the entry meaningful once the task itself is gone.
     project_id  BIGINT REFERENCES projects (id) ON DELETE CASCADE,
-    task_id     BIGINT REFERENCES tasks (id) ON DELETE CASCADE,
+    task_id     BIGINT REFERENCES tasks (id) ON DELETE SET NULL,
     description VARCHAR(500),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, SlidersHorizontal, LayoutGrid } from 'lucide-react'
+import { Plus, SlidersHorizontal, LayoutGrid, AlertTriangle, Lock } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
@@ -17,7 +17,7 @@ import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
 import { buildTaskAssigneeMap, buildMyProjectRoleMap } from '../api/relations'
 import { groupTasksByStatus } from '../api/stats'
-import { formatDate, humanizeEnum } from '../api/format'
+import { formatDate, humanizeEnum, taskDisplayTitle, blockedReason } from '../api/format'
 
 const COLUMN_ACCENT = {
   TO_DO: 'bg-faint',
@@ -210,9 +210,21 @@ export function Kanban() {
                       <span className="text-faint text-[10.5px] font-[650] tracking-[0.04em] uppercase">
                         {task.project?.name}
                       </span>
-                      <p className="text-ink my-2 text-[13px] leading-normal font-semibold">{task.title}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted text-[11px]">{formatDate(task.dueDate)}</span>
+                      <p className="text-ink my-2 text-[13px] leading-normal font-semibold">
+                        {taskDisplayTitle(task.title, task.project?.name)}
+                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1 text-[11px] ${task.overdue ? 'text-danger font-semibold' : 'text-muted'}`}
+                        >
+                          {task.blocked && (
+                            <span title={blockedReason(task)} className="inline-flex shrink-0">
+                              <Lock size={11} />
+                            </span>
+                          )}
+                          {task.overdue && <AlertTriangle size={11} className="shrink-0" />}
+                          {formatDate(task.dueDate)}
+                        </span>
                         {member && (
                           <Avatar
                             initials={member.initials}

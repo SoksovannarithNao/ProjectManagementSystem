@@ -60,10 +60,36 @@ export function toProjectCard(project, memberIds = []) {
   return {
     id: project.id,
     name: project.name,
+    projectCode: project.projectCode,
     description: project.description,
     progress: Math.round(Number(project.progress ?? 0)),
+    startDate: project.startDate,
+    endDate: project.endDate,
     due: formatDate(project.endDate),
     status: project.status,
+    priority: project.priority,
+    manager: project.manager,
     members: memberIds,
   }
+}
+
+// projectId -> { total, completed, overdue } — CANCELLED excluded from
+// total/completed, same convention as the backend's own
+// fn_compute_project_progress (a cancelled task isn't remaining project
+// work and shouldn't count against it either way). Lets a project card show
+// real task traction ("8/12 tasks · 2 overdue") without a per-project fetch.
+export function buildProjectTaskStats(tasks) {
+  const map = new Map()
+  for (const t of tasks ?? []) {
+    const projectId = t.project?.id
+    if (projectId == null) continue
+    const entry = map.get(projectId) ?? { total: 0, completed: 0, overdue: 0 }
+    if (t.status !== 'CANCELLED') {
+      entry.total += 1
+      if (t.status === 'COMPLETED') entry.completed += 1
+    }
+    if (t.overdue) entry.overdue += 1
+    map.set(projectId, entry)
+  }
+  return map
 }

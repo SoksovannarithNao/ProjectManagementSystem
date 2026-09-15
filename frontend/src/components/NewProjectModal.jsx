@@ -1,54 +1,64 @@
 import { useState } from 'react'
 import { Modal } from './ui/Modal'
 import { useToast } from './ui/Toast'
-import { createProject } from '../api/projects'
+import { createProject, updateProject } from '../api/projects'
 import { humanizeEnum } from '../api/format'
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 
 // No manager picker — the authenticated caller always becomes the project's
-// manager/OWNER (see backend ProjectService.createProject); there's no
-// global role required to create a project, and no way for a normal user
-// to hand ownership to someone else at creation time.
-export function NewProjectModal({ onClose, onCreated }) {
+// manager/OWNER on create (see backend ProjectService.createProject) and
+// stays the manager on edit (applyRequest keeps the existing one unless a
+// system ADMINISTRATOR names someone else, which this form doesn't expose).
+// Status isn't editable here either — that's a quick inline control on the
+// project detail page (like the task status dropdown), not part of this
+// content form, and PUT only touches fields it's sent (see
+// projectResponseToRequest), so leaving it out on edit doesn't reset it.
+export function NewProjectModal({ project, onClose, onSaved }) {
+  const isEdit = Boolean(project)
   const notify = useToast()
-  const [name, setName] = useState('')
-  const [projectCode, setProjectCode] = useState('')
-  const [description, setDescription] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [priority, setPriority] = useState('MEDIUM')
+  const [name, setName] = useState(project?.name ?? '')
+  const [projectCode, setProjectCode] = useState(project?.projectCode ?? '')
+  const [description, setDescription] = useState(project?.description ?? '')
+  const [startDate, setStartDate] = useState(project?.startDate ?? '')
+  const [endDate, setEndDate] = useState(project?.endDate ?? '')
+  const [priority, setPriority] = useState(project?.priority ?? 'MEDIUM')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!name.trim() || !projectCode.trim() || !startDate || !endDate) return
+    if (startDate > endDate) {
+      setError('Start date must be on or before the end date')
+      return
+    }
     setSubmitting(true)
     setError('')
     try {
-      const created = await createProject({
+      const payload = {
         projectCode: projectCode.trim(),
         name: name.trim(),
         description: description.trim() || null,
         startDate,
         endDate,
         priority,
-        status: 'PLANNING',
-        progress: 0,
-      })
-      onCreated?.(created)
+      }
+      const saved = isEdit
+        ? await updateProject(project.id, payload)
+        : await createProject({ ...payload, status: 'PLANNING', progress: 0 })
+      onSaved?.(saved)
       onClose()
-      notify(`Project "${created.name}" created`, { tone: 'success' })
+      notify(`Project "${saved.name}" ${isEdit ? 'updated' : 'created'}`, { tone: 'success' })
     } catch (err) {
-      setError(err.message || 'Failed to create project')
+      setError(err.message || `Failed to ${isEdit ? 'update' : 'create'} project`)
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <Modal title="New Project" onClose={onClose}>
+    <Modal title={isEdit ? 'Edit Project' : 'New Project'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-muted text-[12.5px] font-semibold">Name</span>
@@ -130,7 +140,7 @@ export function NewProjectModal({ onClose, onCreated }) {
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Creating…' : 'Create Project'}
+            {submitting ? (isEdit ? 'Saving…' : 'Creating…') : isEdit ? 'Save Changes' : 'Create Project'}
           </button>
         </div>
       </form>

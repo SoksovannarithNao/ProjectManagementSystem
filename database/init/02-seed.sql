@@ -254,8 +254,10 @@ DECLARE
     parent_cid BIGINT;
     new_cid BIGINT;
     author_id BIGINT;
+    task_ids BIGINT[];
 BEGIN
     FOR proj IN SELECT id, name, status AS proj_status, start_date, end_date, manager_id FROM projects ORDER BY id LOOP
+        task_ids := ARRAY[]::BIGINT[];
         -- Only ACTIVE project_members whose account itself is ACTIVE — this
         -- is the exact pool the DB triggers allow for task_assignees.
         SELECT array_agg(pm.user_id) INTO member_ids
@@ -298,6 +300,7 @@ BEGIN
                 t_progress,
                 creator_id
             ) RETURNING id INTO task_id;
+            task_ids[i] := task_id;
 
             IF member_ids IS NOT NULL AND array_length(member_ids, 1) > 0 AND i NOT IN (1, 7) THEN
                 assignee_id := member_ids[1 + floor(random() * array_length(member_ids, 1))::int];
@@ -317,7 +320,22 @@ BEGIN
                     CASE WHEN member_ids IS NOT NULL AND array_length(member_ids, 1) > 0 AND random() > 0.3
                          THEN member_ids[1 + floor(random() * array_length(member_ids, 1))::int] ELSE NULL END,
                     t_due - floor(random() * 5)::int,
-                    (ARRAY['TO_DO', 'IN_PROGRESS', 'COMPLETED'])[1 + floor(random() * 3)::int]
+                    -- A COMPLETED task's subtasks must themselves all be
+                    -- COMPLETED (trg_tasks_not_completed_with_open_subtasks
+                    -- would otherwise reject/self-heal this the moment
+                    -- anything re-touches the row). Symmetrically, a TO_DO
+                    -- task's subtasks must all still be TO_DO too — through
+                    -- the app, touching any subtask on a To Do task
+                    -- immediately promotes it to In Progress
+                    -- (SubtaskService.startTaskIfStillToDo), so "To Do" with
+                    -- a completed/in-progress subtask is a state a real user
+                    -- could never leave a task in. Random status only for
+                    -- every other final_status, since those two are the only
+                    -- ones gated/coupled to subtask state.
+                    CASE WHEN final_status = 'COMPLETED' THEN 'COMPLETED'
+                         WHEN final_status = 'TO_DO' THEN 'TO_DO'
+                         ELSE (ARRAY['TO_DO', 'IN_PROGRESS', 'COMPLETED'])[1 + floor(random() * 3)::int]
+                    END
                 );
             END LOOP;
 
@@ -336,16 +354,37 @@ BEGIN
                 END LOOP;
             END IF;
         END LOOP;
+
+        -- One dependency per project, for the "Blocked" state: task 7
+        -- ("Documentation and handoff") depends on task 6 ("Fix reported
+        -- defects"). Task 7 is always TO_DO (or, for a PLANNING project,
+        -- every task is) — trg_task_dependencies_status_gate only rejects a
+        -- new dependency when the dependent task is already
+        -- IN_PROGRESS/IN_REVIEW/COMPLETED while the prerequisite isn't, so a
+        -- TO_DO task 7 is always a safe side to attach this to regardless of
+        -- task 6's status. Skipped for a COMPLETED project, where task 7 is
+        -- COMPLETED and task 6 is CANCELLED (not COMPLETED) — exactly the
+        -- combination that trigger exists to reject.
+        IF proj.proj_status <> 'COMPLETED' THEN
+            INSERT INTO task_dependencies (task_id, depends_on_task_id)
+            VALUES (task_ids[7], task_ids[6])
+            ON CONFLICT DO NOTHING;
+        END IF;
     END LOOP;
 END $$;
 
 -- Force a handful of genuinely overdue tasks (due in the past, not
 -- completed) for testing the overdue-detection view/notifications — only
 -- within projects whose own end_date is safely still in the future, so
--- check_task_due_date_within_project can never fail.
+-- check_task_due_date_within_project can never fail. Excludes any task that
+-- is the dependent side of a task_dependencies row (the "Blocked" task 7s
+-- seeded above): forcing status = 'IN_PROGRESS' on one of those would trip
+-- trg_tasks_dependencies_status_gate, since their prerequisite isn't
+-- COMPLETED.
 WITH candidates AS (
     SELECT t.id FROM tasks t JOIN projects p ON p.id = t.project_id
     WHERE p.status IN ('IN_PROGRESS', 'ON_HOLD') AND p.end_date >= CURRENT_DATE + 5
+      AND t.id NOT IN (SELECT task_id FROM task_dependencies)
     ORDER BY t.id
     LIMIT 8
 )
@@ -377,3 +416,46 @@ WHERE t.status <> 'TO_DO';
 -- rows — generates one per (assignee, overdue task) not already notified
 -- today, for the tasks the UPDATE above just created.
 SELECT fn_generate_overdue_notifications();
+
+-- ==================== activity_logs (per-task history feed) ====================
+-- Backfills the history a real ActivityLogService.record() call would have
+-- written for everything already seeded above — task creation, its current
+-- status (if not the TO_DO default), each assignment, and each subtask's
+-- add/completion — so TaskDetailPanel's Activity tab has real content for
+-- every seeded task instead of only ever showing entries for changes made
+-- after this file ran. Descriptions match ActivityLogService's own callers
+-- (TaskService/TaskAssigneeService/SubtaskService) verbatim, including the
+-- humanized "In Progress"-style status names.
+INSERT INTO activity_logs (user_id, action, project_id, task_id, description)
+SELECT created_by, 'TASK_CREATED', project_id, id, 'Task created'
+FROM tasks
+WHERE created_by IS NOT NULL;
+
+INSERT INTO activity_logs (user_id, action, project_id, task_id, description)
+SELECT created_by, 'TASK_STATUS_CHANGED', project_id, id,
+       'Status changed from To Do to ' || CASE status
+           WHEN 'IN_PROGRESS' THEN 'In Progress'
+           WHEN 'IN_REVIEW' THEN 'In Review'
+           WHEN 'COMPLETED' THEN 'Completed'
+           WHEN 'CANCELLED' THEN 'Cancelled'
+           ELSE status
+       END
+FROM tasks
+WHERE status <> 'TO_DO' AND created_by IS NOT NULL;
+
+INSERT INTO activity_logs (user_id, action, project_id, task_id, description)
+SELECT t.created_by, 'TASK_ASSIGNED', t.project_id, t.id, u.full_name || ' was assigned'
+FROM task_assignees ta
+JOIN tasks t ON t.id = ta.task_id
+JOIN users u ON u.id = ta.user_id;
+
+INSERT INTO activity_logs (user_id, action, project_id, task_id, description)
+SELECT t.created_by, 'SUBTASK_ADDED', t.project_id, t.id, 'Subtask "' || s.title || '" added'
+FROM subtasks s
+JOIN tasks t ON t.id = s.task_id;
+
+INSERT INTO activity_logs (user_id, action, project_id, task_id, description)
+SELECT t.created_by, 'SUBTASK_COMPLETED', t.project_id, t.id, 'Subtask "' || s.title || '" completed'
+FROM subtasks s
+JOIN tasks t ON t.id = s.task_id
+WHERE s.status = 'COMPLETED';

@@ -11,10 +11,10 @@
   --color-medium-gray: #66676b;
 
   /* Backgrounds — canvas is the page background; container is the
-     project/board surface (Kanban columns, project groupings); subtle is
-     the general light-gray surface used for inputs and hover feedback;
-     card is the raised surface tasks/content sit on. Each is a visibly
-     distinct step so cards and containers don't blend into the page. */
+    project/board surface (Kanban columns, project groupings); subtle is
+    the general light-gray surface used for inputs and hover feedback;
+    card is the raised surface tasks/content sit on. Each is a visibly
+    distinct step so cards and containers don't blend into the page. */
   --color-canvas: #f5f6f8;
   --color-container: #e9ebef;
   --color-subtle: #f0f2f5;

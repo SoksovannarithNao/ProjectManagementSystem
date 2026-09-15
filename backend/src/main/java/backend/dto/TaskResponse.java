@@ -5,6 +5,7 @@ import backend.entity.Task;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 public class TaskResponse {
 
@@ -23,6 +24,11 @@ public class TaskResponse {
     private UserResponse createdBy;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+    private long totalSubtasks;
+    private long completedSubtasks;
+    private boolean overdue;
+    private boolean blocked;
+    private List<String> blockingTaskTitles = List.of();
 
     public TaskResponse(Task task) {
         this.id = task.getId();
@@ -40,6 +46,23 @@ public class TaskResponse {
         this.createdBy = task.getCreatedBy() != null ? new UserResponse(task.getCreatedBy()) : null;
         this.createdAt = task.getCreatedAt();
         this.updatedAt = task.getUpdatedAt();
+        // Mirrors database/init/01-init.sql's v_overdue_tasks view exactly
+        // (due_date < today and not COMPLETED/CANCELLED) — computed here
+        // instead of querying that view, since the inputs are already on
+        // hand and it's a two-field comparison.
+        this.overdue = task.getDueDate() != null
+                && task.getDueDate().isBefore(LocalDate.now())
+                && !"COMPLETED".equals(task.getStatus())
+                && !"CANCELLED".equals(task.getStatus());
+    }
+
+    // Subtask counts are computed separately from a single grouped query
+    // across a whole task list (see TaskService.subtaskCountsByTaskId) rather
+    // than fetched per task here, to avoid an N+1 subtask query per task.
+    public TaskResponse(Task task, long totalSubtasks, long completedSubtasks) {
+        this(task);
+        this.totalSubtasks = totalSubtasks;
+        this.completedSubtasks = completedSubtasks;
     }
 
     public Long getId() {
@@ -100,5 +123,40 @@ public class TaskResponse {
 
     public OffsetDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    public long getTotalSubtasks() {
+        return totalSubtasks;
+    }
+
+    public long getCompletedSubtasks() {
+        return completedSubtasks;
+    }
+
+    public boolean isOverdue() {
+        return overdue;
+    }
+
+    public boolean isBlocked() {
+        return blocked;
+    }
+
+    // Set separately from a batched query across the whole task list (see
+    // TaskService.toResponses / TaskDependencyRepository.findBlockingTasks)
+    // rather than computed per task here, same reasoning as totalSubtasks.
+    public void setBlocked(boolean blocked) {
+        this.blocked = blocked;
+    }
+
+    // Titles of this task's own not-yet-COMPLETED dependencies — what's
+    // actually keeping it Blocked, so the UI can say *what* to finish
+    // rather than just that it's stuck. Same batched-query origin as
+    // `blocked` itself.
+    public List<String> getBlockingTaskTitles() {
+        return blockingTaskTitles;
+    }
+
+    public void setBlockingTaskTitles(List<String> blockingTaskTitles) {
+        this.blockingTaskTitles = blockingTaskTitles;
     }
 }

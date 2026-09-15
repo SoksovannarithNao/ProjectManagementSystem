@@ -9,6 +9,10 @@ import {
   Send,
   Pencil,
   Trash2,
+  AlertTriangle,
+  Lock,
+  Link2,
+  History,
 } from 'lucide-react'
 import { Avatar } from './ui/Avatar'
 import { Badge } from './ui/Badge'
@@ -20,16 +24,18 @@ import { useAuth } from '../auth/AuthContext'
 import { canManageProject } from '../api/permissions'
 import { buildMyProjectRoleMap } from '../api/relations'
 import { getProjectMembers } from '../api/projectMembers'
-import { setTaskStatus, deleteTask } from '../api/tasks'
+import { setTaskStatus, deleteTask, getTasks } from '../api/tasks'
 import { useApi } from '../api/useApi'
 import { getSubtasksByTask, createSubtask, updateSubtask, deleteSubtask } from '../api/subtasks'
 import { getCommentsByTask, createComment, updateComment, deleteComment } from '../api/comments'
-import { formatDate, humanizeEnum, initialsFor, timeAgo } from '../api/format'
+import { getActivityByTask } from '../api/activityLog'
+import { getDependenciesByTask, createTaskDependency, deleteTaskDependency } from '../api/taskDependencies'
+import { formatDate, humanizeEnum, initialsFor, timeAgo, blockedReason } from '../api/format'
 
 const STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
 
 export function TaskDetailPanel({ task, onClose, onChange }) {
-  const { getMember } = useMembers()
+  const { getMember, members } = useMembers()
   const { profile, role } = useAuth()
   const notify = useToast()
   const { data: projectMembers } = useApi(getProjectMembers)
@@ -53,16 +59,41 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
   const { data: commentsData, refetch: refetchComments } = useApi(commentsFetcher)
   const comments = useMemo(() => commentsData ?? [], [commentsData])
 
+  const activityFetcher = useCallback(() => getActivityByTask(task.id), [task.id])
+  const { data: activityData, refetch: refetchActivity } = useApi(activityFetcher)
+  const activity = useMemo(() => activityData ?? [], [activityData])
+
+  const dependenciesFetcher = useCallback(() => getDependenciesByTask(task.id), [task.id])
+  const { data: dependenciesData, refetch: refetchDependencies } = useApi(dependenciesFetcher)
+  const dependencies = useMemo(() => dependenciesData ?? [], [dependenciesData])
+
+  // Used only to populate the "add a dependency" picker with other tasks in
+  // the same project — not shared with the caller's own already-fetched
+  // task list (Tasks.jsx/Kanban.jsx), so this is its own independent fetch,
+  // same as TaskFormModal's own separate getProjects/getProjectMembers calls.
+  const { data: allTasksData } = useApi(getTasks)
+  const availableToDepend = useMemo(() => {
+    const dependsOnIds = new Set(dependencies.map((d) => d.dependsOnTask.id))
+    return (allTasksData ?? []).filter(
+      (t) => t.project?.id === task.project?.id && t.id !== task.id && !dependsOnIds.has(t.id)
+    )
+  }, [allTasksData, dependencies, task])
+  const [newDependencyId, setNewDependencyId] = useState('')
+
   const [comment, setComment] = useState('')
   const [editingCommentId, setEditingCommentId] = useState(null)
   const [editingCommentText, setEditingCommentText] = useState('')
+  const [editingSubtaskId, setEditingSubtaskId] = useState(null)
+  const [editSubtaskTitle, setEditSubtaskTitle] = useState('')
+  const [editSubtaskAssigneeId, setEditSubtaskAssigneeId] = useState('')
+  const [editSubtaskDueDate, setEditSubtaskDueDate] = useState('')
   const [status, setStatus] = useState(task?.status)
   const [savingStatus, setSavingStatus] = useState(false)
 
   // `task` is derived from the caller's own live task list (see Tasks.jsx/
   // Kanban.jsx), so task.status can change out from under us — e.g.
-  // reopening the last completed subtask auto-reverts an already-COMPLETED
-  // parent (SubtaskService.reopenParentIfNoLongerFullyComplete). Re-sync
+  // checking the first subtask on a still-To-Do task auto-promotes the
+  // parent to In Progress (SubtaskService.startTaskIfStillToDo). Re-sync
   // the local optimistic-update copy whenever that happens, rather than
   // only reading task.status once at mount. Updating state directly during
   // render (guarded by the comparison) is the pattern React recommends for
@@ -103,7 +134,17 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
         status: s.status === 'COMPLETED' ? 'TO_DO' : 'COMPLETED',
       })
       refetchSubtasks()
+      refetchActivity()
       onChange?.()
+      // Mirrors SubtaskService.startTaskIfStillToDo's own silent skip: a
+      // blocked task can never legally become IN_PROGRESS (the DB's
+      // dependency gate forbids it), so a subtask touch here can't promote
+      // it out of To Do the way it would for an unblocked task. Surfaced
+      // here rather than left silent so the still-To-Do status after
+      // checking a box doesn't read as this feature being broken.
+      if (task.status === 'TO_DO' && task.blocked) {
+        notify(`${blockedReason(task)} — status stays To Do until then.`, { tone: 'info' })
+      }
     } catch (err) {
       notify(err.message || 'Failed to update subtask', { tone: 'error' })
     }
@@ -114,6 +155,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
     try {
       await createSubtask({ taskId: task.id, title: label.trim(), status: 'TO_DO' })
       refetchSubtasks()
+      refetchActivity()
       onChange?.()
     } catch (err) {
       notify(err.message || 'Failed to add subtask', { tone: 'error' })
@@ -124,9 +166,56 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
     try {
       await deleteSubtask(id)
       refetchSubtasks()
+      refetchActivity()
       onChange?.()
     } catch (err) {
       notify(err.message || 'Failed to delete subtask', { tone: 'error' })
+    }
+  }
+
+  const startEditSubtask = (s) => {
+    setEditingSubtaskId(s.id)
+    setEditSubtaskTitle(s.title)
+    setEditSubtaskAssigneeId(s.assigneeId != null ? String(s.assigneeId) : '')
+    setEditSubtaskDueDate(s.dueDate ?? '')
+  }
+
+  const saveEditSubtask = async (s) => {
+    if (!editSubtaskTitle.trim()) return
+    try {
+      await updateSubtask(s.id, {
+        taskId: task.id,
+        title: editSubtaskTitle.trim(),
+        assigneeId: editSubtaskAssigneeId ? Number(editSubtaskAssigneeId) : null,
+        dueDate: editSubtaskDueDate || null,
+        status: s.status,
+      })
+      setEditingSubtaskId(null)
+      refetchSubtasks()
+      refetchActivity()
+      onChange?.()
+    } catch (err) {
+      notify(err.message || 'Failed to update subtask', { tone: 'error' })
+    }
+  }
+
+  const addDependency = async () => {
+    if (!newDependencyId) return
+    try {
+      await createTaskDependency(task.id, Number(newDependencyId))
+      setNewDependencyId('')
+      refetchDependencies()
+    } catch (err) {
+      notify(err.message || 'Failed to add dependency', { tone: 'error' })
+    }
+  }
+
+  const removeDependency = async (dependsOnTaskId) => {
+    try {
+      await deleteTaskDependency(task.id, dependsOnTaskId)
+      refetchDependencies()
+    } catch (err) {
+      notify(err.message || 'Failed to remove dependency', { tone: 'error' })
     }
   }
 
@@ -177,6 +266,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
     setSavingStatus(true)
     try {
       await setTaskStatus(task, nextStatus)
+      refetchActivity()
       onChange?.()
     } catch (err) {
       setStatus(previous)
@@ -236,7 +326,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
         <div className="flex-1 overflow-y-auto px-[22px] pt-5 pb-6">
           <h2 className="mb-3.5 text-xl font-bold tracking-[-0.015em]">{task.title}</h2>
 
-          <div className={`flex items-center gap-2 ${hasIncompleteSubtasks ? 'mb-1.5' : 'mb-5'}`}>
+          <div className={`flex flex-wrap items-center gap-2 ${hasIncompleteSubtasks ? 'mb-1.5' : 'mb-5'}`}>
             <select
               value={status}
               onChange={(e) => handleStatusChange(e.target.value)}
@@ -250,6 +340,19 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               ))}
             </select>
             <Badge tone={task.priority}>{humanizeEnum(task.priority)}</Badge>
+            {task.overdue && (
+              <span className="bg-danger-soft text-danger inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold">
+                <AlertTriangle size={12} /> Overdue
+              </span>
+            )}
+            {task.blocked && (
+              <span
+                title={blockedReason(task)}
+                className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold"
+              >
+                <Lock size={12} /> Blocked
+              </span>
+            )}
           </div>
           {hasIncompleteSubtasks && (
             <p className="text-warning mb-3.5 text-[11.5px] font-medium">
@@ -303,30 +406,102 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                 {doneCount}/{subtasks.length}
               </span>
             </div>
-            <div className="flex flex-col gap-0.5">
-              {subtasks.map((s) => (
-                <div
-                  key={s.id}
-                  className="text-ink hover:bg-subtle group duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-2.5 rounded-sm px-1 py-2 text-left text-[13px] transition-colors [&_svg]:text-faint [&_svg]:shrink-0"
-                >
-                  <button
-                    type="button"
-                    className="flex flex-1 items-center gap-2.5 border-none bg-none text-left"
-                    onClick={() => toggleSubtask(s)}
+            <div className="flex flex-col gap-1">
+              {subtasks.map((s) => {
+                if (editingSubtaskId === s.id) {
+                  return (
+                    <div key={s.id} className="bg-subtle border-border flex flex-col gap-2 rounded-md border p-2.5">
+                      <input
+                        type="text"
+                        value={editSubtaskTitle}
+                        onChange={(e) => setEditSubtaskTitle(e.target.value)}
+                        autoFocus
+                        className="bg-card border-border focus:border-lavender h-8 rounded-md border px-2.5 text-[12.5px] outline-none"
+                      />
+                      <div className="flex gap-2">
+                        <select
+                          value={editSubtaskAssigneeId}
+                          onChange={(e) => setEditSubtaskAssigneeId(e.target.value)}
+                          className="bg-card border-border h-8 flex-1 rounded-md border px-2 text-[12px] outline-none"
+                        >
+                          <option value="">Unassigned</option>
+                          {members.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="date"
+                          value={editSubtaskDueDate}
+                          onChange={(e) => setEditSubtaskDueDate(e.target.value)}
+                          className="bg-card border-border h-8 rounded-md border px-2 text-[12px] outline-none"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-3">
+                        <button
+                          type="button"
+                          className="text-muted hover:text-ink text-[11.5px] font-semibold"
+                          onClick={() => setEditingSubtaskId(null)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="text-lavender text-[11.5px] font-semibold"
+                          onClick={() => saveEditSubtask(s)}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  )
+                }
+
+                const subtaskAssignee = getMember(s.assigneeId)
+                return (
+                  <div
+                    key={s.id}
+                    className="text-ink hover:bg-subtle group duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-2.5 rounded-sm px-1 py-2 text-left text-[13px] transition-colors [&_svg]:text-faint [&_svg]:shrink-0"
                   >
-                    {s.status === 'COMPLETED' ? <CheckSquare size={17} /> : <Square size={17} />}
-                    <span className={s.status === 'COMPLETED' ? 'text-faint line-through' : ''}>{s.title}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger"
-                    aria-label="Delete subtask"
-                    onClick={() => removeSubtask(s.id)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2.5 border-none bg-none text-left"
+                      onClick={() => toggleSubtask(s)}
+                    >
+                      {s.status === 'COMPLETED' ? <CheckSquare size={17} className="shrink-0" /> : <Square size={17} className="shrink-0" />}
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className={`truncate ${s.status === 'COMPLETED' ? 'text-faint line-through' : ''}`}>
+                          {s.title}
+                        </span>
+                        {(subtaskAssignee || s.dueDate) && (
+                          <span className="text-faint flex items-center gap-1.5 truncate text-[11px] font-normal">
+                            {subtaskAssignee && <span className="truncate">{subtaskAssignee.name}</span>}
+                            {subtaskAssignee && s.dueDate && <span>·</span>}
+                            {s.dueDate && <span className="shrink-0">{formatDate(s.dueDate)}</span>}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100"
+                      aria-label="Edit subtask"
+                      onClick={() => startEditSubtask(s)}
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger"
+                      aria-label="Delete subtask"
+                      onClick={() => removeSubtask(s.id)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
             <form
               className="mt-1 flex items-center gap-2"
@@ -347,6 +522,69 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                 Add
               </button>
             </form>
+          </div>
+
+          <div className="mb-[22px]">
+            <div className="mb-2.5 flex items-center gap-2">
+              <Link2 size={14} className="text-faint" />
+              <h4 className="text-[13px] font-[650]">Depends on</h4>
+            </div>
+            {dependencies.length === 0 && (
+              <p className="text-faint text-[12.5px]">No dependencies.</p>
+            )}
+            <div className="flex flex-col gap-0.5">
+              {dependencies.map((d) => (
+                <div
+                  key={d.dependsOnTask.id}
+                  className="hover:bg-subtle group flex items-center gap-2.5 rounded-sm px-1 py-2 text-[13px]"
+                >
+                  {d.dependsOnTask.status === 'COMPLETED' ? (
+                    <CheckSquare size={15} className="text-success shrink-0" />
+                  ) : (
+                    <Square size={15} className="text-faint shrink-0" />
+                  )}
+                  <span
+                    className={`flex-1 truncate ${d.dependsOnTask.status === 'COMPLETED' ? 'text-faint line-through' : 'text-ink'}`}
+                  >
+                    {d.dependsOnTask.title}
+                  </span>
+                  {canManage && (
+                    <button
+                      type="button"
+                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger"
+                      aria-label="Remove dependency"
+                      onClick={() => removeDependency(d.dependsOnTask.id)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {canManage && availableToDepend.length > 0 && (
+              <div className="mt-1 flex items-center gap-2">
+                <select
+                  value={newDependencyId}
+                  onChange={(e) => setNewDependencyId(e.target.value)}
+                  className="bg-subtle border-border h-9 flex-1 rounded-md border px-2.5 text-[12.5px] outline-none"
+                >
+                  <option value="">Select a task…</option>
+                  {availableToDepend.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-secondary px-3 py-2 text-[12px]"
+                  disabled={!newDependencyId}
+                  onClick={addDependency}
+                >
+                  Add
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="mb-[22px]">
@@ -434,6 +672,29 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                   </div>
                 )
               })}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2.5 flex items-center gap-2">
+              <History size={14} className="text-faint" />
+              <h4 className="text-[13px] font-[650]">Activity</h4>
+            </div>
+            {activity.length === 0 && <p className="text-faint text-[12.5px]">No activity yet.</p>}
+            <div className="flex flex-col gap-3">
+              {activity.map((a) => (
+                <div key={a.id} className="flex gap-2.5">
+                  <span className="bg-subtle text-faint mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                    <History size={12} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-ink text-[12.5px] leading-snug">{a.description}</p>
+                    <span className="text-faint text-[11px]">
+                      {a.userName} · {timeAgo(a.createdAt)}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

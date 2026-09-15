@@ -5,6 +5,7 @@ const toneClasses = {
   medium: 'bg-warning-soft text-warning',
   low: 'bg-info-soft text-info',
   urgent: 'bg-danger-soft text-danger',
+  critical: 'bg-danger-soft text-danger',
   todo: 'bg-subtle text-muted',
   to_do: 'bg-subtle text-muted',
   'in-progress': 'bg-info-soft text-info',

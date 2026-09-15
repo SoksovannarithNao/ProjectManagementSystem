@@ -20,7 +20,7 @@ This starts a `postgres` container, creates the `taskmanager` database, and runs
 
 [`01-init.sql`](init/01-init.sql) is the schema; [`02-seed.sql`](init/02-seed.sql) loads placeholder demo data (~13 users, 6 projects, and everything under them) on top of it so there's something to look at without registering accounts by hand — CI loads both files into its throwaway test database too (see [ci.yml](../.github/workflows/ci.yml)). [`03-app-role.sh`](init/03-app-role.sh) then creates the least-privileged role the backend actually connects as — see [Least-privilege application role](#least-privilege-application-role) below.
 
-Every seeded user shares the password **`secret`** — the bcrypt hash in the file is generated and verified specifically for that plaintext (a previously copied "well-known sample" hash in this file looked plausible but didn't actually verify against `secret`, so no seed account could log in until it was regenerated). `emma.silva` (`INACTIVE`) and `frank.lee` (`SUSPENDED`) are seeded to deliberately fail login regardless of password, to exercise `account_status` handling.
+Every seeded user shares the password **`DevPassword123!`** — the bcrypt hash in the file is generated and verified specifically for that plaintext. `contractor.felix` (`INACTIVE`) and `exemployee.diego` (`SUSPENDED`) are seeded to deliberately fail login regardless of password, to exercise `account_status` handling.
 
 Connection details:
 
@@ -58,6 +58,9 @@ erDiagram
     roles ||--o{ users : "has"
     roles ||--o{ role_permissions : "has"
     permissions ||--o{ role_permissions : "granted by"
+    positions ||--o{ users : "holds"
+    departments ||--o{ users : "belongs to"
+    users ||--o{ otp_verifications : "verifies via"
     users ||--o{ projects : "manages"
     projects ||--o{ project_members : "has"
     users ||--o{ project_members : "belongs to"
@@ -82,12 +85,15 @@ erDiagram
 
 | Table | Purpose |
 |---|---|
-| `roles` | System-wide roles: Administrator, Project Manager, Team Leader, Team Member |
+| `roles` | Only two rows exist: `USER` (default for every self-registered account, no special access) and `ADMINISTRATOR` (global bypass + user/role management). Real project/task authority comes from `project_members.project_role`, not this table — see [Authorization](#authorization--permissions) below |
 | `permissions` | Flat catalog of actions: View, Create, Edit, Delete, Assign, Approve, Generate Reports |
 | `role_permissions` | Default permission matrix — which roles have which permissions (see [Authorization](#authorization--permissions) below) |
-| `users` | Accounts — profile fields, credentials, one `role_id` |
+| `positions` | Org-wide job-title lookup list (e.g. "Software Engineer"), Team-Admin-managed |
+| `departments` | Org-wide department lookup list, same shape as `positions` |
+| `users` | Accounts — profile fields, credentials, one `role_id`, optional `position_id`/`department_id` |
+| `otp_verifications` | Bcrypt-hashed one-time codes for self-registration email verification — capped attempts, expiring, one active code per user at a time |
 | `projects` | Project ID, name, code, dates, manager, priority, status, progress |
-| `project_members` | Who's on a project and their per-project role |
+| `project_members` | Who's on a project, their per-project `project_role` (`OWNER`/`ADMIN`/`MEMBER`/`VIEWER`), and invitation state (`status`: `PENDING`/`ACTIVE`/`DECLINED`, `invited_by`, `responded_at`) |
 | `milestones` | Project phases with a due date and status |
 | `tasks` | Work items — optionally under a milestone, with priority/status/dates/progress |
 | `task_assignees` | Who a task is assigned to (many-to-many) |
@@ -110,34 +116,27 @@ Conventions: `BIGINT GENERATED ALWAYS AS IDENTITY` primary keys, `created_at`/`u
 
 A couple of choices that came up as ambiguous or under-specified while implementing this schema, resolved and recorded here so they aren't re-litigated later:
 
-- **Account status values.** `Role_Requirment.md` names "Account Status" as a field but never enumerates its values. The schema uses `users.account_status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')` — `SUSPENDED` is the established name in this codebase and is kept as-is by deliberate choice.
+- **Account status values.** `Role_Requirment.md` names "Account Status" as a field but never enumerates its values. The schema uses `users.account_status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION')` — `SUSPENDED` is the established name in this codebase and is kept as-is by deliberate choice. `PENDING_VERIFICATION` was added alongside self-registration (`V3__add_registration_otp_and_preferences.sql`) — the state a self-registered account sits in until it completes OTP email verification; `login` treats it the same as any other non-`ACTIVE` status (rejected).
 - **Task assignment cardinality.** A task "may have one or more assignees depending on the application design" (per `Role_Requirment.md`) — the schema keeps assignment optional. A `tasks` row can exist with zero `task_assignees` rows, the same way a GitHub issue can exist unassigned and be assigned later. No DB-level "at least one assignee" constraint exists.
 
 ### Authorization / permissions
 
-`permissions` + `role_permissions` implement Role_Requirment.md's action list (View, Create, Edit, Delete, Assign, Approve, Generate Reports) as a flat, **role-level** matrix — there's no per-user override table, since nothing in the application needs finer granularity than "what can this role do" yet. Default matrix:
+`permissions` + `role_permissions` were originally built as Role_Requirment.md's action list (View, Create, Edit, Delete, Assign, Approve, Generate Reports) applied as a flat, **role-level** matrix across four global roles. That model doesn't exist anymore — `V5__project_scoped_authorization.sql` dropped `PROJECT_MANAGER`/`TEAM_LEADER`/`TEAM_MEMBER` from `roles` entirely, so `role_permissions` today only ever has rows for `ADMINISTRATOR` (all 7 permissions); `USER` (added by `V7`, assigned to every self-registered account) has none — it's a pure account-level label, not a permission grant.
 
-| Role | Permissions |
-|---|---|
-| `ADMINISTRATOR` | all 7 |
-| `PROJECT_MANAGER` | all 7 |
-| `TEAM_LEADER` | View, Create, Edit, Assign, Generate Reports |
-| `TEAM_MEMBER` | View, Edit |
+Real project/task authorization now comes from `project_members.project_role` — `OWNER` / `ADMIN` / `MEMBER` / `VIEWER`, scoped to that one project row, not this global table — checked in application code (`ProjectAccessGuard`, see [backend/README.md](../backend/README.md#security)) rather than looked up from `role_permissions` at all. The `permissions`/`role_permissions` tables still exist and are still correctly seeded for `ADMINISTRATOR`, but they're vestigial for anything project-scoped now — a resource-scoped permission table (`project_role` × `permission`) would be the natural next step if finer-than-`OWNER`/`ADMIN`/`MEMBER`/`VIEWER` grants are ever needed.
 
-**Caveat:** `ADMINISTRATOR` and `PROJECT_MANAGER` share the same action set at this granularity. Role_Requirment.md gives Project Managers full lifecycle ownership (create/edit/delete/assign/approve/report) of projects they manage, so there's no *action* a PM can't do that an Administrator can — what actually differs is *scope* (an Administrator manages every project and user; a PM's authority is really "on projects I manage"). Modeling that distinction needs a resource-scoped permission model (permission-per-record, not just permission-per-role), which is a bigger change than this pass makes — it's a natural next step alongside the ownership-scoped authorization gap already noted in `backend/README.md`.
-
-Nothing in the backend consumes this yet (confirmed: all current authorization is `@PreAuthorize("hasRole(...)")` against `roles.name` directly). Wiring the backend to check `role_permissions` instead of hardcoded role names is a follow-up outside this pass's database-only scope.
+Nothing in the backend consumes `role_permissions` (confirmed: authorization is either `@PreAuthorize("hasRole(...)")` for the handful of genuinely global actions, or `ProjectAccessGuard`'s `if` checks against `project_members.project_role` for everything else). Wiring either path to a data-driven permissions table instead of hardcoded checks is still an open follow-up.
 
 ### Least-privilege application role
 
 The backend doesn't connect as the Postgres superuser (`POSTGRES_USER`/`postgres`) — [`init/03-app-role.sh`](init/03-app-role.sh) creates a dedicated `taskmanager_app` role that the backend uses instead, so a compromised or buggy application process can't touch anything beyond what it actually needs:
 
-- `SELECT`/`INSERT`/`UPDATE`/`DELETE` on the 9 tables the backend's JPA entities actually touch (`roles`, `users`, `projects`, `project_members`, `milestones`, `tasks`, `task_assignees`, `task_dependencies`, `notifications`) — not the other 11 tables, which have no backend code touching them yet.
+- `SELECT`/`INSERT`/`UPDATE`/`DELETE` on the 15 tables the backend's JPA entities actually touch (`roles`, `users`, `positions`, `departments`, `otp_verifications`, `projects`, `project_members`, `milestones`, `tasks`, `subtasks`, `comments`, `task_assignees`, `task_dependencies`, `notifications`, `activity_logs`) — not the other 7 tables, which have no backend code touching them yet.
 - `USAGE`/`SELECT` on every sequence in the `public` schema — required because `GENERATED ALWAYS AS IDENTITY` primary keys still back onto a real Postgres sequence, and a non-owner role needs sequence `USAGE` for the implicit `nextval()` call an `INSERT` triggers (a well-known "permission denied for sequence ..._id_seq" gotcha if skipped).
 - No `SUPERUSER`, `CREATEDB`, or `CREATEROLE` — it can't alter the schema, create other roles, or touch other databases.
 - Explicit (if largely redundant, since Postgres grants `EXECUTE` on new functions to `PUBLIC` by default and nothing here revokes that) `EXECUTE` grants on `fn_compute_project_progress`/`fn_compute_milestone_progress`/`fn_generate_overdue_notifications`.
 
-**Adding a table's backend entity later needs a matching `GRANT` line added to `init/03-app-role.sh`** (and to the equivalent step in [ci.yml](../.github/workflows/ci.yml), which duplicates this script's grants rather than sourcing it, since CI talks to a bare service container rather than through the `postgres` Docker image's own init-script mechanism). This only takes effect against a fresh volume — `docker compose down -v && docker compose up -d` locally.
+**Adding a table's backend entity later needs a matching `GRANT` line added to `init/03-app-role.sh`** (and, in principle, to the equivalent step in [ci.yml](../.github/workflows/ci.yml), which duplicates this script's grants rather than sourcing it, since CI talks to a bare service container rather than through the `postgres` Docker image's own init-script mechanism). **These two have already drifted apart**: `ci.yml`'s grant step currently only covers 10 tables (`roles`, `users`, `projects`, `project_members`, `milestones`, `tasks`, `task_assignees`, `task_dependencies`, `notifications`, `otp_verifications`), missing the 5 that `03-app-role.sh` grants for `positions`/`departments`/`subtasks`/`comments`/`activity_logs` — harmless today only because no controller/repository test yet touches those tables in CI (see backend/README.md's Unit tests status), but a real gap to close before adding one. Grants only take effect against a fresh volume locally — `docker compose down -v && docker compose up -d`.
 
 ### Progress, overdue detection, and reports
 
@@ -156,6 +155,7 @@ The backend doesn't connect as the Postgres superuser (`POSTGRES_USER`/`postgres
 - **A task's milestone must belong to the task's own project** (`trg_tasks_milestone_project_match`) — a task under Project A can't be attached to a milestone from Project B.
 - **A task assignee must be a member of the task's project** (`trg_task_assignees_project_member`).
 - **A task assignee's account must be `ACTIVE`** (`trg_task_assignees_not_suspended`) — a `SUSPENDED`/`INACTIVE` user can't receive a new active-work assignment.
+- **A task can't become `COMPLETED` while it has an incomplete subtask** (`trg_tasks_not_completed_with_open_subtasks`, `BEFORE UPDATE` on `tasks`) — one-directional: it only blocks the transition *into* `COMPLETED`, and never reaches back to un-complete an already-`COMPLETED` task if a subtask is reopened afterward. A task's own `progress` is also kept in sync with its subtasks' completion ratio (`trg_subtasks_sync_parent_task`, `trg_tasks_progress_derived_from_subtasks`) — same derived-not-authoritative pattern as project/milestone progress, but neither trigger ever touches `status`. Task status otherwise stays entirely manual/independent of subtask completion by design — see `backend/README.md`'s [Task & Subtask Rules](../backend/README.md#task--subtask-rules) for the one deliberate exception, an application-layer (not DB) auto-promotion from `TO_DO` to `IN_PROGRESS`.
 
 ### Verifying invariants
 
@@ -176,6 +176,7 @@ A few rules from the requirements doc are cross-row or cross-table, so a column 
 - **A task's milestone must belong to the task's project** (`trg_tasks_milestone_project_match`).
 - **A task assignee must be a project member and `ACTIVE`** (`trg_task_assignees_project_member`, `trg_task_assignees_not_suspended`).
 - **`projects.progress` / `milestones.progress` are kept in sync with task completion** (`trg_tasks_progress_sync`, `trg_projects_progress_derived`, `trg_milestones_progress_derived`) — see [Progress, overdue detection, and reports](#progress-overdue-detection-and-reports) above.
+- **A task can't become `COMPLETED` with an open subtask, and a task's own `progress` is kept in sync with its subtasks** — see [Task integrity rules](#task-integrity-rules) above.
 
 Every `RAISE EXCEPTION` in a validation trigger sets `USING ERRCODE = '23514'` (check_violation) explicitly. Without it, Postgres defaults to `P0001`, which isn't in the SQLSTATE class (`23`) that Hibernate/Spring translate into a clean `DataIntegrityViolationException` — the error instead fell through the backend's exception handling as an unclassified 500 with no useful message, which is exactly what happened before this was added. **If you add a new cross-row/cross-table check as a trigger, set this on its `RAISE EXCEPTION` too**, or its violations won't surface as a proper 400 to API clients. (The progress-sync triggers are the one exception — they never raise; they only recompute a value.)
 
@@ -187,18 +188,19 @@ Not every table here has a backend entity, repository, service, and controller y
 |---|---|
 | `notifications` | Full stack (entity, repository, service, controller) |
 | `positions` / `departments` | Full stack — org-wide lookup lists, Team-Admin-managed (see `backend/README.md`'s Security section) |
+| `otp_verifications` | Full stack, but no direct REST surface of its own — consumed only by `AuthController`'s `register`/`verify-otp`/`resend-otp` |
 | `subtasks` | Full stack — project-membership-scoped (`ProjectAccessGuard`) |
 | `comments` | Full stack — project-membership-scoped for read/create, author-only edit, author-or-team-admin delete |
+| `activity_logs` | Full stack — read-only API (`GET /api/activity-logs/task/{taskId}`), written internally by other services rather than posted to directly (see `backend/README.md`'s Task & Subtask Rules / Notifications sections) |
 | `checklist_items` | DB-only — no entity/repository/service/controller |
 | `attachments` | DB-only — no entity/repository/service/controller |
 | `work_logs` | DB-only — no entity/repository/service/controller |
-| `activity_logs` | DB-only — no entity/repository/service/controller |
 | `permissions` / `role_permissions` | DB-only — nothing in the backend consults these yet (see [Authorization](#authorization--permissions) above) |
 | `report_exports` / `kpi_snapshots` | DB-only — nothing writes to these yet; the reporting *views* are queryable but have no controller either |
 
 `project_members` also gained a `status`/`invited_by`/`responded_at` trio (see `V4__add_team_invitations_positions_departments_subtasks_comments.sql`) to support the team-invitation workflow — a `project` IS the "team" in this app's data model, so there's no separate `teams` table.
 
-Remaining scope for a future pass: entities/controllers/services for the four still-DB-only tables above, wiring the backend to `role_permissions`, and adding endpoints over the reporting views/`report_exports`/`kpi_snapshots`.
+Remaining scope for a future pass: entities/controllers/services for the three still-DB-only feature tables above (`checklist_items`, `attachments`, `work_logs`), wiring the backend to `role_permissions`, and adding endpoints over the reporting views/`report_exports`/`kpi_snapshots`.
 
 ## Migrations
 

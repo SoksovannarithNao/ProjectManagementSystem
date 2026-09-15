@@ -17,9 +17,15 @@ import {
   Pencil,
   Trash2,
   Check,
+  CalendarDays,
+  ListChecks,
+  AlertTriangle,
+  Lock,
 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { AvatarGroup } from '../components/ui/Avatar'
+import { Badge } from '../components/ui/Badge'
+import { ProgressBar } from '../components/ui/ProgressBar'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { TaskFormModal } from '../components/TaskFormModal'
 import { Skeleton } from '../components/ui/Skeleton'
@@ -31,12 +37,12 @@ import { useAuth } from '../auth/AuthContext'
 import { canEditProjectContent, canManageProject } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getTasks, advanceTaskStatus, canAdvanceStatus, deleteTask } from '../api/tasks'
-import { getSubtasksByTask } from '../api/subtasks'
+import { getSubtasksByTask, updateSubtask } from '../api/subtasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
 import { buildTaskAssigneeMap, buildMyProjectRoleMap } from '../api/relations'
-import { humanizeEnum } from '../api/format'
+import { humanizeEnum, formatDate, taskDisplayTitle, blockedReason } from '../api/format'
 
 // Distinct colors per section, using the same soft-background + colored-
 // foreground pairing as Badge.jsx (already proven legible elsewhere in the
@@ -67,10 +73,10 @@ export function Tasks() {
   const notify = useToast()
   const { data: tasks, loading, refetch } = useApi(getTasks)
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
-  const { data: projects } = useApi(getProjects)
+  const { data: projects, refetch: refetchProjects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
   const [activeTaskId, setActiveTaskId] = useState(null)
-  const [showNewTask, setShowNewTask] = useState(false)
+  const [newTaskModal, setNewTaskModal] = useState(null)
   const [editingTask, setEditingTask] = useState(null)
   const [deletingTask, setDeletingTask] = useState(null)
   const [deleting, setDeleting] = useState(false)
@@ -98,9 +104,9 @@ export function Tasks() {
 
   // Derived (never copied into its own state) so the open detail panel
   // always reflects the live list — including a backend-side change to
-  // this task, like the auto-revert in
-  // SubtaskService.reopenParentIfNoLongerFullyComplete, which a frozen
-  // snapshot captured at click-time would never pick up after a refetch.
+  // this task, like the auto-promotion to In Progress in
+  // SubtaskService.startTaskIfStillToDo, which a frozen snapshot captured
+  // at click-time would never pick up after a refetch.
   const activeTask = useMemo(() => {
     if (activeTaskId == null) return null
     const t = list.find((task) => task.id === activeTaskId)
@@ -136,6 +142,11 @@ export function Tasks() {
     }
     return Array.from(groups.values())
       .map((g) => {
+        // The overall %-complete shown in the group header — the project's
+        // own progress field (set on the Projects page), not derived from
+        // this filtered task list, so it stays the same regardless of the
+        // active search/priority filters.
+        g.project = g.id === 'none' ? null : projects?.find((p) => p.id === g.id) ?? null
         const sorted = [...g.tasks].sort(SORTERS[sortBy])
         const statusGroups = STATUS_GROUPS.map((sg) => ({
           ...sg,
@@ -143,8 +154,16 @@ export function Tasks() {
         })).filter((sg) => sg.tasks.length > 0)
         return { ...g, tasks: sorted, statusGroups }
       })
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [filteredList, sortBy])
+      .sort((a, b) => {
+        // Fully-done projects sink to the bottom regardless of name, so a
+        // project that still needs tracking is never below one that's
+        // finished — alphabetical only decides order within each bucket.
+        const aDone = a.project && Number(a.project.progress ?? 0) >= 100 ? 1 : 0
+        const bDone = b.project && Number(b.project.progress ?? 0) >= 100 ? 1 : 0
+        if (aDone !== bDone) return aDone - bDone
+        return a.name.localeCompare(b.name)
+      })
+  }, [filteredList, sortBy, projects])
 
   const loadSubtasksFor = async (taskId) => {
     setLoadingSubtasksFor((prev) => new Set(prev).add(taskId))
@@ -159,6 +178,35 @@ export function Tasks() {
         next.delete(taskId)
         return next
       })
+    }
+  }
+
+  const toggleSubtaskInList = async (task, s, e) => {
+    e.stopPropagation()
+    try {
+      await updateSubtask(s.id, {
+        taskId: task.id,
+        title: s.title,
+        assigneeId: s.assigneeId,
+        dueDate: s.dueDate,
+        status: s.status === 'COMPLETED' ? 'TO_DO' : 'COMPLETED',
+      })
+      await loadSubtasksFor(task.id)
+      // completedSubtasks/totalSubtasks on the task row (and the quick-advance
+      // gating in advanceTask) come from the tasks list itself, not this
+      // page's separately-fetched subtask preview.
+      refetch()
+      // Mirrors SubtaskService.startTaskIfStillToDo's own silent skip: a
+      // blocked task can never legally become IN_PROGRESS (the DB's
+      // dependency gate forbids it), so a subtask touch here can't promote
+      // it out of To Do the way it would for an unblocked task. Surfaced
+      // here rather than left silent so the still-To-Do status after
+      // checking a box doesn't read as this feature being broken.
+      if (task.status === 'TO_DO' && task.blocked) {
+        notify(`${blockedReason(task)} — status stays To Do until then.`, { tone: 'info' })
+      }
+    } catch (err) {
+      notify(err.message || 'Failed to update subtask', { tone: 'error' })
     }
   }
 
@@ -178,6 +226,11 @@ export function Tasks() {
   const refetchAll = () => {
     refetch()
     refetchAssignees()
+    // Project progress is derived server-side from its tasks (see
+    // database/init/01-init.sql's progress triggers) — a task mutation here
+    // can change its own project's %, so the group header would show a
+    // stale number until the next full page load without this.
+    refetchProjects()
     // TaskDetailPanel's own subtask edits (toggle/add/remove) don't touch
     // this page's separately-fetched/cached subtask preview — without this,
     // an already-expanded row kept showing the stale, pre-edit list after
@@ -199,9 +252,20 @@ export function Tasks() {
   const advanceTask = async (task, e) => {
     e.stopPropagation()
     if (!canAdvanceStatus(task.status)) return
+    // The one step this quick-advance control can attempt that's actually
+    // gated: Doing -> Done requires every subtask complete (see
+    // TaskDetailPanel's identical check and, ultimately,
+    // database/init/01-init.sql's check_task_not_completed_with_open_subtasks
+    // trigger, which would reject this the same way if this check weren't
+    // here first). Checked here so the button doesn't fire a doomed request.
+    const movingToDoing = task.status === 'IN_PROGRESS' || task.status === 'IN_REVIEW'
+    if (movingToDoing && task.totalSubtasks > 0 && task.completedSubtasks < task.totalSubtasks) {
+      notify('Complete all subtasks before marking this task as done.', { tone: 'error' })
+      return
+    }
     try {
       await advanceTaskStatus(task)
-      refetch()
+      refetchAll()
     } catch (err) {
       notify(err.message || 'Failed to update task', { tone: 'error' })
     }
@@ -214,7 +278,7 @@ export function Tasks() {
       await deleteTask(deletingTask.id)
       const title = deletingTask.title
       setDeletingTask(null)
-      refetch()
+      refetchAll()
       notify(`Task "${title}" deleted`, { tone: 'success' })
     } catch (err) {
       notify(err.message || 'Failed to delete task', { tone: 'error' })
@@ -235,7 +299,7 @@ export function Tasks() {
           <>
             <Dropdown
               button={({ toggle }) => (
-                <button className="btn btn-secondary min-w-[112px]" onClick={toggle}>
+                <button className="btn btn-secondary" onClick={toggle}>
                   <SlidersHorizontal size={15} /> Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
                 </button>
               )}
@@ -322,7 +386,7 @@ export function Tasks() {
             </Dropdown>
 
             {canAddTasks && (
-              <button className="btn btn-primary" onClick={() => setShowNewTask(true)}>
+              <button className="btn btn-primary" onClick={() => setNewTaskModal({})}>
                 <Plus size={16} /> New Task
               </button>
             )}
@@ -349,12 +413,35 @@ export function Tasks() {
             </div>
           ))}
 
-        {projectGroups.map((group) => (
+        {projectGroups.map((group) => {
+          const canAddToProject =
+            group.project != null && (isSystemAdmin || canEditProjectContent(myProjectRoleMap.get(group.project.id), false))
+          const projectProgress = group.project ? Math.round(Number(group.project.progress ?? 0)) : null
+
+          return (
           <div key={group.id} className="bg-container rounded-2xl p-4 sm:p-5">
-            <div className="mb-3.5 flex items-center gap-2 px-1">
-              <FolderKanban size={15} className="text-faint" />
-              <h3 className="text-ink text-[15px] font-[650]">{group.name}</h3>
-              <span className="text-ink text-[17px] font-bold">{group.tasks.length}</span>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                <FolderKanban size={20} className="text-faint shrink-0" />
+                <h3 className="text-ink truncate text-[19px] font-[650]">{group.name}</h3>
+                {projectProgress != null && (
+                  <div className="flex min-w-37.5 items-center gap-2.5">
+                    <span className="w-11 shrink-0 text-[14px] text-faint font-semibold">{projectProgress}%</span>
+                    <div className="hidden w-28 sm:block">
+                      <ProgressBar percent={projectProgress} height={8} />
+                    </div>
+                  </div>
+                )}
+              </div>
+              {canAddToProject && (
+                <button
+                  type="button"
+                  className="btn btn-secondary h-8 px-3 text-[12px]"
+                  onClick={() => setNewTaskModal({ projectId: group.project.id })}
+                >
+                  <Plus size={14} /> Add Task
+                </button>
+              )}
             </div>
 
             <div className="flex flex-col gap-4">
@@ -371,14 +458,24 @@ export function Tasks() {
                 const done = t.status === 'COMPLETED'
                 const cancelled = t.status === 'CANCELLED'
                 const doing = t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW'
+                // The button always stays clickable while in Doing — even
+                // with incomplete subtasks — rather than going quietly
+                // disabled. Clicking it then is what surfaces the blocked
+                // reason (see advanceTask's notify call): an active message
+                // beats a silently inert control the user has to guess at.
+                // Mirrors TaskDetailPanel's hasIncompleteSubtasks for the
+                // same underlying check.
+                const blockedBySubtasks = doing && t.totalSubtasks > 0 && t.completedSubtasks < t.totalSubtasks
                 const advanceable = canAdvanceStatus(t.status)
                 const advanceLabel = t.status === 'TO_DO'
                   ? 'Move to Doing'
-                  : doing
-                    ? 'Mark as Done'
-                    : cancelled
-                      ? 'Task cancelled'
-                      : 'Task completed'
+                  : blockedBySubtasks
+                    ? 'Complete all subtasks before marking this task as done'
+                    : doing
+                      ? 'Mark as Done'
+                      : cancelled
+                        ? 'Task cancelled'
+                        : 'Task completed'
                 const expanded = expandedTaskIds.has(t.id)
                 const subtasks = subtasksByTask.get(t.id) ?? []
 
@@ -424,11 +521,38 @@ export function Tasks() {
                         <p
                           className={`truncate text-[13.5px] font-semibold ${done ? 'text-faint line-through' : 'text-ink'}`}
                         >
-                          {t.title}
+                          {taskDisplayTitle(t.title, t.project?.name)}
                         </p>
                         {t.description && (
                           <p className="text-muted mt-0.5 truncate text-[12px]">{t.description}</p>
                         )}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <Badge tone={t.priority}>{humanizeEnum(t.priority)}</Badge>
+                          {t.overdue && (
+                            <span className="bg-danger-soft text-danger inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap">
+                              <AlertTriangle size={12} /> Overdue
+                            </span>
+                          )}
+                          {t.blocked && (
+                            <span
+                              title={blockedReason(t)}
+                              className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap"
+                            >
+                              <Lock size={12} /> Blocked
+                            </span>
+                          )}
+                          {t.dueDate && (
+                            <span className="text-muted inline-flex items-center gap-1 text-[11px]">
+                              <CalendarDays size={12} /> {formatDate(t.dueDate)}
+                            </span>
+                          )}
+                          {t.totalSubtasks > 0 && (
+                            <span className="text-muted inline-flex items-center gap-1 text-[11px]">
+                              <ListChecks size={12} />
+                              {t.completedSubtasks}/{t.totalSubtasks} subtasks · {Math.round((t.completedSubtasks / t.totalSubtasks) * 100)}%
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex shrink-0 items-center gap-3">
@@ -487,9 +611,11 @@ export function Tasks() {
                           <p className="text-faint px-1 text-[12px]">No subtasks</p>
                         )}
                         {subtasks.map((s) => (
-                          <div
+                          <button
                             key={s.id}
-                            className="bg-card border-border flex items-center gap-2 rounded-md border px-3 py-2 text-[12.5px]"
+                            type="button"
+                            onClick={(e) => toggleSubtaskInList(t, s, e)}
+                            className="bg-card border-border hover:bg-subtle flex items-center gap-2 rounded-md border px-3 py-2 text-left text-[12.5px] transition-colors"
                           >
                             {s.status === 'COMPLETED' ? (
                               <CheckSquare size={14} className="text-success shrink-0" />
@@ -499,7 +625,7 @@ export function Tasks() {
                             <span className={s.status === 'COMPLETED' ? 'text-faint line-through' : 'text-ink'}>
                               {s.title}
                             </span>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}
@@ -510,7 +636,8 @@ export function Tasks() {
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
 
       {activeTask && (
@@ -522,7 +649,13 @@ export function Tasks() {
         />
       )}
 
-      {showNewTask && <TaskFormModal onClose={() => setShowNewTask(false)} onSaved={refetchAll} />}
+      {newTaskModal && (
+        <TaskFormModal
+          defaultProjectId={newTaskModal.projectId}
+          onClose={() => setNewTaskModal(null)}
+          onSaved={refetchAll}
+        />
+      )}
 
       {editingTask && (
         <TaskFormModal task={editingTask} onClose={() => setEditingTask(null)} onSaved={refetchAll} />
