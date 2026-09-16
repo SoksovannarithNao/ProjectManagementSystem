@@ -15,6 +15,31 @@ export function buildTaskAssigneeMap(taskAssignees) {
   return map
 }
 
+// The real ACTIVE members of one specific project, as full user objects —
+// from the same ProjectMemberResponse rows already fetched for permission
+// checks (getProjectMembers), just filtered to one project instead of a
+// projectId -> userId map. Used to scope an assignee picker to people who
+// actually have access to a task's project, instead of the org-wide
+// directory (useMembers()), which includes anyone the caller shares ANY
+// project with. Also excludes a member whose own account isn't ACTIVE —
+// mirrors check_assignee_not_suspended (01-init.sql), the DB-level rule for
+// task_assignees ("inactive/suspended users should not receive active task
+// assignments"), so a suspended member isn't offered as a candidate here
+// either even though subtasks.assignee_id has no such trigger of its own.
+export function getActiveProjectMembers(projectMembers, projectId) {
+  if (projectId == null) return []
+  const id = Number(projectId)
+  return (projectMembers ?? [])
+    .filter(
+      (pm) =>
+        pm.status === 'ACTIVE' &&
+        pm.project?.id === id &&
+        pm.user &&
+        pm.user.accountStatus === 'ACTIVE'
+    )
+    .map((pm) => pm.user)
+}
+
 export function buildProjectMemberMap(projectMembers) {
   const map = new Map()
   for (const pm of projectMembers ?? []) {

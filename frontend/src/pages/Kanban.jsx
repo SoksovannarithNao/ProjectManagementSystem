@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
-import { Plus, SlidersHorizontal, LayoutGrid, AlertTriangle, Lock } from 'lucide-react'
+import { Plus, SlidersHorizontal, LayoutGrid, AlertTriangle, Lock, ListChecks } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
+import { Badge } from '../components/ui/Badge'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { TaskFormModal } from '../components/TaskFormModal'
 import { Skeleton } from '../components/ui/Skeleton'
@@ -31,7 +32,7 @@ const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 export function Kanban() {
   const { role, profile } = useAuth()
   const { getMember } = useMembers()
-  const { data: tasks, loading, refetch } = useApi(getTasks)
+  const { data: tasks, loading, error: tasksError, refetch } = useApi(getTasks)
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
@@ -76,7 +77,7 @@ export function Kanban() {
     })
   }, [tasks, search, priorityFilter, projectFilter])
 
-  const columns = useMemo(() => groupTasksByStatus(filteredTasks), [filteredTasks])
+  const columns = useMemo(() => groupTasksByStatus(filteredTasks, { includeBlocked: true }), [filteredTasks])
 
   const refetchAll = () => {
     refetch()
@@ -169,6 +170,20 @@ export function Kanban() {
         }
       />
 
+      {!loading && tasksError && (
+        <EmptyState
+          icon={AlertTriangle}
+          title="Something went wrong"
+          subtitle={tasksError.message || 'Failed to load tasks. Please try again.'}
+          action={
+            <button type="button" className="btn btn-secondary" onClick={refetch}>
+              Try again
+            </button>
+          }
+        />
+      )}
+
+      {!tasksError && (
       <div className="scroll-x flex items-start gap-[18px] pb-2">
         {columns.map((col) => (
           <div
@@ -188,14 +203,17 @@ export function Kanban() {
               <div className="scroll-y flex max-h-[650px] flex-col gap-2.5 pr-0.5">
                 {loading &&
                   Array.from({ length: 2 }).map((_, i) => (
-                    <div key={i} className="bg-card border-border rounded-[13px] border p-[13px]">
+                    <div key={i} className="bg-card border-border rounded-[10px] border p-[13px]">
                       <Skeleton className="mb-2.5 h-2.5 w-16" />
                       <Skeleton className="mb-2.5 h-3.5 w-full" />
                       <Skeleton className="h-4 w-10" />
                     </div>
                   ))}
                 {!loading && col.tasks.length === 0 && (
-                  <EmptyState icon={LayoutGrid} title="No tasks" />
+                  <EmptyState
+                    icon={col.id === 'blocked' ? Lock : LayoutGrid}
+                    title={col.id === 'blocked' ? 'No blocked tasks' : 'No tasks'}
+                  />
                 )}
                 {col.tasks.map((task, i) => {
                   const assigneeIds = assigneeMap.get(task.id) ?? []
@@ -203,16 +221,25 @@ export function Kanban() {
                   return (
                     <button
                       key={task.id}
-                      className="bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in shrink-0 rounded-[13px] border p-[13px] text-left transition hover:-translate-y-px"
+                      className="bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in shrink-0 rounded-[10px] border p-[13px] text-left transition hover:-translate-y-px"
                       style={{ animationDelay: `${Math.min(i, 8) * 30}ms`, animationFillMode: 'backwards' }}
                       onClick={() => setActiveTaskId(task.id)}
                     >
                       <span className="text-faint text-[10.5px] font-[650] tracking-[0.04em] uppercase">
                         {task.project?.name}
                       </span>
-                      <p className="text-ink my-2 text-[13px] leading-normal font-semibold">
+                      <p className="text-ink mt-2 mb-1.5 text-[13px] leading-normal font-semibold">
                         {taskDisplayTitle(task.title, task.project?.name)}
                       </p>
+                      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <Badge tone={task.priority}>{humanizeEnum(task.priority)}</Badge>
+                        {task.totalSubtasks > 0 && (
+                          <span className="text-muted inline-flex items-center gap-1 text-[11px]">
+                            <ListChecks size={11} />
+                            {task.completedSubtasks}/{task.totalSubtasks}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center justify-between gap-2">
                         <span
                           className={`inline-flex items-center gap-1 text-[11px] ${task.overdue ? 'text-danger font-semibold' : 'text-muted'}`}
@@ -239,7 +266,7 @@ export function Kanban() {
                   )
                 })}
               </div>
-              {col.status === 'TO_DO' && canAddTasks && (
+              {col.id === 'todo' && canAddTasks && (
                 <button
                   className="text-faint hover:bg-card hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-none p-2.5 text-[12.5px] transition-colors"
                   onClick={() => setShowNewTask(true)}
@@ -251,6 +278,7 @@ export function Kanban() {
           </div>
         ))}
       </div>
+      )}
 
       {activeTask && (
         <TaskDetailPanel

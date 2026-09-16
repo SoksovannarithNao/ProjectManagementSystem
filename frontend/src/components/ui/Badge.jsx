@@ -22,12 +22,15 @@ const toneClasses = {
   on_hold: 'bg-warning-soft text-warning',
 }
 
-export function Badge({ children, tone }) {
+export function Badge({ children, tone, className }) {
   const variant = slug(tone || children)
   const toneClass = toneClasses[variant] ?? 'bg-subtle text-muted'
+  const baseClass =
+    className ??
+    'inline-flex items-center gap-[5px] rounded-full px-2.5 py-1 text-[11.5px] leading-none font-semibold whitespace-nowrap'
   return (
     <span
-      className={`inline-flex items-center gap-[5px] rounded-full px-2.5 py-1 text-[11.5px] leading-none font-semibold whitespace-nowrap before:inline-block before:h-1.5 before:w-1.5 before:rounded-full before:bg-current before:content-[''] ${toneClass}`}
+      className={`${baseClass} whitespace-nowrap before:inline-block before:h-1.5 before:w-1.5 before:rounded-full before:bg-current before:content-[''] ${toneClass}`}
     >
       {children}
     </span>

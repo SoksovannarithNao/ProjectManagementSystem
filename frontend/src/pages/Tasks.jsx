@@ -85,6 +85,10 @@ export function Tasks() {
   const [projectFilter, setProjectFilter] = useState('')
   const [sortBy, setSortBy] = useState('dueDate')
   const [expandedTaskIds, setExpandedTaskIds] = useState(() => new Set())
+  // Empty by default — every project group starts fully expanded, matching
+  // the existing design. Collapsing one project is independent of every
+  // other (a plain per-id Set, same pattern as expandedTaskIds above).
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState(() => new Set())
   const [subtasksByTask, setSubtasksByTask] = useState(() => new Map())
   const [loadingSubtasksFor, setLoadingSubtasksFor] = useState(() => new Set())
   const isSystemAdmin = role === 'ADMINISTRATOR'
@@ -221,6 +225,15 @@ export function Tasks() {
     if (!subtasksByTask.has(taskId) && !loadingSubtasksFor.has(taskId)) {
       loadSubtasksFor(taskId)
     }
+  }
+
+  const toggleProjectCollapse = (projectId) => {
+    setCollapsedProjectIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(projectId)) next.delete(projectId)
+      else next.add(projectId)
+      return next
+    })
   }
 
   const refetchAll = () => {
@@ -394,7 +407,7 @@ export function Tasks() {
         }
       />
 
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         {!loading && projectGroups.length === 0 && (
           <EmptyState
             icon={ClipboardList}
@@ -406,7 +419,7 @@ export function Tasks() {
         {loading &&
           projectGroups.length === 0 &&
           Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="bg-card border-border flex items-center gap-3 rounded-[13px] border px-4 py-3">
+            <div key={i} className="bg-card border-border flex items-center gap-2.5 rounded-[10px] border px-3.5 py-2.5">
               <Skeleton className="h-[18px] w-[18px] shrink-0 rounded-full" />
               <Skeleton className="h-3.5 flex-1" />
               <Skeleton className="h-6 w-[110px] shrink-0 rounded-full" />
@@ -417,16 +430,28 @@ export function Tasks() {
           const canAddToProject =
             group.project != null && (isSystemAdmin || canEditProjectContent(myProjectRoleMap.get(group.project.id), false))
           const projectProgress = group.project ? Math.round(Number(group.project.progress ?? 0)) : null
+          const isCollapsed = collapsedProjectIds.has(group.id)
 
           return (
-          <div key={group.id} className="bg-container rounded-2xl p-4 sm:p-5">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
+          <div key={group.id} className="bg-container rounded-2xl p-3 sm:p-4">
+            <div className="border-border mb-3 flex flex-wrap items-center justify-between gap-2.5 border-b px-1 pb-2.5">
               <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                <FolderKanban size={20} className="text-faint shrink-0" />
-                <h3 className="text-ink truncate text-[19px] font-[650]">{group.name}</h3>
+                <button
+                  type="button"
+                  onClick={() => toggleProjectCollapse(group.id)}
+                  className="icon-btn h-7 w-7 shrink-0"
+                  aria-label={isCollapsed ? `Expand ${group.name}` : `Collapse ${group.name}`}
+                  title={isCollapsed ? 'Expand project' : 'Collapse project'}
+                >
+                  {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                </button>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <FolderKanban size={20} className="text-faint shrink-0" />
+                  <h3 className="text-ink truncate text-[19px] font-[650]">{group.name}</h3>
+                </div>
                 {projectProgress != null && (
-                  <div className="flex min-w-37.5 items-center gap-2.5">
-                    <span className="w-11 shrink-0 text-[14px] text-faint font-semibold">{projectProgress}%</span>
+                  <div className="flex min-w-37.5 items-center gap-2">
+                    <span className="w-11 shrink-0 text-right text-[14px] text-faint font-semibold">{projectProgress}%</span>
                     <div className="hidden w-28 sm:block">
                       <ProgressBar percent={projectProgress} height={8} />
                     </div>
@@ -444,9 +469,10 @@ export function Tasks() {
               )}
             </div>
 
-            <div className="flex flex-col gap-4">
+            {!isCollapsed && (
+            <div className="flex flex-col gap-3">
               {group.statusGroups.map((sg) => (
-                <div key={sg.key} className="flex flex-col gap-2.5">
+                <div key={sg.key} className="flex flex-col gap-2">
                   <span
                     className={`${sg.soft} ${sg.color} inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-[650] tracking-[0.04em] uppercase`}
                   >
@@ -480,10 +506,10 @@ export function Tasks() {
                 const subtasks = subtasksByTask.get(t.id) ?? []
 
                 return (
-                  <div key={t.id} className="flex flex-col gap-1.5">
+                  <div key={t.id} className="flex flex-col gap-1">
                     <div
                       onClick={() => setActiveTaskId(t.id)}
-                      className="group bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in flex cursor-pointer flex-wrap items-center gap-3 rounded-[13px] border px-4 py-3 transition hover:-translate-y-px sm:flex-nowrap"
+                      className="group bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in flex cursor-pointer flex-wrap items-center gap-2.5 rounded-[10px] border px-3.5 py-2.5 transition hover:-translate-y-px sm:flex-nowrap"
                       style={{ animationDelay: `${Math.min(i, 8) * 30}ms`, animationFillMode: 'backwards' }}
                     >
                       <button
@@ -526,7 +552,7 @@ export function Tasks() {
                         {t.description && (
                           <p className="text-muted mt-0.5 truncate text-[12px]">{t.description}</p>
                         )}
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
                           <Badge tone={t.priority}>{humanizeEnum(t.priority)}</Badge>
                           {t.overdue && (
                             <span className="bg-danger-soft text-danger inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap">
@@ -555,7 +581,7 @@ export function Tasks() {
                         </div>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-3">
+                      <div className="flex shrink-0 items-center gap-2.5">
                         <div className="flex w-7 shrink-0 items-center justify-center">
                           {assigneeIds.length > 0 && <AvatarGroup memberIds={assigneeIds} size={28} />}
                         </div>
@@ -605,7 +631,7 @@ export function Tasks() {
                     </div>
 
                     {expanded && (
-                      <div className="ml-9 flex flex-col gap-1.5">
+                      <div className="ml-8 flex flex-col gap-1">
                         {loadingSubtasksFor.has(t.id) && <Skeleton className="h-8 w-full" />}
                         {!loadingSubtasksFor.has(t.id) && subtasks.length === 0 && (
                           <p className="text-faint px-1 text-[12px]">No subtasks</p>
@@ -615,7 +641,7 @@ export function Tasks() {
                             key={s.id}
                             type="button"
                             onClick={(e) => toggleSubtaskInList(t, s, e)}
-                            className="bg-card border-border hover:bg-subtle flex items-center gap-2 rounded-md border px-3 py-2 text-left text-[12.5px] transition-colors"
+                            className="bg-card border-border hover:bg-subtle flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12.5px] transition-colors"
                           >
                             {s.status === 'COMPLETED' ? (
                               <CheckSquare size={14} className="text-success shrink-0" />
@@ -635,6 +661,7 @@ export function Tasks() {
                 </div>
               ))}
             </div>
+            )}
           </div>
           )
         })}

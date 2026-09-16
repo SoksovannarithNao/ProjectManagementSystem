@@ -22,7 +22,7 @@ import { TaskFormModal } from './TaskFormModal'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
 import { canManageProject } from '../api/permissions'
-import { buildMyProjectRoleMap } from '../api/relations'
+import { buildMyProjectRoleMap, getActiveProjectMembers } from '../api/relations'
 import { getProjectMembers } from '../api/projectMembers'
 import { setTaskStatus, deleteTask, getTasks } from '../api/tasks'
 import { useApi } from '../api/useApi'
@@ -35,13 +35,21 @@ import { formatDate, humanizeEnum, initialsFor, timeAgo, blockedReason } from '.
 const STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
 
 export function TaskDetailPanel({ task, onClose, onChange }) {
-  const { getMember, members } = useMembers()
+  const { getMember } = useMembers()
   const { profile, role } = useAuth()
   const notify = useToast()
   const { data: projectMembers } = useApi(getProjectMembers)
   const myProjectRoleMap = useMemo(
     () => buildMyProjectRoleMap(projectMembers, profile?.id),
     [projectMembers, profile]
+  )
+  // The real ACTIVE members of THIS task's project only — not the org-wide
+  // directory (useMembers()), which includes anyone the caller shares ANY
+  // project with. Assigning a subtask outside this list isn't a valid
+  // choice: SubtaskService now rejects it too.
+  const projectMembersForAssignee = useMemo(
+    () => getActiveProjectMembers(projectMembers, task.project?.id),
+    [projectMembers, task.project]
   )
   // OWNER/ADMIN of THIS task's project (or system ADMINISTRATOR) — matches
   // ProjectAccessGuard.canManage on the backend, which is what actually
@@ -176,7 +184,19 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
   const startEditSubtask = (s) => {
     setEditingSubtaskId(s.id)
     setEditSubtaskTitle(s.title)
-    setEditSubtaskAssigneeId(s.assigneeId != null ? String(s.assigneeId) : '')
+    // Only preselect the current assignee if they're still an active member
+    // of this project — otherwise the dropdown would silently show
+    // "Unassigned" while this state still held their (now invalid) id, and
+    // an untouched Save would resend a changed (null) assigneeId, silently
+    // unassigning them. But projectMembers (useApi) is still loading on a
+    // fresh panel mount, and projectMembersForAssignee is [] until it
+    // resolves — so only clear the assignee when membership data has
+    // actually loaded and positively excludes them, never while it's still
+    // unknown (which would otherwise wrongly clear a genuinely valid
+    // assignee just because this ran before the fetch landed).
+    const knownInvalid =
+      s.assigneeId != null && projectMembers != null && !projectMembersForAssignee.some((m) => m.id === s.assigneeId)
+    setEditSubtaskAssigneeId(s.assigneeId != null && !knownInvalid ? String(s.assigneeId) : '')
     setEditSubtaskDueDate(s.dueDate ?? '')
   }
 
@@ -425,9 +445,9 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                           className="bg-card border-border h-8 flex-1 rounded-md border px-2 text-[12px] outline-none"
                         >
                           <option value="">Unassigned</option>
-                          {members.map((m) => (
+                          {projectMembersForAssignee.map((m) => (
                             <option key={m.id} value={m.id}>
-                              {m.name}
+                              {m.fullName}
                             </option>
                           ))}
                         </select>

@@ -43,7 +43,28 @@ import { computeTaskOverview } from '../api/stats'
 
 const PROJECT_STATUS_OPTIONS = ['PLANNING', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED']
 const TASK_STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
+
+// Shared sizing so every pill in the status/priority/overdue row lines up:
+// same height, padding, line-height, font-size, and radius regardless of
+// whether the element is a <select>, the Badge component, or a plain <span>.
+const STATUS_ROW_BADGE_CLASS =
+  'h-7 box-border inline-flex items-center rounded-full px-2.5 text-[11.5px] leading-none font-semibold'
 const TASK_PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
+
+// A section's own fetch failing (members/tasks/milestones each load
+// independently) must not be displayed the same way as that section
+// genuinely having zero rows — silently falling back to `?? []` would make
+// "failed to load" indistinguishable from "there's nothing here".
+function SectionError({ message, onRetry }) {
+  return (
+    <div className="bg-danger-soft text-danger mb-4 flex items-center justify-between gap-3 rounded-md px-3 py-2.5 text-[12.5px] font-semibold">
+      <span>{message}</span>
+      <button type="button" className="shrink-0 underline underline-offset-2" onClick={onRetry}>
+        Try again
+      </button>
+    </div>
+  )
+}
 
 export function ProjectDetail() {
   const { id } = useParams()
@@ -54,21 +75,21 @@ export function ProjectDetail() {
   const isSystemAdmin = role === 'ADMINISTRATOR'
 
   const projectFetcher = useCallback(() => getProjectById(projectId), [projectId])
-  const { data: project, loading, refetch } = useApi(projectFetcher)
+  const { data: project, loading, error: projectError, refetch } = useApi(projectFetcher)
 
   const membersFetcher = useCallback(() => getMembersByProjectId(projectId), [projectId])
-  const { data: membersData } = useApi(membersFetcher)
+  const { data: membersData, error: membersError, refetch: refetchMembers } = useApi(membersFetcher)
   const members = useMemo(() => membersData ?? [], [membersData])
 
   const tasksFetcher = useCallback(() => getTasksByProjectId(projectId), [projectId])
-  const { data: tasksData, refetch: refetchTasks } = useApi(tasksFetcher)
+  const { data: tasksData, error: tasksError, refetch: refetchTasks } = useApi(tasksFetcher)
   const tasks = useMemo(() => tasksData ?? [], [tasksData])
 
   const milestonesFetcher = useCallback(() => getMilestonesByProjectId(projectId), [projectId])
-  const { data: milestonesData, refetch: refetchMilestones } = useApi(milestonesFetcher)
+  const { data: milestonesData, error: milestonesError, refetch: refetchMilestones } = useApi(milestonesFetcher)
   const milestones = useMemo(() => milestonesData ?? [], [milestonesData])
 
-  const { data: taskAssignees } = useApi(getTaskAssignees)
+  const { data: taskAssignees, error: assigneesError, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
 
   // The caller's own ACTIVE membership row for THIS project — same source
@@ -215,13 +236,31 @@ export function ProjectDetail() {
   }
 
   if (!project) {
+    // The backend deliberately returns 404 for both "doesn't exist" and "you
+    // don't have access" (see ProjectAccessGuard.assertAccess) so a caller
+    // can't use this page to probe which projects exist — that case, and the
+    // no-error-yet case, get the same generic message. Anything else (a
+    // real 5xx/network failure) gets its own state with a retry action
+    // instead of being misreported as "not found".
+    const isRealError = projectError && projectError.status !== 404
     return (
       <div>
         <TopBar title="Project" />
         <EmptyState
-          icon={FolderKanban}
-          title="Project not found"
-          subtitle="It may have been deleted, or you don't have access to it."
+          icon={isRealError ? AlertTriangle : FolderKanban}
+          title={isRealError ? 'Something went wrong' : 'Project not found'}
+          subtitle={
+            isRealError
+              ? projectError.message || 'Failed to load this project. Please try again.'
+              : "It may have been deleted, or you don't have access to it."
+          }
+          action={
+            isRealError && (
+              <button type="button" className="btn btn-secondary" onClick={refetch}>
+                Try again
+              </button>
+            )
+          }
         />
       </div>
     )
@@ -271,7 +310,7 @@ export function ProjectDetail() {
               value={project.status}
               onChange={(e) => handleStatusChange(e.target.value)}
               disabled={!canManage || savingStatus}
-              className="bg-subtle border-border h-8 rounded-full border px-2.5 text-[11.5px] font-semibold outline-none disabled:opacity-70"
+              className={`bg-subtle border-border border outline-none disabled:opacity-70 ${STATUS_ROW_BADGE_CLASS}`}
             >
               {PROJECT_STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s}>
@@ -279,9 +318,13 @@ export function ProjectDetail() {
                 </option>
               ))}
             </select>
-            {project.priority && <Badge tone={project.priority}>{humanizeEnum(project.priority)}</Badge>}
+            {project.priority && (
+              <Badge tone={project.priority} className={`${STATUS_ROW_BADGE_CLASS} gap-1.25`}>
+                {humanizeEnum(project.priority)}
+              </Badge>
+            )}
             {overdueCount > 0 && (
-              <span className="bg-danger-soft text-danger inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold">
+              <span className={`bg-danger-soft text-danger gap-1 ${STATUS_ROW_BADGE_CLASS}`}>
                 <AlertTriangle size={12} /> {overdueCount} overdue task{overdueCount === 1 ? '' : 's'}
               </span>
             )}
@@ -342,7 +385,7 @@ export function ProjectDetail() {
             <div className="flex items-center gap-2">
               <ListChecks size={15} className="text-faint" />
               <h4 className="text-[13.5px] font-[650]">Tasks</h4>
-              <span className="text-faint text-[12px]">({tasks.length})</span>
+              <span className="text-faint text-[12px]">({tasksError ? '—' : tasks.length})</span>
             </div>
             <div className="flex items-center gap-2">
               <Dropdown
@@ -419,7 +462,17 @@ export function ProjectDetail() {
             </div>
           </div>
 
-          {tasks.length === 0 && <p className="text-faint text-[12.5px]">No tasks in this project yet.</p>}
+          {(tasksError || assigneesError) && (
+            <SectionError
+              message={tasksError ? 'Failed to load tasks.' : 'Task assignees failed to load — assignee avatars may be missing.'}
+              onRetry={() => {
+                refetchTasks()
+                refetchAssignees()
+              }}
+            />
+          )}
+
+          {!tasksError && tasks.length === 0 && <p className="text-faint text-[12.5px]">No tasks in this project yet.</p>}
 
           {tasks.length > 0 && (
             <div className="mb-4 grid grid-cols-4 gap-3 max-sm:grid-cols-2">
@@ -493,14 +546,16 @@ export function ProjectDetail() {
               <div className="flex items-center gap-2">
                 <Users size={15} className="text-faint" />
                 <h4 className="text-[13.5px] font-[650]">Members</h4>
-                <span className="text-faint text-[12px]">({activeMembers.length})</span>
+                <span className="text-faint text-[12px]">({membersError ? '—' : activeMembers.length})</span>
               </div>
               <Link to="/team" className="text-muted hover:text-ink text-[12px] font-semibold">
                 Manage team →
               </Link>
             </div>
 
-            {activeMembers.length === 0 && <p className="text-faint text-[12.5px]">No members yet.</p>}
+            {membersError && <SectionError message="Failed to load members." onRetry={refetchMembers} />}
+
+            {!membersError && activeMembers.length === 0 && <p className="text-faint text-[12.5px]">No members yet.</p>}
 
             <div className="flex flex-col gap-0.5">
               {activeMembers.map((m) => (
@@ -532,10 +587,12 @@ export function ProjectDetail() {
             <div className="mb-4 flex items-center gap-2">
               <MilestoneIcon size={15} className="text-faint" />
               <h4 className="text-[13.5px] font-[650]">Milestones</h4>
-              <span className="text-faint text-[12px]">({milestones.length})</span>
+              <span className="text-faint text-[12px]">({milestonesError ? '—' : milestones.length})</span>
             </div>
 
-            {milestones.length === 0 && (
+            {milestonesError && <SectionError message="Failed to load milestones." onRetry={refetchMilestones} />}
+
+            {!milestonesError && milestones.length === 0 && (
               <div className="bg-subtle text-faint mb-3 flex items-center gap-2 rounded-md px-3 py-2.5 text-[12.5px]">
                 <MilestoneIcon size={14} />
                 No milestones yet.

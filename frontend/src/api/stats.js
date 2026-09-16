@@ -79,9 +79,32 @@ const KANBAN_COLUMNS = [
   { id: 'done', title: 'Done', status: 'COMPLETED' },
 ]
 
-export function groupTasksByStatus(tasks) {
-  return KANBAN_COLUMNS.map((col) => ({
+// "Blocked" is never a status a task actually holds — a task with an
+// incomplete dependency can only ever be TO_DO (or CANCELLED); see
+// trg_tasks_dependencies_status_gate in database/init/01-init.sql, which
+// refuses to let it become IN_PROGRESS/IN_REVIEW/COMPLETED at all. So this
+// is a filtered view over TO_DO tasks whose real, already-computed
+// `blocked` field (from task_dependencies via TaskResponse) is true, not a
+// 5th status. Opt-in only (`includeBlocked`) so Dashboard's own mini-board,
+// which calls this with no options, keeps its original 4 columns exactly
+// as before.
+const BLOCKED_COLUMN = { id: 'blocked', title: 'Blocked', status: 'TO_DO' }
+
+export function groupTasksByStatus(tasks, { includeBlocked = false } = {}) {
+  const list = tasks ?? []
+  const columns = includeBlocked
+    ? [KANBAN_COLUMNS[0], KANBAN_COLUMNS[1], KANBAN_COLUMNS[2], BLOCKED_COLUMN, KANBAN_COLUMNS[3]]
+    : KANBAN_COLUMNS
+  return columns.map((col) => ({
     ...col,
-    tasks: (tasks ?? []).filter((t) => t.status === col.status),
+    tasks: list.filter((t) => {
+      if (t.status !== col.status) return false
+      if (!includeBlocked) return true
+      // TO_DO is split two ways between the 'todo' and 'blocked' columns so
+      // a task appears in exactly one of them, never both.
+      if (col.id === 'todo') return !t.blocked
+      if (col.id === 'blocked') return Boolean(t.blocked)
+      return true
+    }),
   }))
 }
