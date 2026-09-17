@@ -45,12 +45,21 @@
   --color-danger-soft: #f8ecec;
   --color-info-soft: #e5eefa;
 
-  /* Radius */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-card: 18px;
-  --radius-hero: 20px;
-  --radius-btn: 11px;
+  /* Radius — every value here is 3px less than its previous size, across
+    the board (rounded-full/pill shapes are deliberately left alone: "full"
+    means maximally rounded, not a fixed px value to shrink). --radius-xl
+    and --radius-2xl override Tailwind's own defaults (12px/16px) the same
+    way --radius-sm/--radius-md already did, so rounded-xl/rounded-2xl
+    shrink consistently everywhere they're used (Modal, Kanban columns,
+    Dashboard, the Tasks page's project-group wrapper) without having to
+    hunt down every call site individually. */
+  --radius-sm: 5px;
+  --radius-md: 9px;
+  --radius-card: 15px;
+  --radius-hero: 17px;
+  --radius-btn: 8px;
+  --radius-xl: 9px;
+  --radius-2xl: 13px;
 
   /* Shadow */
   --shadow-card: 0 4px 20px rgba(30, 30, 30, 0.04);

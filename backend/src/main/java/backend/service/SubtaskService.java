@@ -129,9 +129,35 @@ public class SubtaskService {
             subtask.setStatus(request.getStatus());
         }
         if (request.getAssigneeId() != null) {
-            User assignee = userRepository.findById(request.getAssigneeId())
-                    .orElseThrow(() -> new NotFoundException("Assignee (user) not found"));
-            subtask.setAssignee(assignee);
+            Long currentAssigneeId = subtask.getAssignee() != null ? subtask.getAssignee().getId() : null;
+            // Only re-validate when the assignee is actually changing — every
+            // other subtask edit (toggling status, renaming, changing the due
+            // date) resends the existing assigneeId unchanged, and this must
+            // stay a no-op for those. Otherwise a subtask whose assignee was
+            // later removed from the project (still a legitimate past
+            // assignment) would become permanently un-toggleable/un-editable
+            // through the normal UI, since every save would re-fail the check
+            // below even though nothing about the assignment itself changed.
+            if (!request.getAssigneeId().equals(currentAssigneeId)) {
+                User assignee = userRepository.findById(request.getAssigneeId())
+                        .orElseThrow(() -> new NotFoundException("Assignee (user) not found"));
+                // Mirrors trg_task_assignees_project_member AND
+                // check_assignee_not_suspended (01-init.sql), which enforce
+                // these same two rules for task_assignees at the DB level —
+                // subtasks.assignee_id has no such trigger (it's a plain FK
+                // column, not a join table), so both are enforced here
+                // instead, but only on an actual (re)assignment, same
+                // reasoning as above.
+                if (projectAccessGuard.activeRole(assignee, subtask.getTask().getProject().getId()).isEmpty()) {
+                    throw new IllegalArgumentException(
+                            assignee.getFullName() + " is not a member of this project and cannot be assigned to its subtasks");
+                }
+                if (!"ACTIVE".equals(assignee.getAccountStatus())) {
+                    throw new IllegalArgumentException(
+                            assignee.getFullName() + " is not active and cannot be assigned to subtasks");
+                }
+                subtask.setAssignee(assignee);
+            }
         } else {
             subtask.setAssignee(null);
         }

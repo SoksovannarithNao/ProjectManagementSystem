@@ -1,30 +1,46 @@
 import { useState } from 'react'
 import { Modal } from './ui/Modal'
 import { useToast } from './ui/Toast'
+import { useDirtyForm } from './ui/useDirtyForm'
 import { createProject, updateProject } from '../api/projects'
+import { useAuth } from '../auth/AuthContext'
+import { useMembers } from '../data/UsersContext'
 import { humanizeEnum } from '../api/format'
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 
-// No manager picker — the authenticated caller always becomes the project's
-// manager/OWNER on create (see backend ProjectService.createProject) and
-// stays the manager on edit (applyRequest keeps the existing one unless a
-// system ADMINISTRATOR names someone else, which this form doesn't expose).
-// Status isn't editable here either — that's a quick inline control on the
-// project detail page (like the task status dropdown), not part of this
-// content form, and PUT only touches fields it's sent (see
-// projectResponseToRequest), so leaving it out on edit doesn't reset it.
+// Manager reassignment is admin-only and edit-only — the authenticated
+// caller always becomes the project's manager/OWNER on create (see backend
+// ProjectService.createProject), and on update, applyRequest keeps the
+// existing manager unless request.managerId names someone else AND the
+// caller is a system ADMINISTRATOR (a non-admin's managerId is silently
+// ignored server-side, so there's no point offering the field to anyone
+// else). Status isn't editable here either — that's a quick inline control
+// on the project detail page (like the task status dropdown), not part of
+// this content form, and PUT only touches fields it's sent (see
+// projectResponseToRequest), so leaving either out on edit doesn't reset it.
 export function NewProjectModal({ project, onClose, onSaved }) {
   const isEdit = Boolean(project)
   const notify = useToast()
+  const { role } = useAuth()
+  const isSystemAdmin = role === 'ADMINISTRATOR'
+  const canReassignManager = isEdit && isSystemAdmin
+  // Real org-wide user directory (GET /api/users) — a system ADMINISTRATOR
+  // sees everyone there (UserService.getAllUsers), so this is the correct,
+  // already-existing source for "who can be named manager", not a new
+  // endpoint.
+  const { members } = useMembers()
   const [name, setName] = useState(project?.name ?? '')
   const [projectCode, setProjectCode] = useState(project?.projectCode ?? '')
   const [description, setDescription] = useState(project?.description ?? '')
   const [startDate, setStartDate] = useState(project?.startDate ?? '')
   const [endDate, setEndDate] = useState(project?.endDate ?? '')
   const [priority, setPriority] = useState(project?.priority ?? 'MEDIUM')
+  const [managerId, setManagerId] = useState(project?.manager?.id != null ? String(project.manager.id) : '')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  const isDirty = useDirtyForm({ name, projectCode, description, startDate, endDate, priority, managerId })
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -44,6 +60,9 @@ export function NewProjectModal({ project, onClose, onSaved }) {
         endDate,
         priority,
       }
+      if (canReassignManager && managerId) {
+        payload.managerId = Number(managerId)
+      }
       const saved = isEdit
         ? await updateProject(project.id, payload)
         : await createProject({ ...payload, status: 'PLANNING', progress: 0 })
@@ -58,7 +77,8 @@ export function NewProjectModal({ project, onClose, onSaved }) {
   }
 
   return (
-    <Modal title={isEdit ? 'Edit Project' : 'New Project'} onClose={onClose}>
+    <Modal title={isEdit ? 'Edit Project' : 'New Project'} onClose={onClose} isDirty={isDirty}>
+      {({ requestClose }) => (
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-muted text-[12.5px] font-semibold">Name</span>
@@ -133,10 +153,27 @@ export function NewProjectModal({ project, onClose, onSaved }) {
           </select>
         </label>
 
+        {canReassignManager && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-muted text-[12.5px] font-semibold">Project manager</span>
+            <select
+              value={managerId}
+              onChange={(e) => setManagerId(e.target.value)}
+              className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+            >
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
         {error && <p className="text-danger text-[12.5px] font-semibold">{error}</p>}
 
         <div className="mt-1 flex justify-end gap-2">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>
+          <button type="button" className="btn btn-secondary" onClick={requestClose}>
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
@@ -144,6 +181,7 @@ export function NewProjectModal({ project, onClose, onSaved }) {
           </button>
         </div>
       </form>
+      )}
     </Modal>
   )
 }

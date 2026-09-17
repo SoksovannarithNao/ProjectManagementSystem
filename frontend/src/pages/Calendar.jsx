@@ -24,7 +24,7 @@ const eventTones = {
 const PRIORITY_TONE = { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', URGENT: 'danger' }
 
 const eventClass = (tone) =>
-  `truncate rounded-[5px] px-1.5 py-[3px] text-[10.5px] font-semibold max-[900px]:text-[9.5px] ${eventTones[tone] ?? eventTones.info}`
+  `truncate rounded-[2px] px-1.5 py-[3px] text-[10.5px] font-semibold max-[900px]:text-[9.5px] ${eventTones[tone] ?? eventTones.info}`
 
 function buildMonthGrid(year, month) {
   const firstOfMonth = new Date(year, month, 1)
