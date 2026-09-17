@@ -1,0 +1,139 @@
+package backend.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
+import java.time.LocalDate;
+
+public class UserUpdateRequest {
+
+    @NotBlank
+    @Size(max = 150)
+    private String fullName;
+
+    @NotBlank
+    @Size(max = 50)
+    private String username;
+
+    @NotBlank
+    @Email
+    @Size(max = 255)
+    private String email;
+
+    /**
+     * Optional — null/blank leaves the existing password hash untouched.
+     * Not annotated with @Pattern here since that would reject blank (bean
+     * validation only exempts null) — UserService.updateUser checks
+     * complexity manually, only when a non-blank value is actually present.
+     */
+    private String password;
+
+    @Size(max = 20)
+    private String gender;
+
+    private LocalDate dateOfBirth;
+
+    @Size(max = 30)
+    private String phoneNumber;
+
+    private Long positionId;
+
+    private Long departmentId;
+
+    // Optional — a system-level role (currently only ADMINISTRATOR exists);
+    // most accounts have none at all. See User.role.
+    private Long roleId;
+
+    @Pattern(regexp = "ACTIVE|INACTIVE|SUSPENDED")
+    private String accountStatus;
+
+    public String getFullName() {
+        return fullName;
+    }
+
+    public void setFullName(String fullName) {
+        this.fullName = fullName;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public String getGender() {
+        return gender;
+    }
+
+    public void setGender(String gender) {
+        this.gender = gender;
+    }
+
+    public LocalDate getDateOfBirth() {
+        return dateOfBirth;
+    }
+
+    public void setDateOfBirth(LocalDate dateOfBirth) {
+        this.dateOfBirth = dateOfBirth;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
+    }
+
+    public Long getPositionId() {
+        return positionId;
+    }
+
+    public void setPositionId(Long positionId) {
+        this.positionId = positionId;
+    }
+
+    public Long getDepartmentId() {
+        return departmentId;
+    }
+
+    public void setDepartmentId(Long departmentId) {
+        this.departmentId = departmentId;
+    }
+
+    public Long getRoleId() {
+        return roleId;
+    }
+
+    public void setRoleId(Long roleId) {
+        this.roleId = roleId;
+    }
+
+    public String getAccountStatus() {
+        return accountStatus;
+    }
+
+    public void setAccountStatus(String accountStatus) {
+        this.accountStatus = accountStatus;
+    }
+}

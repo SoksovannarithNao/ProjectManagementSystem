@@ -1,8 +1,19 @@
 package backend.controller;
 
-import backend.entity.User;
+import backend.dto.ChangePasswordRequest;
+import backend.dto.MemberAttributesRequest;
+import backend.dto.SelfProfileUpdateRequest;
+import backend.dto.UserCreateRequest;
+import backend.dto.UserPreferencesRequest;
+import backend.dto.UserResponse;
+import backend.dto.UserUpdateRequest;
 import backend.service.UserService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -16,34 +27,104 @@ public class UserController {
         this.userService = userService;
     }
 
+    // Scoped in the service to "yourself plus people who share an ACTIVE
+    // project with you" (system ADMINISTRATOR sees everyone) — previously
+    // returned the entire org to any authenticated user regardless of
+    // project membership.
     @GetMapping
-    public List<User> getAllUsers() {
-        return userService.getAllUsers();
+    public List<UserResponse> getAllUsers(Authentication authentication) {
+        return userService.getAllUsers(authentication.getName());
     }
 
     @GetMapping("/{id}")
-    public User getUserById(@PathVariable Long id) {
+    public UserResponse getUserById(@PathVariable Long id) {
         return userService.getUserById(id);
     }
 
     @GetMapping("/username/{username}")
-    public User getUserByUsername(@PathVariable String username) {
+    public UserResponse getUserByUsername(@PathVariable String username) {
         return userService.getUserByUsername(username);
     }
 
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
-    public User createUser(@RequestBody User user) {
-        return userService.createUser(user);
+    public UserResponse createUser(@Valid @RequestBody UserCreateRequest request) {
+        return userService.createUser(request);
     }
 
-    @PutMapping("/{id}")
-    public User updateUser(
-            @PathVariable Long id,
-            @RequestBody User user
+    // Any authenticated user updating their own profile — no role gate
+    // beyond being logged in. Spring matches this static "/me" segment ahead
+    // of the "/{id}" pattern below, so there's no path-variable collision.
+    @PutMapping("/me")
+    public UserResponse updateOwnProfile(
+            Authentication authentication,
+            @Valid @RequestBody SelfProfileUpdateRequest request
     ) {
-        return userService.updateUser(id, user);
+        return userService.updateOwnProfile(authentication.getName(), request);
     }
 
+    // Requires the current password — see ChangePasswordRequest/UserService
+    // for why this isn't folded into updateOwnProfile.
+    @PutMapping("/me/password")
+    public void changeOwnPassword(
+            Authentication authentication,
+            @Valid @RequestBody ChangePasswordRequest request
+    ) {
+        userService.changeOwnPassword(authentication.getName(), request);
+    }
+
+    // multipart/form-data with a single "file" part. Stored as bytes in the
+    // database (see User.profilePhoto) and served back publicly by token via
+    // PhotoController (see SecurityConfig) since an <img> tag can't attach
+    // the JWT this API otherwise requires everywhere else.
+    @PutMapping("/me/photo")
+    public UserResponse uploadOwnProfilePhoto(
+            Authentication authentication,
+            @RequestParam("file") MultipartFile file
+    ) {
+        return userService.uploadOwnProfilePhoto(authentication.getName(), file);
+    }
+
+    @DeleteMapping("/me/photo")
+    public UserResponse deleteOwnProfilePhoto(Authentication authentication) {
+        return userService.deleteOwnProfilePhoto(authentication.getName());
+    }
+
+    // Appearance/notification preferences (Settings page) — separate from
+    // updateOwnProfile (personal info, Profile page).
+    @PutMapping("/me/preferences")
+    public UserResponse updateOwnPreferences(
+            Authentication authentication,
+            @Valid @RequestBody UserPreferencesRequest request
+    ) {
+        return userService.updateOwnPreferences(authentication.getName(), request);
+    }
+
+    // Not role-gated at the annotation level — UserService enforces the
+    // actual "Team Admin for this specific member" check (system
+    // ADMINISTRATOR, or an active OWNER/ADMIN of a project this member also
+    // belongs to), same pattern as the self-scoped endpoints above.
+    @PutMapping("/{id}/position-department")
+    public UserResponse updateMemberPositionDepartment(
+            @PathVariable Long id,
+            Authentication authentication,
+            @Valid @RequestBody MemberAttributesRequest request
+    ) {
+        return userService.updateMemberPositionDepartment(authentication.getName(), id, request);
+    }
+
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    @PutMapping("/{id}")
+    public UserResponse updateUser(
+            @PathVariable Long id,
+            @Valid @RequestBody UserUpdateRequest request
+    ) {
+        return userService.updateUser(id, request);
+    }
+
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/{id}")
     public void deleteUser(@PathVariable Long id) {
         userService.deleteUser(id);

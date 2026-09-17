@@ -1,0 +1,2061 @@
+openapi: 3.0.3
+info:
+  title: Task & Project Management System API
+  description: >
+    Documents the REST API exactly as implemented in `backend/` today — not an
+    idealized target contract. This is the hardened, post-review version of
+    the backend: every controller now validates its input, returns clean
+    JSON errors, uses response DTOs (never raw JPA entities), sets correct
+    HTTP status codes, and enforces role-based access control. Remaining
+    gaps/quirks are called out inline via `description` fields; see
+    `api/README.md` for the summary list.
+  version: "0.2.0"
+servers:
+  - url: http://localhost:8080
+    description: Local (via docker-compose or `mvn spring-boot:run`)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Users
+  - name: Roles
+  - name: Projects
+  - name: Project Members
+  - name: Milestones
+  - name: Tasks
+  - name: Task Assignees
+  - name: Task Dependencies
+  - name: Notifications
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Backend API is running
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in with username + password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: >
+            Authenticated. Returns a JWT (HS512, signed with `app.jwt.secret`,
+            default 1-hour expiry via `JWT_EXPIRATION_MS`) to send as
+            `Authorization: Bearer <token>` on every other request except
+            `/api/health`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: >
+            `username`/`password` blank (`@NotBlank` on `LoginRequest`).
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          description: >
+            Bad credentials, or the account's `accountStatus` is not `ACTIVE`
+            (Spring Security's `DisabledException`/`BadCredentialsException`,
+            mapped by `GlobalExceptionHandler` to a clean 401 body — the
+            message is always the generic "Invalid username or password",
+            never distinguishing "wrong password" from "unknown user" from
+            "inactive account").
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: >
+            5 failed attempts within 15 minutes for this
+            `remoteAddr:username` key (`LoginRateLimiter`, in-memory, resets
+            on restart). A successful login clears the counter for that key.
+          $ref: "#/components/responses/TooManyRequests"
+
+  /api/users:
+    get:
+      tags: [Users]
+      summary: List all users
+      description: Any authenticated user (no `@PreAuthorize`) — not role-gated.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserResponse"
+    post:
+      tags: [Users]
+      summary: Create a user
+      description: >
+        `ADMINISTRATOR` only. The plaintext `password` field is BCrypt-hashed
+        server-side (`UserService.createUser`) before storage — it is never
+        stored or returned as-is, and the response never includes a password
+        field of any kind.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: >
+            `roleId` does not match any row in `roles`.
+          $ref: "#/components/responses/NotFound"
+
+  /api/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get a user by ID
+      description: Any authenticated user — not role-gated.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Users]
+      summary: Replace a user
+      description: >
+        `ADMINISTRATOR` only. Full-replace semantics — every field must be
+        sent, not just the ones changing; there is no `PATCH` anywhere in
+        this API. `password` is optional here: omit/blank leaves the
+        existing password hash untouched; a non-blank value is BCrypt-hashed
+        before storage, same as on create.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdateRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: User not found, or `roleId` does not match any role.
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Users]
+      summary: Delete a user
+      description: "`ADMINISTRATOR` only."
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted — no content.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/users/me:
+    put:
+      tags: [Users]
+      summary: Update your own profile / password
+      description: >
+        Any authenticated user, self-scoped — no role gate beyond being
+        logged in. The acting user is resolved from the JWT's `sub` claim
+        (`Authentication.getName()`), not a path variable, so there's no id
+        to tamper with. Deliberately narrower than
+        `PUT /api/users/{id}`: no `roleId`/`accountStatus` (can't self-promote
+        or self-(de)activate) and no `username` (renaming would outlive the
+        JWT already issued for the old username). `password` is optional:
+        omit/blank leaves the existing hash untouched.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelfProfileUpdateRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/users/username/{username}:
+    get:
+      tags: [Users]
+      summary: Get a user by username
+      description: Any authenticated user — not role-gated.
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/roles:
+    get:
+      tags: [Roles]
+      summary: List all roles
+      description: Any authenticated user — not role-gated.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoleResponse"
+    post:
+      tags: [Roles]
+      summary: Create a role
+      description: "`ADMINISTRATOR` only."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/roles/{id}:
+    get:
+      tags: [Roles]
+      summary: Get a role by ID
+      description: Any authenticated user — not role-gated.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Roles]
+      summary: Replace a role
+      description: >
+        `ADMINISTRATOR` only. Full-replace semantics — no `PATCH`.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Roles]
+      summary: Delete a role
+      description: >
+        `ADMINISTRATOR` only. No application-level guard against deleting a
+        role still referenced by existing users — that would fail at the DB
+        foreign-key level instead (surfacing as a `400` via
+        `DataIntegrityViolationException`, not a friendlier message).
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted — no content.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/projects:
+    get:
+      tags: [Projects]
+      summary: List all projects
+      description: >
+        Any authenticated user — not role-gated. No pagination/filtering —
+        returns every row. No search by name/manager/status/date despite the
+        requirements doc calling for it.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectResponse"
+    post:
+      tags: [Projects]
+      summary: Create a project
+      description: "`ADMINISTRATOR` / `PROJECT_MANAGER`."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`managerId` does not match any user."
+          $ref: "#/components/responses/NotFound"
+
+  /api/projects/{id}:
+    get:
+      tags: [Projects]
+      summary: Get a project by ID
+      description: Any authenticated user — not role-gated.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Projects]
+      summary: Replace a project
+      description: >
+        `ADMINISTRATOR` / `PROJECT_MANAGER`. Full-replace semantics — no
+        `PATCH`.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Project not found, or `managerId` does not match any user.
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Projects]
+      summary: Delete a project
+      description: "`ADMINISTRATOR` / `PROJECT_MANAGER`."
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted — no content.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/project-members:
+    get:
+      tags: [Project Members]
+      summary: List all project-member rows
+      description: Any authenticated user — not role-gated.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectMemberResponse"
+    post:
+      tags: [Project Members]
+      summary: Add a member to a project
+      description: >
+        `ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`. A given
+        (`projectId`, `userId`) pair is unique at the DB level
+        (`uq_project_members_project_user`) — a duplicate fails as a `400`
+        via `DataIntegrityViolationException`, not a friendlier "already a
+        member" message.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectMemberRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMemberResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`projectId` or `userId` does not match any row."
+          $ref: "#/components/responses/NotFound"
+
+  /api/project-members/{id}:
+    get:
+      tags: [Project Members]
+      summary: Get a project-member row by its own ID
+      description: Any authenticated user — not role-gated.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMemberResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Project Members]
+      summary: Replace a project-member row
+      description: >
+        `ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`. Full-replace
+        semantics — no `PATCH`. This also lets a client change which
+        `projectId`/`userId` a membership row points to via `PUT`, not just
+        its `projectRole` — there's no dedicated "change role" endpoint.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectMemberRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMemberResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Project Members]
+      summary: Remove a member from a project
+      description: "`ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`."
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted — no content.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/project-members/project/{projectId}:
+    get:
+      tags: [Project Members]
+      summary: List members of a project
+      description: >
+        Any authenticated user — not role-gated. An unknown `projectId`
+        returns an empty list rather than a `404`.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectMemberResponse"
+
+  /api/project-members/user/{userId}:
+    get:
+      tags: [Project Members]
+      summary: List the projects a user belongs to
+      description: >
+        Any authenticated user — not role-gated. An unknown `userId` returns
+        an empty list rather than a `404`.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectMemberResponse"
+
+  /api/milestones:
+    get:
+      tags: [Milestones]
+      summary: List all milestones
+      description: Any authenticated user — not role-gated.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MilestoneResponse"
+    post:
+      tags: [Milestones]
+      summary: Create a milestone
+      description: "`ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MilestoneRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MilestoneResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`projectId` does not match any project."
+          $ref: "#/components/responses/NotFound"
+
+  /api/milestones/{id}:
+    get:
+      tags: [Milestones]
+      summary: Get a milestone by ID
+      description: Any authenticated user — not role-gated.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MilestoneResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Milestones]
+      summary: Replace a milestone
+      description: >
+        `ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`. Full-replace
+        semantics — no `PATCH`, and no dedicated "update progress/status"
+        endpoint. No server-side recompute of the parent project's
+        `progress` when a milestone changes.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MilestoneRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MilestoneResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Milestone not found, or `projectId` does not match any project.
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Milestones]
+      summary: Delete a milestone
+      description: "`ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`."
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted — no content.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/milestones/project/{projectId}:
+    get:
+      tags: [Milestones]
+      summary: List milestones for a project
+      description: >
+        Any authenticated user — not role-gated. An unknown `projectId`
+        returns an empty list rather than a `404`.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MilestoneResponse"
+
+  /api/tasks:
+    get:
+      tags: [Tasks]
+      summary: List all tasks
+      description: Any authenticated user — not role-gated.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskResponse"
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      description: "`ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "400":
+          description: >
+            Bean Validation failure, or a DB trigger rejection (e.g. the
+            task's `dueDate` is later than its project's `endDate`) —
+            both come back as this same `ErrorResponse` shape, cleaned of
+            Postgres's `ERROR:`/`Where:` noise by `GlobalExceptionHandler`.
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: >
+            `projectId`, `milestoneId`, or `createdById` does not match any
+            row.
+          $ref: "#/components/responses/NotFound"
+
+  /api/tasks/{id}:
+    get:
+      tags: [Tasks]
+      summary: Get a task by ID
+      description: Any authenticated user — not role-gated.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Tasks]
+      summary: Replace a task
+      description: >
+        No `@PreAuthorize` — open to any authenticated role, but
+        **ownership-scoped rather than role-gated** (`TaskService.updateTask`):
+        `ADMINISTRATOR`/`PROJECT_MANAGER`/`TEAM_LEADER` may edit every field
+        of any task, full-replace as usual (no `PATCH`). A `TEAM_MEMBER` may
+        only call this for a task they are currently a `task_assignees` row
+        for — otherwise `403`. Even when allowed, only `status`/`progress`
+        from the request body take effect for a `TEAM_MEMBER`; every other
+        field (title, project, milestone, dates, etc.) is silently left
+        unchanged, even though the client is still expected to send the full
+        `TaskRequest` body. A real status change (by anyone) fires a
+        `TASK_STATUS_CHANGED` notification to every current assignee.
+        `completedAt` is never auto-stamped — the caller must set it
+        explicitly when marking a task `COMPLETED`.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: >
+            Caller is a `TEAM_MEMBER` and is not currently assigned to this
+            task.
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: >
+            Task not found, or (for a full edit) `projectId`/`milestoneId`/
+            `createdById` does not match any row.
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Tasks]
+      summary: Delete a task
+      description: "`ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`."
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted — no content.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/tasks/project/{projectId}:
+    get:
+      tags: [Tasks]
+      summary: List tasks in a project
+      description: >
+        Any authenticated user — not role-gated. An unknown `projectId`
+        returns an empty list rather than a `404`.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskResponse"
+
+  /api/tasks/milestone/{milestoneId}:
+    get:
+      tags: [Tasks]
+      summary: List tasks under a milestone
+      description: >
+        Any authenticated user — not role-gated. An unknown `milestoneId`
+        returns an empty list rather than a `404`.
+      parameters:
+        - name: milestoneId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskResponse"
+
+  /api/tasks/status/{status}:
+    get:
+      tags: [Tasks]
+      summary: List tasks by status
+      description: >
+        Any authenticated user — not role-gated. `status` is a free-text path
+        segment (`TaskRepository.findByStatus`), not validated against the
+        `TaskStatus` enum below — an unrecognized value just returns an empty
+        list rather than a `400`.
+      parameters:
+        - name: status
+          in: path
+          required: true
+          schema:
+            type: string
+          example: IN_PROGRESS
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskResponse"
+
+  /api/task-assignees:
+    get:
+      tags: [Task Assignees]
+      summary: List all task-assignee rows
+      description: Any authenticated user — not role-gated.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskAssigneeResponse"
+    post:
+      tags: [Task Assignees]
+      summary: Assign a task to a user
+      description: >
+        `ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`. Fires a
+        `TASK_ASSIGNED` notification to the newly assigned user
+        (`NotificationService.notifyTaskAssigned`). No uniqueness constraint
+        on (`taskId`, `userId`) — assigning the same user to the same task
+        twice creates two rows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskAssigneeRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAssigneeResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`taskId` or `userId` does not match any row."
+          $ref: "#/components/responses/NotFound"
+
+  /api/task-assignees/{id}:
+    get:
+      tags: [Task Assignees]
+      summary: Get a task-assignee row by its own ID
+      description: Any authenticated user — not role-gated.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAssigneeResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Task Assignees]
+      summary: Unassign (remove one assignee row)
+      description: >
+        `ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`. No `PUT` — this
+        is a pure join table, so there's nothing to update beyond
+        delete+recreate. To unassign, the client must already know this
+        row's own `id` (from a prior GET); there's no
+        `DELETE ?taskId=&userId=` shortcut like `task-dependencies` has.
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Deleted — no content.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/task-assignees/task/{taskId}:
+    get:
+      tags: [Task Assignees]
+      summary: List assignees of a task
+      description: >
+        Any authenticated user — not role-gated. An unknown `taskId` returns
+        an empty list rather than a `404`.
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskAssigneeResponse"
+
+  /api/task-assignees/user/{userId}:
+    get:
+      tags: [Task Assignees]
+      summary: List tasks assigned to a user
+      description: >
+        Any authenticated user — not role-gated. An unknown `userId` returns
+        an empty list rather than a `404`.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskAssigneeResponse"
+
+  /api/task-dependencies:
+    get:
+      tags: [Task Dependencies]
+      summary: List all task-dependency rows
+      description: Any authenticated user — not role-gated.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskDependencyResponse"
+    post:
+      tags: [Task Dependencies]
+      summary: Add a dependency ("task can't start until dependsOnTask is done")
+      description: >
+        `ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`. The DB enforces
+        cycle-prevention (`trg_task_dependencies_no_cycle`) and self-reference
+        rejection at the trigger level; nothing in the service layer
+        pre-checks either condition. Unlike the pre-hardening version of this
+        API, the trigger's `RAISE EXCEPTION` (it sets `ERRCODE = '23514'`) is
+        now caught by Spring/Hibernate as a `DataIntegrityViolationException`
+        and mapped to a clean `400` with the trigger's own message (e.g. "Task
+        dependency would create a cycle"), not a raw `500`. The DB does *not*
+        enforce completion ordering — creating a dependency doesn't stop the
+        dependent task from being started/completed before the one it depends
+        on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskDependencyRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDependencyResponse"
+        "400":
+          description: >
+            Bean Validation failure, or a self-reference/cycle rejected by the
+            DB trigger (see above).
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`taskId` or `dependsOnTaskId` does not match any task."
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Task Dependencies]
+      summary: Remove a dependency
+      description: >
+        `ADMINISTRATOR` / `PROJECT_MANAGER` / `TEAM_LEADER`. Unlike
+        `task-assignees`, this deletes by the natural composite key via query
+        params, not by a surrogate row `id` (there isn't one — the entity uses
+        `@IdClass` on (`task`, `dependsOnTask`)).
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: dependsOnTaskId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Deleted — no content.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/task-dependencies/task/{taskId}:
+    get:
+      tags: [Task Dependencies]
+      summary: List what a task depends on
+      description: >
+        Any authenticated user — not role-gated. An unknown `taskId` returns
+        an empty list rather than a `404`.
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskDependencyResponse"
+
+  /api/task-dependencies/depends-on/{taskId}:
+    get:
+      tags: [Task Dependencies]
+      summary: List what depends on a task
+      description: >
+        Any authenticated user — not role-gated. An unknown `taskId` returns
+        an empty list rather than a `404`.
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskDependencyResponse"
+
+  /api/notifications:
+    get:
+      tags: [Notifications]
+      summary: List the caller's own notifications
+      description: >
+        No `@PreAuthorize` — scoped to "the caller's own" by JWT identity
+        (`Authentication.getName()`) rather than gated by role. Ordered
+        newest first.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotificationResponse"
+
+  /api/notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Count the caller's unread notifications
+      description: Self-scoped by JWT identity, same as the other notification endpoints.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    format: int64
+                example:
+                  count: 3
+
+  /api/notifications/{id}/read:
+    put:
+      tags: [Notifications]
+      summary: Mark one notification read
+      description: >
+        Self-scoped by JWT identity. `NotificationService.markAsRead` checks
+        the row's owning user matches the caller before mutating it; if the
+        id exists but belongs to someone else, this returns the same `404`
+        as a genuinely missing id (`NotFoundException`, not
+        `AccessDeniedException`) — a client can't distinguish "not yours"
+        from "doesn't exist."
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Mark all of the caller's notifications read
+      description: >
+        Self-scoped by JWT identity. Despite being a `POST`, this returns
+        `204 No Content` (`@ResponseStatus(HttpStatus.NO_CONTENT)`), not
+        `201` — it mutates existing rows rather than creating a new resource.
+      responses:
+        "204":
+          description: Done — no content.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Required on every endpoint except `GET /api/health` and
+        `POST /api/auth/login`. Authorization beyond "is logged in" is
+        role-based via `@PreAuthorize` (`config/SecurityConfig.java`,
+        `@EnableMethodSecurity`) — the JWT's custom `role` claim is mapped to
+        a `ROLE_<name>` granted authority by a custom
+        `JwtAuthenticationConverter`. Policy is coarse role gates per
+        resource (see each operation's description and
+        `backend/README.md#security`), with one ownership-scoped exception:
+        `PUT /api/tasks/{id}` for a `TEAM_MEMBER` caller. Every `GET`
+        endpoint, `PUT /api/users/me`, and every `/api/notifications`
+        endpoint have no role gate at all beyond a valid JWT.
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+  responses:
+    NotFound:
+      description: >
+        No row matches the given id (or a referenced foreign id in the
+        request body). `GlobalExceptionHandler` maps `NotFoundException` to a
+        clean `404` JSON body — never a raw stack trace.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            timestamp: "2026-09-12T10:15:30Z"
+            status: 404
+            error: "Not Found"
+            message: "Task not found"
+            fieldErrors: null
+
+    ValidationError:
+      description: >
+        Bean Validation failure (`@Valid` on the request body) —
+        `MethodArgumentNotValidException`, mapped to a `400` with one entry
+        per invalid field in `fieldErrors`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            timestamp: "2026-09-12T10:15:30Z"
+            status: 400
+            error: "Validation Failed"
+            message: "One or more fields are invalid"
+            fieldErrors:
+              email: "must be a well-formed email address"
+              fullName: "must not be blank"
+
+    BadRequest:
+      description: >
+        Either a Bean Validation failure (`fieldErrors` populated — see
+        `ValidationError`) or a DB constraint/trigger violation
+        (`DataIntegrityViolationException`, `fieldErrors` is `null` and
+        `message` is the cleaned-up constraint/trigger message, with
+        Postgres's `ERROR:`/`Where:` noise stripped by
+        `GlobalExceptionHandler.cleanPostgresMessage`). Both use the same
+        `ErrorResponse` shape and status code, so a client must inspect
+        `fieldErrors`/`error` to tell them apart.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            validation:
+              value:
+                timestamp: "2026-09-12T10:15:30Z"
+                status: 400
+                error: "Validation Failed"
+                message: "One or more fields are invalid"
+                fieldErrors:
+                  title: "must not be blank"
+            dataIntegrity:
+              value:
+                timestamp: "2026-09-12T10:15:30Z"
+                status: 400
+                error: "Data Integrity Violation"
+                message: "Task due_date (2026-09-18) cannot be later than its project end_date (2026-07-01)"
+                fieldErrors: null
+
+    Unauthorized:
+      description: Missing/invalid/expired JWT, or (on login) bad credentials.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            timestamp: "2026-09-12T10:15:30Z"
+            status: 401
+            error: "Unauthorized"
+            message: "Invalid username or password"
+
+    Forbidden:
+      description: >
+        Authenticated, but the caller's role (or, for
+        `PUT /api/tasks/{id}`, assignment status) doesn't permit this
+        operation. Mapped from Spring Security's `AccessDeniedException`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            timestamp: "2026-09-12T10:15:30Z"
+            status: 403
+            error: "Forbidden"
+            message: "You do not have permission to perform this action"
+
+    TooManyRequests:
+      description: Login rate limit exceeded (see `POST /api/auth/login`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            timestamp: "2026-09-12T10:15:30Z"
+            status: 429
+            error: "Too Many Requests"
+            message: "Too many failed login attempts. Try again later."
+
+  schemas:
+    # ---------- errors ----------
+
+    ErrorResponse:
+      type: object
+      description: >
+        The one error shape used across the whole API
+        (`exception/ErrorResponse.java`, a record) — every handled failure
+        path in `GlobalExceptionHandler` (404/400/401/403/429/500) returns
+        this, never a raw stack trace or Spring's undocumented default body.
+      required: [timestamp, status, error, message]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+          example: 404
+        error:
+          type: string
+          example: "Not Found"
+        message:
+          type: string
+          example: "Task not found"
+        fieldErrors:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          description: >
+            Populated only for Bean Validation failures (one entry per
+            invalid field); `null` for every other error type.
+
+    # ---------- shared enum-ish string fields ----------
+    # Not a real Java enum type (@Enumerated) anywhere — every one of these is
+    # a plain String column, validated on write via @Pattern (Bean
+    # Validation) against the same set of values the Postgres CHECK
+    # constraint in database/init/01-init.sql allows. A request with an
+    # invalid value now fails cleanly as a 400 (ValidationError) rather than
+    # reaching the database at all.
+
+    AccountStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE, SUSPENDED]
+      description: "`users.account_status`. Defaults to `ACTIVE` if omitted on create."
+    ProjectPriority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+      description: "`projects.priority`. Defaults to `MEDIUM` if omitted on create."
+    ProjectStatus:
+      type: string
+      enum: [PLANNING, IN_PROGRESS, ON_HOLD, COMPLETED, CANCELLED]
+      description: "`projects.status`. Defaults to `PLANNING` if omitted on create."
+    ProjectRole:
+      type: string
+      enum: [PROJECT_MANAGER, TEAM_LEADER, TEAM_MEMBER]
+      description: "`project_members.project_role`. Defaults to `TEAM_MEMBER` if omitted on create."
+    MilestoneStatus:
+      type: string
+      enum: [PENDING, IN_PROGRESS, COMPLETED]
+      description: "`milestones.status`. Defaults to `PENDING` if omitted on create."
+    TaskPriority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, URGENT]
+      description: "`tasks.priority`. Defaults to `MEDIUM` if omitted on create."
+    TaskStatus:
+      type: string
+      enum: [TO_DO, IN_PROGRESS, IN_REVIEW, COMPLETED, CANCELLED]
+      description: "`tasks.status`. Defaults to `TO_DO` if omitted on create."
+    NotificationType:
+      type: string
+      enum:
+        - TASK_ASSIGNED
+        - TASK_STATUS_CHANGED
+        - COMMENT_ADDED
+        - DEADLINE_REMINDER
+        - OVERDUE_TASK
+        - PROJECT_UPDATED
+        - MILESTONE_UPDATED
+      description: >
+        `notifications.type` — the DB `CHECK` constraint allows all 7 values,
+        but `NotificationService` only ever produces `TASK_ASSIGNED` (on
+        `POST /api/task-assignees`) and `TASK_STATUS_CHANGED` (on a real
+        status change via `PUT /api/tasks/{id}`) today. The other five are
+        schema-legal but never emitted by any current code path.
+
+    # ---------- auth ----------
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT, HS512-signed. No refresh-token flow — expires (default 1h) with no renewal short of logging in again.
+        username:
+          type: string
+        role:
+          type: string
+          description: Role name, e.g. `PROJECT_MANAGER`.
+
+    # ---------- users ----------
+    # A single shape is used everywhere a user appears — UserResponse — never
+    # the raw User entity. It has no passwordHash field/getter at all, and no
+    # nested Role object (role is flattened to its name string).
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        fullName:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        gender:
+          type: string
+          nullable: true
+        dateOfBirth:
+          type: string
+          format: date
+          nullable: true
+        phoneNumber:
+          type: string
+          nullable: true
+        profilePhotoUrl:
+          type: string
+          nullable: true
+        position:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        role:
+          type: string
+          description: Role name, e.g. `TEAM_MEMBER`.
+        roleDescription:
+          type: string
+          nullable: true
+        accountStatus:
+          $ref: "#/components/schemas/AccountStatus"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserCreateRequest:
+      type: object
+      description: >
+        Body for `POST /api/users` (`dto/UserCreateRequest.java`). `password`
+        is plaintext on the wire and BCrypt-hashed server-side
+        (`UserService.createUser`) before storage — it is never stored or
+        returned verbatim.
+      required: [fullName, username, email, password, roleId]
+      properties:
+        fullName:
+          type: string
+          maxLength: 150
+        username:
+          type: string
+          maxLength: 50
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          minLength: 8
+          maxLength: 255
+          description: Plaintext. BCrypt-hashed before storage; never returned in any response.
+        gender:
+          type: string
+          nullable: true
+          maxLength: 20
+        dateOfBirth:
+          type: string
+          format: date
+          nullable: true
+        phoneNumber:
+          type: string
+          nullable: true
+          maxLength: 30
+        profilePhotoUrl:
+          type: string
+          nullable: true
+          maxLength: 500
+        position:
+          type: string
+          nullable: true
+          maxLength: 100
+        department:
+          type: string
+          nullable: true
+          maxLength: 100
+        roleId:
+          type: integer
+          format: int64
+          description: Must reference an existing row in `roles`, or the request fails with `404`.
+        accountStatus:
+          $ref: "#/components/schemas/AccountStatus"
+
+    UserUpdateRequest:
+      type: object
+      description: >
+        Body for `PUT /api/users/{id}` (`ADMINISTRATOR` only,
+        `dto/UserUpdateRequest.java`). Full-replace — `fullName`, `username`,
+        `email`, and `roleId` are all required even if unchanged.
+      required: [fullName, username, email, roleId]
+      properties:
+        fullName:
+          type: string
+          maxLength: 150
+        username:
+          type: string
+          maxLength: 50
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          nullable: true
+          minLength: 8
+          maxLength: 255
+          description: Optional. Omit/blank to leave the existing password hash untouched; a non-blank value is BCrypt-hashed before storage.
+        gender:
+          type: string
+          nullable: true
+          maxLength: 20
+        dateOfBirth:
+          type: string
+          format: date
+          nullable: true
+        phoneNumber:
+          type: string
+          nullable: true
+          maxLength: 30
+        profilePhotoUrl:
+          type: string
+          nullable: true
+          maxLength: 500
+        position:
+          type: string
+          nullable: true
+          maxLength: 100
+        department:
+          type: string
+          nullable: true
+          maxLength: 100
+        roleId:
+          type: integer
+          format: int64
+          description: Must reference an existing row in `roles`, or the request fails with `404`.
+        accountStatus:
+          $ref: "#/components/schemas/AccountStatus"
+
+    SelfProfileUpdateRequest:
+      type: object
+      description: >
+        Body for `PUT /api/users/me` (`dto/SelfProfileUpdateRequest.java`) —
+        any authenticated user updating their own profile. Deliberately
+        narrower than `UserUpdateRequest`: no `roleId`/`accountStatus` (can't
+        self-promote or self-(de)activate) and no `username` (renaming would
+        outlive the JWT already issued for the old username).
+      required: [fullName, email]
+      properties:
+        fullName:
+          type: string
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        gender:
+          type: string
+          nullable: true
+          maxLength: 20
+        dateOfBirth:
+          type: string
+          format: date
+          nullable: true
+        phoneNumber:
+          type: string
+          nullable: true
+          maxLength: 30
+        profilePhotoUrl:
+          type: string
+          nullable: true
+          maxLength: 500
+        position:
+          type: string
+          nullable: true
+          maxLength: 100
+        department:
+          type: string
+          nullable: true
+          maxLength: 100
+        password:
+          type: string
+          nullable: true
+          minLength: 8
+          maxLength: 255
+          description: Optional. Omit/blank to leave the existing password hash untouched.
+
+    # ---------- roles ----------
+
+    RoleRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 50
+        description:
+          type: string
+          nullable: true
+          maxLength: 255
+
+    RoleResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+
+    # ---------- projects ----------
+
+    ProjectResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        projectCode:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        manager:
+          $ref: "#/components/schemas/UserResponse"
+          description: Nested `UserResponse` DTO — never the raw entity, no `passwordHash`.
+        priority:
+          $ref: "#/components/schemas/ProjectPriority"
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+        progress:
+          type: number
+          description: 0–100, DB-enforced (`NUMERIC(5,2) CHECK BETWEEN 0 AND 100`) and Bean-Validation-enforced on write (`@DecimalMin`/`@DecimalMax`).
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProjectRequest:
+      type: object
+      required: [projectCode, name, startDate, endDate, managerId]
+      properties:
+        projectCode:
+          type: string
+          maxLength: 30
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        managerId:
+          type: integer
+          format: int64
+          description: Must reference an existing user, or the request fails with `404`.
+        priority:
+          $ref: "#/components/schemas/ProjectPriority"
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+
+    # ---------- project members ----------
+
+    ProjectMemberResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        project:
+          $ref: "#/components/schemas/ProjectResponse"
+        user:
+          $ref: "#/components/schemas/UserResponse"
+        projectRole:
+          $ref: "#/components/schemas/ProjectRole"
+        joinedAt:
+          type: string
+          format: date-time
+
+    ProjectMemberRequest:
+      type: object
+      required: [projectId, userId]
+      properties:
+        projectId:
+          type: integer
+          format: int64
+          description: Must reference an existing project, or the request fails with `404`.
+        userId:
+          type: integer
+          format: int64
+          description: Must reference an existing user, or the request fails with `404`.
+        projectRole:
+          $ref: "#/components/schemas/ProjectRole"
+
+    # ---------- milestones ----------
+
+    MilestoneResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        project:
+          $ref: "#/components/schemas/ProjectResponse"
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/MilestoneStatus"
+        progress:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MilestoneRequest:
+      type: object
+      required: [projectId, title, dueDate]
+      properties:
+        projectId:
+          type: integer
+          format: int64
+          description: Must reference an existing project, or the request fails with `404`.
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/MilestoneStatus"
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+
+    # ---------- tasks ----------
+
+    TaskResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        project:
+          $ref: "#/components/schemas/ProjectResponse"
+        milestone:
+          $ref: "#/components/schemas/MilestoneResponse"
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        startDate:
+          type: string
+          format: date
+        dueDate:
+          type: string
+          format: date
+        estimatedHours:
+          type: number
+          nullable: true
+        progress:
+          type: number
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Not auto-set — nothing stamps this when `status` becomes `COMPLETED`; the caller must set it explicitly.
+        createdBy:
+          $ref: "#/components/schemas/UserResponse"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TaskRequest:
+      type: object
+      required: [projectId, title, startDate, dueDate]
+      properties:
+        projectId:
+          type: integer
+          format: int64
+          description: Must reference an existing project, or the request fails with `404`.
+        milestoneId:
+          type: integer
+          format: int64
+          nullable: true
+          description: Optional — omit/null for a task with no milestone. Must reference an existing milestone if given.
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        startDate:
+          type: string
+          format: date
+        dueDate:
+          type: string
+          format: date
+          description: >
+            A DB trigger rejects a `dueDate` later than the parent project's
+            `endDate` — surfaces as a `400` (see `BadRequest`), not a raw
+            `500`.
+        estimatedHours:
+          type: number
+          nullable: true
+          minimum: 0
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Not auto-set — caller must set this explicitly when marking a task done.
+        createdById:
+          type: integer
+          format: int64
+          nullable: true
+          description: Optional — the user who created the task, if known. Must reference an existing user if given.
+
+    # ---------- task assignees ----------
+
+    TaskAssigneeResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        task:
+          $ref: "#/components/schemas/TaskResponse"
+        user:
+          $ref: "#/components/schemas/UserResponse"
+        assignedAt:
+          type: string
+          format: date-time
+
+    TaskAssigneeRequest:
+      type: object
+      required: [taskId, userId]
+      properties:
+        taskId:
+          type: integer
+          format: int64
+          description: Must reference an existing task, or the request fails with `404`.
+        userId:
+          type: integer
+          format: int64
+          description: Must reference an existing user, or the request fails with `404`.
+
+    # ---------- task dependencies ----------
+
+    TaskDependencyResponse:
+      type: object
+      description: No surrogate `id` — identity is the (task, dependsOnTask) pair.
+      properties:
+        task:
+          $ref: "#/components/schemas/TaskResponse"
+        dependsOnTask:
+          $ref: "#/components/schemas/TaskResponse"
+
+    TaskDependencyRequest:
+      type: object
+      required: [taskId, dependsOnTaskId]
+      properties:
+        taskId:
+          type: integer
+          format: int64
+          description: The task that has the dependency. Must reference an existing task, or the request fails with `404`.
+        dependsOnTaskId:
+          type: integer
+          format: int64
+          description: The task that must complete first. Must reference an existing task, or the request fails with `404`. Equal to `taskId`, or part of a cycle, is rejected by a DB trigger as a `400`.
+
+    # ---------- notifications ----------
+
+    NotificationResponse:
+      type: object
+      description: >
+        Deliberately not nesting full `ProjectResponse`/`TaskResponse` (which
+        would drag in each project's manager, etc.) — just enough to label
+        and link the notification back to its source.
+      properties:
+        id:
+          type: integer
+          format: int64
+        type:
+          $ref: "#/components/schemas/NotificationType"
+        title:
+          type: string
+        message:
+          type: string
+        projectId:
+          type: integer
+          format: int64
+          nullable: true
+        projectName:
+          type: string
+          nullable: true
+        taskId:
+          type: integer
+          format: int64
+          nullable: true
+        taskTitle:
+          type: string
+          nullable: true
+        read:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time

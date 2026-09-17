@@ -51,4 +51,9 @@ public class TaskAssignee {
     public OffsetDateTime getAssignedAt() {
         return assignedAt;
     }
+
+    @PrePersist
+    void onCreate() {
+        assignedAt = OffsetDateTime.now();
+    }
 }

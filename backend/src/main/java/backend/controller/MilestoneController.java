@@ -1,7 +1,11 @@
 package backend.controller;
 
-import backend.entity.Milestone;
+import backend.dto.MilestoneRequest;
+import backend.dto.MilestoneResponse;
 import backend.service.MilestoneService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,35 +21,40 @@ public class MilestoneController {
     }
 
     @GetMapping
-    public List<Milestone> getAllMilestones() {
-        return milestoneService.getAllMilestones();
+    public List<MilestoneResponse> getAllMilestones(Authentication authentication) {
+        return milestoneService.getAllMilestones(authentication.getName());
     }
 
     @GetMapping("/{id}")
-    public Milestone getMilestoneById(@PathVariable Long id) {
-        return milestoneService.getMilestoneById(id);
+    public MilestoneResponse getMilestoneById(@PathVariable Long id, Authentication authentication) {
+        return milestoneService.getMilestoneById(id, authentication.getName());
     }
 
     @GetMapping("/project/{projectId}")
-    public List<Milestone> getMilestonesByProjectId(@PathVariable Long projectId) {
-        return milestoneService.getMilestonesByProjectId(projectId);
+    public List<MilestoneResponse> getMilestonesByProjectId(@PathVariable Long projectId, Authentication authentication) {
+        return milestoneService.getMilestonesByProjectId(projectId, authentication.getName());
     }
 
+    // Requires OWNER/ADMIN of the target project — enforced in
+    // MilestoneService.
+    @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
-    public Milestone createMilestone(@RequestBody Milestone milestone) {
-        return milestoneService.createMilestone(milestone);
+    public MilestoneResponse createMilestone(@Valid @RequestBody MilestoneRequest request, Authentication authentication) {
+        return milestoneService.createMilestone(request, authentication.getName());
     }
 
     @PutMapping("/{id}")
-    public Milestone updateMilestone(
+    public MilestoneResponse updateMilestone(
             @PathVariable Long id,
-            @RequestBody Milestone milestone
+            @Valid @RequestBody MilestoneRequest request,
+            Authentication authentication
     ) {
-        return milestoneService.updateMilestone(id, milestone);
+        return milestoneService.updateMilestone(id, request, authentication.getName());
     }
 
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/{id}")
-    public void deleteMilestone(@PathVariable Long id) {
-        milestoneService.deleteMilestone(id);
+    public void deleteMilestone(@PathVariable Long id, Authentication authentication) {
+        milestoneService.deleteMilestone(id, authentication.getName());
     }
 }

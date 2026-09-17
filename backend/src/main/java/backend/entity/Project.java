@@ -130,4 +130,16 @@ public class Project {
     public OffsetDateTime getUpdatedAt() {
         return updatedAt;
     }
+
+    @PrePersist
+    void onCreate() {
+        OffsetDateTime now = OffsetDateTime.now();
+        createdAt = now;
+        updatedAt = now;
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = OffsetDateTime.now();
+    }
 }

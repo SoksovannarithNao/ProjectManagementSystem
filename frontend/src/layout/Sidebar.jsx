@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -11,8 +12,7 @@ import {
   HelpCircle,
   X,
 } from 'lucide-react'
-import { Avatar } from '../components/ui/Avatar'
-import { currentUser } from '../data/mockData'
+import { HelpModal } from '../components/HelpModal'
 import { useLayout } from './useLayout'
 
 const navItems = [
@@ -34,6 +34,7 @@ const itemActive =
 
 export function Sidebar() {
   const { mobileNavOpen, closeMobileNav } = useLayout()
+  const [showHelp, setShowHelp] = useState(false)
 
   return (
     <>
@@ -85,25 +86,22 @@ export function Sidebar() {
         </nav>
 
         <div className="border-divider mt-auto flex flex-col gap-[3px] border-t pt-3.5">
-          <button className={`${itemBase} ${itemInactive}`}>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => `${itemBase} ${isActive ? itemActive : itemInactive}`}
+            onClick={closeMobileNav}
+          >
             <Settings size={18} strokeWidth={2} />
             <span>Settings</span>
-          </button>
-          <button className={`${itemBase} ${itemInactive}`}>
+          </NavLink>
+          <button className={`${itemBase} ${itemInactive}`} onClick={() => setShowHelp(true)}>
             <HelpCircle size={18} strokeWidth={2} />
             <span>Help &amp; Support</span>
           </button>
-          <div className="flex items-center gap-2.5 px-2 pt-2.5 pb-0.5">
-            <Avatar initials={currentUser.initials} color="var(--accent-purple)" size={36} />
-            <div className="flex min-w-0 flex-col">
-              <span className="text-ink truncate text-[13px] font-semibold">
-                {currentUser.name}
-              </span>
-              <span className="text-faint text-[11.5px]">{currentUser.role}</span>
-            </div>
-          </div>
         </div>
       </aside>
+
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </>
   )
 }

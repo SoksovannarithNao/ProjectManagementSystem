@@ -7,6 +7,7 @@ on:
   pull_request:
     branches: [dev, main]
 
+    
 jobs:
   frontend:
     runs-on: ubuntu-latest
@@ -72,11 +73,51 @@ jobs:
             psql -h localhost -U postgres -d taskmanager_test -f "$f"
           done
 
+      # database/verify_invariants.sql is a set of queries each expected to
+      # return zero rows. -t -A (tuples-only, unaligned) suppresses headers
+      # and row-count footers, so it prints nothing at all when every query
+      # is empty — any output at all means a real invariant violation.
+      - name: Verify database invariants
+        env:
+          PGPASSWORD: postgres
+        run: |
+          output=$(psql -h localhost -U postgres -d taskmanager_test -t -A -f "${{ github.workspace }}/database/verify_invariants.sql")
+          if [ -n "$output" ]; then
+            echo "::error::Database invariant check failed — one or more queries in database/verify_invariants.sql returned rows:"
+            echo "$output"
+            exit 1
+          fi
+          echo "All database invariants hold."
+
+      # Mirrors database/init/03-app-role.sh's GRANT list — duplicated (not
+      # sourced) because this job talks to a bare `postgres` service
+      # container directly via psql, not through the postgres Docker image's
+      # own docker-entrypoint-initdb.d mechanism that runs that script
+      # locally/in docker-compose. Keep both in sync if either changes.
+      - name: Create least-privilege app role
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d taskmanager_test -v ON_ERROR_STOP=1 <<-EOSQL
+              CREATE ROLE taskmanager_app LOGIN PASSWORD 'taskmanager_app_password';
+              GRANT CONNECT ON DATABASE taskmanager_test TO taskmanager_app;
+              GRANT USAGE ON SCHEMA public TO taskmanager_app;
+              GRANT SELECT, INSERT, UPDATE, DELETE ON
+                  roles, users, projects, project_members, milestones,
+                  tasks, task_assignees, task_dependencies, notifications,
+                  otp_verifications
+                  TO taskmanager_app;
+              GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO taskmanager_app;
+              GRANT EXECUTE ON FUNCTION fn_compute_project_progress(BIGINT) TO taskmanager_app;
+              GRANT EXECUTE ON FUNCTION fn_compute_milestone_progress(BIGINT) TO taskmanager_app;
+              GRANT EXECUTE ON FUNCTION fn_generate_overdue_notifications() TO taskmanager_app;
+          EOSQL
+
       - name: Build & test
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/taskmanager_test
-          SPRING_DATASOURCE_USERNAME: postgres
-          SPRING_DATASOURCE_PASSWORD: postgres
+          SPRING_DATASOURCE_USERNAME: taskmanager_app
+          SPRING_DATASOURCE_PASSWORD: taskmanager_app_password
         run: mvn -B verify
 
   docker-build-check:
