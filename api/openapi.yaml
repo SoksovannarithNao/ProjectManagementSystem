@@ -2,8 +2,18 @@ openapi: 3.0.3
 info:
   title: Task & Project Management System API
   description: >
-    Documents the REST API exactly as implemented in `backend/` today — not an
-    idealized target contract. This is the hardened, post-review version of
+    **Partly out of date — read `docs/api-reference.md` for the complete,
+    current API (84 endpoints).** This file documents 57 of the 84 endpoints
+    and still describes authorization with the removed global roles
+    `PROJECT_MANAGER` / `TEAM_LEADER` / `TEAM_MEMBER`; the real model is
+    project-level roles `OWNER` / `ADMIN` / `MEMBER` / `VIEWER` plus the
+    system `ADMINISTRATOR` bypass (see `docs/authentication-authorization.md`).
+    `managerId` on `ProjectRequest` is optional in the backend. Known gaps are
+    listed in `docs/issues.md` (section 4).
+
+
+    Originally written to document the REST API exactly as implemented in
+    `backend/` — not an idealized target contract. This is the hardened, post-review version of
     the backend: every controller now validates its input, returns clean
     JSON errors, uses response DTOs (never raw JPA entities), sets correct
     HTTP status codes, and enforces role-based access control. Remaining
@@ -135,7 +145,10 @@ paths:
     get:
       tags: [Users]
       summary: Get a user by ID
-      description: Any authenticated user — not role-gated.
+      description: >
+        Any authenticated user, **scoped**: an administrator, the user themself,
+        or someone who shares an active project with them; anyone else gets
+        `404` (the same as for a missing user).
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -225,7 +238,10 @@ paths:
     get:
       tags: [Users]
       summary: Get a user by username
-      description: Any authenticated user — not role-gated.
+      description: >
+        Any authenticated user, **scoped** exactly like `GET /api/users/{id}`
+        (administrator, yourself, or someone sharing an active project);
+        otherwise `404`.
       parameters:
         - name: username
           in: path
@@ -661,7 +677,9 @@ paths:
       tags: [Project Members]
       summary: List the projects a user belongs to
       description: >
-        Any authenticated user — not role-gated. An unknown `userId` returns
+        Any authenticated user, **scoped**: an administrator gets every row;
+        anyone else gets only the user's `ACTIVE` memberships in projects the
+        caller is an active member of. An unknown or unrelated `userId` returns
         an empty list rather than a `404`.
       parameters:
         - name: userId
@@ -1529,8 +1547,9 @@ components:
       description: "`projects.status`. Defaults to `PLANNING` if omitted on create."
     ProjectRole:
       type: string
-      enum: [PROJECT_MANAGER, TEAM_LEADER, TEAM_MEMBER]
-      description: "`project_members.project_role`. Defaults to `TEAM_MEMBER` if omitted on create."
+      enum: [OWNER, ADMIN, MEMBER, VIEWER]
+      description: "`project_members.project_role`. Defaults to `MEMBER` if omitted on create. `OWNER` is granted automatically to a project's creator; granting it requires being an `OWNER` (or system `ADMINISTRATOR`)."
+
     MilestoneStatus:
       type: string
       enum: [PENDING, IN_PROGRESS, COMPLETED]

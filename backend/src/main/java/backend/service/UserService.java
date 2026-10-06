@@ -91,14 +91,34 @@ public class UserService {
         return user.getRole() != null && "ADMINISTRATOR".equals(user.getRole().getName());
     }
 
+    // Single-user lookups follow the same visibility rule as the directory
+    // above: a system administrator, the user themself, or someone who
+    // shares an ACTIVE project with them. Anyone else gets the same 404 as
+    // for a user that doesn't exist, so the lookup can't be used to confirm
+    // an account exists or to read its profile (email, phone, birth date).
     @Transactional(readOnly = true)
-    public UserResponse getUserById(Long id) {
-        return new UserResponse(getUserEntityById(id));
+    public UserResponse getUserById(Long id, String callerUsername) {
+        User caller = getUserEntityByUsername(callerUsername);
+        User target = getUserEntityById(id);
+        assertCanView(caller, target);
+        return new UserResponse(target);
     }
 
     @Transactional(readOnly = true)
-    public UserResponse getUserByUsername(String username) {
-        return new UserResponse(getUserEntityByUsername(username));
+    public UserResponse getUserByUsername(String username, String callerUsername) {
+        User caller = getUserEntityByUsername(callerUsername);
+        User target = getUserEntityByUsername(username);
+        assertCanView(caller, target);
+        return new UserResponse(target);
+    }
+
+    private void assertCanView(User caller, User target) {
+        if (isSystemAdministrator(caller) || caller.getId().equals(target.getId())) {
+            return;
+        }
+        if (!projectMemberRepository.findActiveCoMemberUserIds(caller.getId()).contains(target.getId())) {
+            throw new NotFoundException("User not found");
+        }
     }
 
     /** For internal callers (e.g. CustomUserDetailsService) that need the entity itself. */

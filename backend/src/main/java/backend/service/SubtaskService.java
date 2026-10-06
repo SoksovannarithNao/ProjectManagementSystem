@@ -52,7 +52,8 @@ public class SubtaskService {
     public SubtaskResponse createSubtask(SubtaskRequest request, String username) {
         User caller = requireUser(username);
         Task task = requireTask(request.getTaskId());
-        projectAccessGuard.assertAccess(caller, task.getProject().getId());
+        // Writing subtasks is a content write — a VIEWER stays read-only.
+        projectAccessGuard.assertCanEditContent(caller, task.getProject().getId());
 
         Subtask subtask = new Subtask();
         subtask.setTask(task);
@@ -70,7 +71,7 @@ public class SubtaskService {
     public SubtaskResponse updateSubtask(Long id, SubtaskRequest request, String username) {
         User caller = requireUser(username);
         Subtask subtask = requireSubtask(id);
-        projectAccessGuard.assertAccess(caller, subtask.getTask().getProject().getId());
+        projectAccessGuard.assertCanEditContent(caller, subtask.getTask().getProject().getId());
 
         String previousStatus = subtask.getStatus();
         applyRequest(subtask, request);
@@ -115,7 +116,7 @@ public class SubtaskService {
     public void deleteSubtask(Long id, String username) {
         User caller = requireUser(username);
         Subtask subtask = requireSubtask(id);
-        projectAccessGuard.assertAccess(caller, subtask.getTask().getProject().getId());
+        projectAccessGuard.assertCanEditContent(caller, subtask.getTask().getProject().getId());
 
         activityLogService.record(caller, subtask.getTask(), "SUBTASK_DELETED",
                 "Subtask \"" + subtask.getTitle() + "\" deleted");

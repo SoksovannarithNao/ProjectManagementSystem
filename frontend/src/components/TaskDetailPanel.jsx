@@ -21,7 +21,7 @@ import { ConfirmDialog } from './ui/ConfirmDialog'
 import { TaskFormModal } from './TaskFormModal'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
-import { canManageProject } from '../api/permissions'
+import { canEditProjectContent, canManageProject } from '../api/permissions'
 import { buildMyProjectRoleMap, getActiveProjectMembers } from '../api/relations'
 import { getProjectMembers } from '../api/projectMembers'
 import { setTaskStatus, deleteTask, getTasks } from '../api/tasks'
@@ -55,6 +55,9 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
   // ProjectAccessGuard.canManage on the backend, which is what actually
   // gates PUT/DELETE on this task and comment moderation.
   const canManage = canManageProject(myProjectRoleMap.get(task?.project?.id), role === 'ADMINISTRATOR')
+  // OWNER/ADMIN/MEMBER (not VIEWER) — the backend refuses subtask and comment
+  // writes from a read-only VIEWER, so don't offer them.
+  const canEditContent = canEditProjectContent(myProjectRoleMap.get(task?.project?.id), role === 'ADMINISTRATOR')
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -488,6 +491,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2.5 border-none bg-none text-left"
                       onClick={() => toggleSubtask(s)}
+                      disabled={!canEditContent}
                     >
                       {s.status === 'COMPLETED' ? <CheckSquare size={17} className="shrink-0" /> : <Square size={17} className="shrink-0" />}
                       <span className="flex min-w-0 flex-1 flex-col">
@@ -503,45 +507,51 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                         )}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100"
-                      aria-label="Edit subtask"
-                      onClick={() => startEditSubtask(s)}
-                    >
-                      <Pencil size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger"
-                      aria-label="Delete subtask"
-                      onClick={() => removeSubtask(s.id)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {canEditContent && (
+                      <>
+                        <button
+                          type="button"
+                          className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100"
+                          aria-label="Edit subtask"
+                          onClick={() => startEditSubtask(s)}
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger"
+                          aria-label="Delete subtask"
+                          onClick={() => removeSubtask(s.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 )
               })}
             </div>
-            <form
-              className="mt-1 flex items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                const input = e.currentTarget.elements.namedItem('subtask')
-                addSubtask(input.value)
-                input.value = ''
-              }}
-            >
-              <input
-                name="subtask"
-                type="text"
-                placeholder="Add a subtask..."
-                className="bg-subtle border-border focus:border-lavender h-9 flex-1 rounded-md border px-3 text-[12.5px] outline-none"
-              />
-              <button type="submit" className="btn btn-secondary px-3 py-2 text-[12px]">
-                Add
-              </button>
-            </form>
+            {canEditContent && (
+              <form
+                className="mt-1 flex items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const input = e.currentTarget.elements.namedItem('subtask')
+                  addSubtask(input.value)
+                  input.value = ''
+                }}
+              >
+                <input
+                  name="subtask"
+                  type="text"
+                  placeholder="Add a subtask..."
+                  className="bg-subtle border-border focus:border-lavender h-9 flex-1 rounded-md border px-3 text-[12.5px] outline-none"
+                />
+                <button type="submit" className="btn btn-secondary px-3 py-2 text-[12px]">
+                  Add
+                </button>
+              </form>
+            )}
           </div>
 
           <div className="mb-[22px]">
@@ -719,21 +729,23 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
           </div>
         </div>
 
-        <form
-          className="border-divider flex items-center gap-2 border-t px-[18px] py-3.5"
-          onSubmit={submitComment}
-        >
-          <input
-            type="text"
-            placeholder="Add a comment..."
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            className="bg-subtle border-border focus:border-lavender h-10 flex-1 rounded-md border px-3.5 text-[13px] outline-none"
-          />
-          <button type="submit" className="icon-btn" aria-label="Send comment">
-            <Send size={16} />
-          </button>
-        </form>
+        {canEditContent && (
+          <form
+            className="border-divider flex items-center gap-2 border-t px-[18px] py-3.5"
+            onSubmit={submitComment}
+          >
+            <input
+              type="text"
+              placeholder="Add a comment..."
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              className="bg-subtle border-border focus:border-lavender h-10 flex-1 rounded-md border px-3.5 text-[13px] outline-none"
+            />
+            <button type="submit" className="icon-btn" aria-label="Send comment">
+              <Send size={16} />
+            </button>
+          </form>
+        )}
       </aside>
 
       {editing && (

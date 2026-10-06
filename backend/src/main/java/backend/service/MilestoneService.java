@@ -95,7 +95,14 @@ public class MilestoneService {
 
     public MilestoneResponse updateMilestone(Long id, MilestoneRequest request, String username) {
         Milestone milestone = getMilestoneEntityById(id);
-        projectAccessGuard.assertCanManage(requireUser(username), milestone.getProject().getId());
+        User caller = requireUser(username);
+        Long currentProjectId = milestone.getProject().getId();
+        projectAccessGuard.assertCanManage(caller, currentProjectId);
+        // Moving a milestone into another project needs manage rights there
+        // too (same reasoning as TaskService.updateTask).
+        if (request.getProjectId() != null && !request.getProjectId().equals(currentProjectId)) {
+            projectAccessGuard.assertCanManage(caller, request.getProjectId());
+        }
         applyRequest(milestone, request);
         return new MilestoneResponse(milestoneRepository.save(milestone));
     }

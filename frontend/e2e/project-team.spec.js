@@ -198,7 +198,9 @@ test.describe('project team: invitations, eligibility and suggestions', () => {
     await expect(page.getByText(`${before + 1} pending invitation${before + 1 === 1 ? '' : 's'}`, { exact: true })).toBeVisible()
 
     const pending = await (await request.get(`/api/project-members/project/${id}/invitations`, { headers })).json()
-    sentInvites.push(...pending.map((p) => p.id))
+    // Only the invitation this test sent — the seed data has pending invitations of its own
+    // (e.g. dev.tomas on PRJ-2001) that must not be cleaned up.
+    sentInvites.push(...pending.filter((p) => p.user.username === 'newuser').map((p) => p.id))
   })
 
   test('inviting an inactive account from the UI shows the backend message', async ({ page, request }) => {
