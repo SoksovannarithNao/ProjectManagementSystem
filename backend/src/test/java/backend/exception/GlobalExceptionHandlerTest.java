@@ -1,6 +1,7 @@
 package backend.exception;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -26,6 +27,43 @@ class GlobalExceptionHandlerTest {
                 handler.handleAuthenticationException(new BadCredentialsException("Bad credentials"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void conflictException_mapsTo409WithTheOriginalMessage() {
+        ResponseEntity<ErrorResponse> response =
+                handler.handleConflict(new ConflictException("Project code already exists."));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().message()).isEqualTo("Project code already exists.");
+    }
+
+    @Test
+    void duplicateProjectCodeConstraint_mapsTo409WithoutLeakingThePostgresError() {
+        DataIntegrityViolationException ex = new DataIntegrityViolationException(
+                "could not execute statement",
+                new RuntimeException("ERROR: duplicate key value violates unique constraint \"projects_project_code_key\"\n"
+                        + "  Detail: Key (project_code)=(PRJ-2001) already exists."));
+
+        ResponseEntity<ErrorResponse> response = handler.handleDataIntegrityViolation(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().message()).isEqualTo("Project code already exists.");
+        assertThat(response.getBody().message())
+                .doesNotContain("duplicate key")
+                .doesNotContain("projects_project_code_key");
+    }
+
+    @Test
+    void otherDataIntegrityViolations_stayA400() {
+        DataIntegrityViolationException ex = new DataIntegrityViolationException(
+                "could not execute statement",
+                new RuntimeException("ERROR: Project 11 must keep at least one active owner"));
+
+        ResponseEntity<ErrorResponse> response = handler.handleDataIntegrityViolation(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().message()).isEqualTo("Project 11 must keep at least one active owner");
     }
 
     @Test

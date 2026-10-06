@@ -8,7 +8,8 @@ import { getRoles } from '../api/roles'
 import { createUser } from '../api/users'
 import { getPositions, createPosition } from '../api/positions'
 import { getDepartments, createDepartment } from '../api/departments'
-import { PASSWORD_REQUIREMENTS_MESSAGE, isPasswordComplex } from '../api/validation'
+import { describePasswordProblem, isPasswordComplex, passwordErrorMessage } from '../api/validation'
+import { PasswordChecklist } from './ui/PasswordChecklist'
 
 // There's no email-invite flow for brand-new accounts on the backend — this
 // creates the account directly (POST /api/users, Administrator-only) with a
@@ -39,7 +40,7 @@ export function AddMemberModal({ onClose, onCreated }) {
     e.preventDefault()
     if (!fullName.trim() || !username.trim() || !email.trim() || !password) return
     if (!isPasswordComplex(password)) {
-      setError(PASSWORD_REQUIREMENTS_MESSAGE)
+      setError(describePasswordProblem(password))
       return
     }
     setSubmitting(true)
@@ -59,7 +60,7 @@ export function AddMemberModal({ onClose, onCreated }) {
       onClose()
       notify(`${created.fullName} added — share their temporary password to sign in`, { tone: 'success' })
     } catch (err) {
-      setError(err.message || 'Failed to add member')
+      setError(passwordErrorMessage(err, 'Failed to add member'))
     } finally {
       setSubmitting(false)
     }
@@ -113,7 +114,7 @@ export function AddMemberModal({ onClose, onCreated }) {
             className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
             required
           />
-          <span className="text-faint text-[11.5px]">{PASSWORD_REQUIREMENTS_MESSAGE}</span>
+          <PasswordChecklist password={password} />
         </label>
 
         <div className="flex gap-3">

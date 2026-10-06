@@ -6,7 +6,8 @@ import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
 import { updateOwnProfile, changeOwnPassword, uploadProfilePhoto, deleteProfilePhoto } from '../api/users'
 import { initialsFor } from '../api/format'
-import { PASSWORD_REQUIREMENTS_MESSAGE, isPasswordComplex } from '../api/validation'
+import { describePasswordProblem, isPasswordComplex, passwordErrorMessage } from '../api/validation'
+import { PasswordChecklist } from '../components/ui/PasswordChecklist'
 
 const GENDER_OPTIONS = ['', 'Male', 'Female', 'Other']
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024
@@ -96,7 +97,7 @@ export function Profile() {
     e.preventDefault()
     setPasswordError('')
     if (!isPasswordComplex(newPassword)) {
-      setPasswordError(PASSWORD_REQUIREMENTS_MESSAGE)
+      setPasswordError(describePasswordProblem(newPassword))
       return
     }
     if (newPassword !== confirmNewPassword) {
@@ -111,7 +112,7 @@ export function Profile() {
       setConfirmNewPassword('')
       notify('Password changed', { tone: 'success' })
     } catch (err) {
-      setPasswordError(err.message || 'Failed to change password')
+      setPasswordError(passwordErrorMessage(err, 'Failed to change password'))
     } finally {
       setSavingPassword(false)
     }
@@ -301,7 +302,7 @@ export function Profile() {
                 />
               </label>
             </div>
-            <span className="text-faint -mt-2 text-[11.5px]">{PASSWORD_REQUIREMENTS_MESSAGE}</span>
+            <PasswordChecklist password={newPassword} className="-mt-2" />
 
             {passwordError && <p className="text-danger text-[12.5px] font-semibold">{passwordError}</p>}
 

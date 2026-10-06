@@ -24,6 +24,9 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    public static final String PROJECT_CODE_EXISTS_MESSAGE = "Project code already exists.";
+    private static final String PROJECT_CODE_UNIQUE_CONSTRAINT = "projects_project_code_key";
+
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NotFoundException ex) {
         log.warn("Not found: {}", ex.getMessage());
@@ -48,6 +51,13 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+        log.warn("Conflict: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(HttpStatus.CONFLICT.value(), "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         // Covers Postgres CHECK/UNIQUE/FK violations and the trigger-raised
@@ -55,6 +65,15 @@ public class GlobalExceptionHandler {
         // due-date-within-project, etc.) — all surface here as a 400 instead
         // of an unhandled 500 with a raw stack trace.
         String rootMessage = ex.getMostSpecificCause().getMessage();
+        // Safety net for the unique constraint on projects.project_code when
+        // two requests race past ProjectService's own friendly pre-check —
+        // same 409 and message, never the raw "duplicate key value violates
+        // unique constraint ..." text.
+        if (rootMessage != null && rootMessage.contains(PROJECT_CODE_UNIQUE_CONSTRAINT)) {
+            log.warn("Duplicate project code rejected by {}", PROJECT_CODE_UNIQUE_CONSTRAINT);
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new ErrorResponse(HttpStatus.CONFLICT.value(), "Conflict", PROJECT_CODE_EXISTS_MESSAGE));
+        }
         String cleanMessage = cleanPostgresMessage(rootMessage);
         log.warn("Data integrity violation: {}", cleanMessage);
 

@@ -4,7 +4,7 @@ Spring Boot REST API for the Task & Project Management System.
 
 ## Stack
 
-* Java 21
+* Java 25 (LTS)
 * Spring Boot 4.0.8 (Web MVC, Data JPA, Security, Validation)
 * PostgreSQL — connected, schema owned by [database/init/01-init.sql](../database/init/01-init.sql) (`spring.jpa.hibernate.ddl-auto=validate`, Hibernate never touches the schema itself)
 * JWT auth (`jjwt` + Spring Security's OAuth2 resource server support, HS512)
@@ -180,7 +180,7 @@ Known integration gaps: the activity log is per-task only (`GET /api/activity-lo
 ```text
 Backend project setup        done
 Spring Boot                  done
-Java 21                      done
+Java 25                      done
 Database connection          done
 JPA entities & repositories  done
 Business REST APIs           done — 17 resources + auth + health + photos

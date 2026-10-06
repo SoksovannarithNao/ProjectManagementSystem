@@ -381,6 +381,9 @@ paths:
         "404":
           description: "`managerId` does not match any user."
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`projectCode` is already used by another project (`Project code already exists.`)."
+          $ref: "#/components/responses/Conflict"
 
   /api/projects/{id}:
     get:
@@ -566,6 +569,92 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ProjectMemberResponse"
+
+  /api/project-members/project/{projectId}/invitations/count:
+    get:
+      tags: [Project Members]
+      summary: Count a project's pending invitations
+      description: >
+        Requires OWNER/ADMIN of the project (or a system ADMINISTRATOR);
+        otherwise `403`. Counts the project's rows whose status is `PENDING`
+        (the members list above only returns `ACTIVE` ones).
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count:
+                    type: integer
+                    format: int64
+
+  /api/project-members/project/{projectId}/invitable-users:
+    get:
+      tags: [Project Members]
+      summary: Search users who can still be invited to a project
+      description: >
+        Requires OWNER/ADMIN of the project (or a system ADMINISTRATOR);
+        otherwise `403`. Searches every `ACTIVE` account in the organisation
+        (not only people who share a project with the caller) by username or
+        full name, case-insensitively. Never returns the caller, anyone
+        already `ACTIVE` or `PENDING` on this project, or `INACTIVE`/`SUSPENDED`
+        accounts. Filtered and limited in the database.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: q
+          in: query
+          required: false
+          description: Text to match against username or full name. Empty returns the first page alphabetically.
+          schema:
+            type: string
+            default: ""
+        - name: limit
+          in: query
+          required: false
+          description: Maximum results; clamped to 1-20.
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      format: int64
+                    fullName:
+                      type: string
+                    username:
+                      type: string
+                    positionName:
+                      type: string
+                      nullable: true
+                    profilePhotoUrl:
+                      type: string
+                      nullable: true
 
   /api/project-members/user/{userId}:
     get:
@@ -1265,6 +1354,22 @@ components:
         format: int64
 
   responses:
+    Conflict:
+      description: >
+        The request collides with existing data, e.g. a duplicate project
+        code. `GlobalExceptionHandler` maps `ConflictException` (and a unique
+        violation on `projects.project_code`) to a clean `409` JSON body —
+        never the raw database error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            timestamp: "2026-10-06T10:15:30Z"
+            status: 409
+            error: Conflict
+            message: Project code already exists.
+            fieldErrors: null
     NotFound:
       description: >
         No row matches the given id (or a referenced foreign id in the
@@ -1753,11 +1858,12 @@ components:
 
     ProjectRequest:
       type: object
-      required: [projectCode, name, startDate, endDate, managerId]
+      required: [name, startDate, endDate, managerId]
       properties:
         projectCode:
           type: string
           maxLength: 30
+          description: Optional. Omitted/blank on create generates the next PRJ-#### code; blank on update keeps the existing code.
         name:
           type: string
           maxLength: 200

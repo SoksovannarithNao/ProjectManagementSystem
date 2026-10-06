@@ -42,7 +42,7 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 
 ### Backend
 
-- Java 21
+- Java 25 (LTS)
 - Spring Boot 4.0.8 — REST API framework (Web MVC, Data JPA, Security, Validation, OAuth2 Resource Server starters)
 - Spring Data JPA / Hibernate 7.2.24 — ORM/data layer
 - Spring Security + JWT (`jjwt` 0.12.6, HS512) — stateless authentication; most authorization is project-scoped checks in service code (`ProjectAccessGuard`) rather than `@PreAuthorize`, which is now reserved for the handful of genuinely system-wide actions
@@ -125,7 +125,7 @@ frontend/e2e/            # Playwright end-to-end specs — see frontend/README.m
 
 ## Prerequisites
 
-- Java 21 (backend)
+- Java 25 (backend)
 - Node.js 20 (pinned in CI) and npm (frontend)
 - PostgreSQL 18, or Docker + Docker Compose to run it in a container
 - Maven (or the bundled `./mvnw` wrapper)

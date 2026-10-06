@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { register } from '../api/auth'
-import { PASSWORD_REQUIREMENTS_MESSAGE, isPasswordComplex } from '../api/validation'
+import { describePasswordProblem, isPasswordComplex, passwordErrorMessage } from '../api/validation'
+import { PasswordChecklist } from '../components/ui/PasswordChecklist'
 
 export function Register() {
   const navigate = useNavigate()
@@ -17,7 +18,7 @@ export function Register() {
     setError('')
 
     if (!isPasswordComplex(password)) {
-      setError(PASSWORD_REQUIREMENTS_MESSAGE)
+      setError(describePasswordProblem(password))
       return
     }
     if (password !== confirmPassword) {
@@ -30,7 +31,7 @@ export function Register() {
       const result = await register({ username: username.trim(), email: email.trim(), password, confirmPassword })
       navigate('/verify-otp', { state: { username: result.username, email: result.email } })
     } catch (err) {
-      setError(err.message || 'Failed to create account')
+      setError(passwordErrorMessage(err, 'Failed to create account'))
     } finally {
       setSubmitting(false)
     }
@@ -101,7 +102,7 @@ export function Register() {
               autoComplete="new-password"
               required
             />
-            <span className="text-faint text-[11.5px]">{PASSWORD_REQUIREMENTS_MESSAGE}</span>
+            <PasswordChecklist password={password} />
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-muted text-[12.5px] font-semibold">Confirm Password</span>

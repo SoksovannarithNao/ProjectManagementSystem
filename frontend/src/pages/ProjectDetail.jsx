@@ -28,11 +28,12 @@ import { Dropdown } from '../components/ui/Dropdown'
 import { useToast } from '../components/ui/Toast'
 import { NewProjectModal } from '../components/NewProjectModal'
 import { TaskFormModal } from '../components/TaskFormModal'
+import { AddProjectMemberModal } from '../components/AddProjectMemberModal'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { useApi } from '../api/useApi'
 import { useAuth } from '../auth/AuthContext'
 import { getProjectById, updateProject, deleteProject, projectResponseToRequest } from '../api/projects'
-import { getMembersByProjectId } from '../api/projectMembers'
+import { getMembersByProjectId, getPendingInvitationCount } from '../api/projectMembers'
 import { getTasksByProjectId } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getMilestonesByProjectId, createMilestone, deleteMilestone } from '../api/milestones'
@@ -106,12 +107,23 @@ export function ProjectDetail() {
   // project they don't manage, same as Tasks.jsx's own "+ New Task" gate.
   const canAddContent = canEditProjectContent(myRole, isSystemAdmin)
 
+  // The members list above only carries ACTIVE rows, so pending invitations
+  // are counted server-side by their own PENDING status (Team-Admin-only, so
+  // only fetched once the caller is known to manage this project).
+  const pendingFetcher = useCallback(
+    () => (canManage ? getPendingInvitationCount(projectId) : Promise.resolve(null)),
+    [projectId, canManage]
+  )
+  const { data: pendingData, refetch: refetchPending } = useApi(pendingFetcher)
+  const pendingCount = canManage ? (pendingData?.count ?? 0) : 0
+
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [savingStatus, setSavingStatus] = useState(false)
   const [activeTaskId, setActiveTaskId] = useState(null)
   const [showNewTask, setShowNewTask] = useState(false)
+  const [showAddMember, setShowAddMember] = useState(false)
   const [taskStatusFilter, setTaskStatusFilter] = useState(() => new Set())
   const [taskPriorityFilter, setTaskPriorityFilter] = useState(() => new Set())
   const [milestoneTitle, setMilestoneTitle] = useState('')
@@ -127,7 +139,6 @@ export function ProjectDetail() {
   const taskOverview = useMemo(() => computeTaskOverview(tasks), [tasks])
   const overdueCount = useMemo(() => tasks.filter((t) => t.overdue).length, [tasks])
   const activeMembers = useMemo(() => members.filter((m) => m.status === 'ACTIVE'), [members])
-  const pendingCount = useMemo(() => members.filter((m) => m.status === 'PENDING').length, [members])
   const sortedTasks = useMemo(
     () => [...tasks].sort((a, b) => new Date(a.dueDate ?? 0) - new Date(b.dueDate ?? 0)),
     [tasks]
@@ -548,9 +559,20 @@ export function ProjectDetail() {
                 <h4 className="text-[13.5px] font-[650]">Members</h4>
                 <span className="text-faint text-[12px]">({membersError ? '—' : activeMembers.length})</span>
               </div>
-              <Link to="/team" className="text-muted hover:text-ink text-[12px] font-semibold">
-                Manage team →
-              </Link>
+              <div className="flex items-center gap-3">
+                {canManage && (
+                  <button
+                    type="button"
+                    className="text-muted hover:text-ink inline-flex items-center gap-1 text-[12px] font-semibold"
+                    onClick={() => setShowAddMember(true)}
+                  >
+                    <Plus size={13} /> Add member
+                  </button>
+                )}
+                <Link to="/team" className="text-muted hover:text-ink text-[12px] font-semibold">
+                  Manage team →
+                </Link>
+              </div>
             </div>
 
             {membersError && <SectionError message="Failed to load members." onRetry={refetchMembers} />}
@@ -677,6 +699,17 @@ export function ProjectDetail() {
           defaultProjectId={projectId}
           onClose={() => setShowNewTask(false)}
           onSaved={refetchAfterTaskChange}
+        />
+      )}
+
+      {showAddMember && (
+        <AddProjectMemberModal
+          projectId={projectId}
+          onClose={() => setShowAddMember(false)}
+          onInvited={() => {
+            refetchMembers()
+            refetchPending()
+          }}
         />
       )}
 

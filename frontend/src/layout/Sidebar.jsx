@@ -17,7 +17,7 @@ import { useLayout } from './useLayout'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/tasks', label: 'My Tasks', icon: ListChecks },
+  { to: '/tasks', label: 'Tasks', icon: ListChecks },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
   { to: '/calendar', label: 'Calendar', icon: Calendar },
   { to: '/kanban', label: 'Kanban Board', icon: Columns3 },
