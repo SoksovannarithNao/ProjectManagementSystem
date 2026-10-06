@@ -39,8 +39,8 @@ public class ProjectMemberController {
     }
 
     @GetMapping("/user/{userId}")
-    public List<ProjectMemberResponse> getProjectsByUserId(@PathVariable Long userId) {
-        return projectMemberService.getProjectsByUserId(userId);
+    public List<ProjectMemberResponse> getProjectsByUserId(@PathVariable Long userId, Authentication authentication) {
+        return projectMemberService.getProjectsByUserId(userId, authentication.getName());
     }
 
     // Team-Admin-only (enforced in the service, scoped to the specific

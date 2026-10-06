@@ -2,6 +2,8 @@
 
 A full-stack task and project management app — React (Vite) frontend, Spring Boot REST API backend, PostgreSQL database, containerized with Docker and built via GitHub Actions.
 
+**Documentation:** project-level documentation lives in [docs/](docs/README.md) — setup guide, architecture, authentication/authorization, API reference, database, testing, known issues, roadmap, changelog and decision records.
+
 ## Features
 
 - **JWT Authentication + self-registration**: username/password login issuing a signed JWT (HS512); passwords hashed with BCrypt, never stored or returned in plaintext. New accounts can also self-register and must verify a one-time email code (sent via Mailpit locally) before they can log in
@@ -404,7 +406,7 @@ Data models as returned by the API (full column-level detail, including tables w
 
 **TaskDependency**
 - task: Task
-- dependsOnTask: Task — `task` can't start until `dependsOnTask` is `COMPLETED` (enforced in application logic, not the DB); cycles are rejected at the database level
+- dependsOnTask: Task — `task` can't start until `dependsOnTask` is `COMPLETED` (enforced by database triggers — a dependent task cannot move to In Progress/In Review/Completed while a prerequisite is incomplete); cycles are rejected at the database level
 
 **Notification**
 - id: Long
@@ -451,7 +453,7 @@ curl http://localhost:8080/api/projects -H "Authorization: Bearer $TOKEN"
 
 Or just log into the frontend directly at http://localhost:5173 with any seeded `ACTIVE` username (e.g. `admin.system`, `pm.olivia`) and password `DevPassword123!`.
 
-Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgres matching the schema — currently 2 unit test classes, `UserServiceTest` and `GlobalExceptionHandlerTest`; no controller/integration tests yet). Automated frontend tests: `cd frontend && npm run test:e2e` — a Playwright end-to-end suite that drives the real app against the real backend (requires `docker compose up -d` first); see [frontend/README.md](frontend/README.md#testing). No frontend unit-test runner is wired into `package.json` yet, and the E2E suite isn't wired into CI.
+Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgres matching the schema — currently 60 tests across 9 classes: `BackendApplicationTests` (context load), `GlobalExceptionHandlerTest`, `UserServiceTest`, `ProjectServiceTest`, `ProjectMemberServiceTest`, `TaskServiceTest`, `MilestoneServiceTest`, `ViewerWriteAccessTest`, `ActiveAccountJwtValidatorTest`; service logic is covered with mocked repositories, there are no controller or repository integration tests yet). Automated frontend tests: `cd frontend && npm run test:e2e` — a Playwright end-to-end suite (30 tests across `auth`, `projects`, `project-team`, `team` and `permissions` specs) that drives the real app against the real backend (requires `docker compose up -d` first); see [frontend/README.md](frontend/README.md#testing). No frontend unit-test runner is wired into `package.json` yet, and the E2E suite isn't wired into CI. Full inventory, regression-test map and coverage gaps: [docs/testing.md](docs/testing.md).
 
 ## Troubleshooting
 

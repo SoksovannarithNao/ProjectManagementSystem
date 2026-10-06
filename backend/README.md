@@ -61,7 +61,7 @@ src/test/java/backend/         # Tests
 
 ## API Endpoints
 
-The authoritative, endpoint-by-endpoint contract lives in [api/openapi.yaml](../api/openapi.yaml) — kept in sync with this backend rather than duplicated here. Resource groups currently implemented:
+The complete, endpoint-by-endpoint reference (all 84 endpoints, permissions, request/response shapes, error codes) is [docs/api-reference.md](../docs/api-reference.md). [api/openapi.yaml](../api/openapi.yaml) is a **partial and partly outdated** machine-readable contract (it covers 57 of the 84 endpoints and still uses removed role names) — see [docs/issues.md](../docs/issues.md#4-documentation-drift). Resource groups currently implemented:
 
 | Resource | Base path | Notes |
 | --- | --- | --- |
@@ -77,15 +77,15 @@ The authoritative, endpoint-by-endpoint contract lives in [api/openapi.yaml](../
 | Tasks | `/api/tasks` | Create: `OWNER`/`ADMIN`/`MEMBER` of that project. Update: `OWNER`/`ADMIN` can edit any task in full; anyone else may only update status/progress on a task assigned to them. Delete: `OWNER`/`ADMIN` (see [Security](#security)) |
 | Subtasks | `/api/subtasks` | Any ACTIVE member of the parent task's project (see [Security](#security)) |
 | Comments | `/api/comments` | Create/read: any ACTIVE project member. Edit: comment author only. Delete: author, or an `OWNER`/`ADMIN` of that project |
-| Activity Logs | `/api/activity-logs` | Read-only, `GET /task/{taskId}`. Any ACTIVE member of that task's project — written internally by other services, never posted to directly (see [Activity Log](#activity-log)) |
-| Project Members | `/api/project-members` | Direct add/update/delete: `OWNER`/`ADMIN` of that project. Team-invitation sub-endpoints (`/invite`, `/project/{id}/accept`, `/project/{id}/decline`, `/project/{id}/invitations`) — see [Team Invitations](#team-invitations) |
+| Activity Logs | `/api/activity-logs` | Read-only, `GET /task/{taskId}`. Any ACTIVE member of that task's project — written internally by other services, never posted to directly (see [Activity Log](../docs/tasks.md#9-activity-and-history)) |
+| Project Members | `/api/project-members` | Direct add/update/delete: `OWNER`/`ADMIN` of that project. Team-invitation sub-endpoints (`/invite`, `/project/{id}/accept`, `/project/{id}/decline`, `/project/{id}/invitations`, `/project/{id}/invitations/count`, `/project/{id}/invitable-users`) — see [Team Invitations](#team-invitations) |
 | Task Assignees | `/api/task-assignees` | Write operations: `OWNER`/`ADMIN` of that project |
 | Task Dependencies | `/api/task-dependencies` | Write operations: `OWNER`/`ADMIN` of that project |
 | Notifications | `/api/notifications` | No `@PreAuthorize` — every endpoint scopes to "the caller's own" by JWT identity instead (see [Notifications](#notifications)) |
 
 Also: `PUT /api/users/me` — self-service profile/password update, any authenticated user, no role gate beyond being logged in (see [Security](#security)). It no longer accepts `position`/`department` at all — those are Team-Admin-managed only, via `PUT /api/users/{id}/position-department` (not role-gated at the annotation level; `UserService.updateMemberPositionDepartment` enforces that the caller administers a project the target user also belongs to, and refuses self-targeting even for `ADMINISTRATOR`). Related self-service endpoints on the same controller: `PUT /api/users/me/password`, `PUT /api/users/me/photo` (multipart upload) / `DELETE /api/users/me/photo`, `PUT /api/users/me/preferences` (theme/notification settings), and `GET /api/users/username/{username}`.
 
-Not yet implemented (no controller at all): attachments, work logs, checklist items — these exist as tables in the schema but have no API surface. (Subtasks, comments, and activity logs *were* on this list — see [Team Invitations](#team-invitations), [Activity Log](#activity-log), and the Notifications section below for what changed.)
+Not yet implemented (no controller at all): attachments, work logs, checklist items — these exist as tables in the schema but have no API surface. (Subtasks, comments, and activity logs *were* on this list — see [Team Invitations](#team-invitations), [Activity Log](../docs/tasks.md#9-activity-and-history), and the Notifications section below for what changed.)
 
 Every write endpoint validates its request body (`@Valid` + Bean Validation) and every "not found" returns a real `404` with a clean JSON body (`{"status":404,"error":"Not Found","message":"..."}`) via `GlobalExceptionHandler` — not a raw stack trace.
 
@@ -147,6 +147,9 @@ There's no separate `teams` table — a `project` *is* a team, and its `project_
 * `POST /api/project-members/invite` (`{projectId, username}`) — Team-Admin-only (see [Security](#security)). Looks the target up case-insensitively by username, rejects self-invites, already-`ACTIVE` members, and an already-`PENDING` invite; re-invites a `DECLINED` row rather than creating a duplicate (the `(project_id, user_id)` `UNIQUE` constraint means there can only ever be one row per pair).
 * `POST /api/project-members/project/{projectId}/accept` / `.../decline` — the invited user only (resolved by JWT identity, not a role gate); flips `status` and stamps `responded_at`. Accepting is the only way a `PENDING` row becomes a real membership; declining leaves no membership at all, but the row (and its `DECLINED` status) persists rather than being deleted or hidden.
 * `GET /api/project-members/project/{projectId}/invitations` — Team-Admin-only; lists that project's `PENDING` invitations.
+* `GET /api/project-members/project/{projectId}/invitations/count` — Team-Admin-only; `{ "count": n }` of `PENDING` rows (counted from the `PENDING` status, not the active-members list).
+* `GET /api/project-members/project/{projectId}/invitable-users?q=&limit=` — Team-Admin-only type-ahead of users who can still be invited: `ACTIVE` accounts anywhere in the organisation, excluding the caller and anyone `ACTIVE`/`PENDING` on the project; matched on username or full name in the database, capped at 20.
+* **Eligibility:** `INACTIVE`, `SUSPENDED` and `PENDING_VERIFICATION` accounts are rejected by both `inviteMember` and the direct-add `createProjectMember` (`ProjectMemberService.assertEligibleForTeam`).
 * **A `PENDING` invitation grants no access whatsoever** — `ProjectMemberRepository.findProjectIdsByUserId` (the scoping boundary used by every `getAllX()` method) filters to `status = 'ACTIVE'`, and `check_assignee_is_project_member` (the DB trigger gating `task_assignees` inserts) does the same, so an invitee can't be assigned to a task, and can't see the project's tasks/milestones/members, until they actually accept.
 
 ## Task & Subtask Rules
@@ -194,7 +197,7 @@ CORS                         done
 Password hashing             done
 Login rate limiting          done — in-memory, 5 attempts/15 min per IP+username (see Security)
 Least-privilege DB role      done — backend connects as taskmanager_app, not the Postgres superuser (see Database)
-Unit tests                   partial — UserService + GlobalExceptionHandler covered, no controller/repository tests yet
+Unit tests                   partial — 59 unit tests (UserService, ProjectService, ProjectMemberService, TaskService, MilestoneService, viewer write access, JWT account validator, GlobalExceptionHandler) + 1 context test; no controller/repository tests yet — see docs/testing.md
 File logging                 done — errors/security events to a rotating backend/logs/log.txt (see Logging above)
 Notifications                 done — TASK_ASSIGNED/TASK_STATUS_CHANGED/TEAM_INVITATION/TEAM_INVITATION_RESPONDED, see Notifications above
 Self-service profile update  done — PUT /api/users/me + /me/password + /me/photo + /me/preferences, see Security above

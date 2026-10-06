@@ -210,4 +210,108 @@ class ProjectMemberServiceTest {
         assertThat(ProjectMemberService.likePattern(null)).isEqualTo("%%");
         assertThat(ProjectMemberService.likePattern("a_b%c!d")).isEqualTo("%a!_b!%c!!d%");
     }
+
+    // ---- membership lookups and updates stay inside the caller's projects ----
+
+    private ProjectMember row(Long id, Project project, User user, String status) {
+        ProjectMember m = new ProjectMember();
+        ReflectionTestUtils.setField(m, "id", id);
+        m.setProject(project);
+        m.setUser(user);
+        m.setStatus(status);
+        return m;
+    }
+
+    private Project otherProject() {
+        Project other = new Project();
+        ReflectionTestUtils.setField(other, "id", 20L);
+        other.setManager(caller);
+        return other;
+    }
+
+    @Test
+    void projectsByUser_nonAdminSeesOnlyActiveRowsInProjectsTheyBelongTo() {
+        User target = user(2L, "dev.chen", "ACTIVE");
+        Project visible = projectRepository.findById(10L).orElseThrow();
+        Project hidden = otherProject();
+        when(projectMemberRepository.findByUserId(2L)).thenReturn(List.of(
+                row(1L, visible, target, "ACTIVE"),
+                row(2L, visible, target, "PENDING"),
+                row(3L, hidden, target, "ACTIVE")));
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+
+        var result = service.getProjectsByUserId(2L, "pm.olivia");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(1L);
+    }
+
+    @Test
+    void projectsByUser_administratorSeesEveryRow() {
+        User target = user(2L, "dev.chen", "ACTIVE");
+        List<ProjectMember> rows = List.of(
+                row(1L, projectRepository.findById(10L).orElseThrow(), target, "ACTIVE"),
+                row(3L, otherProject(), target, "PENDING"));
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(true);
+        when(projectMemberRepository.findByUserId(2L)).thenReturn(rows);
+
+        assertThat(service.getProjectsByUserId(2L, "pm.olivia")).hasSize(2);
+    }
+
+    @Test
+    void projectsByUser_aStrangerWithNoSharedProjectGetsAnEmptyList() {
+        User target = user(2L, "dev.chen", "ACTIVE");
+        when(projectMemberRepository.findByUserId(2L)).thenReturn(List.of(row(3L, otherProject(), target, "ACTIVE")));
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of());
+
+        assertThat(service.getProjectsByUserId(2L, "pm.olivia")).isEmpty();
+    }
+
+    private ProjectMemberRequest memberRequest(Long projectId, Long userId, String role) {
+        ProjectMemberRequest r = new ProjectMemberRequest();
+        r.setProjectId(projectId);
+        r.setUserId(userId);
+        r.setProjectRole(role);
+        return r;
+    }
+
+    @Test
+    void updateMembership_cannotBeRepointedAtAnotherProject() {
+        User member = user(2L, "dev.chen", "ACTIVE");
+        ProjectMember existing = row(7L, projectRepository.findById(10L).orElseThrow(), member, "ACTIVE");
+        existing.setProjectRole("MEMBER");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.updateProjectMember(7L, memberRequest(20L, 2L, "MEMBER"), "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot be changed");
+        verify(projectMemberRepository, never()).save(any());
+    }
+
+    @Test
+    void updateMembership_cannotBeHandedToADifferentUser() {
+        User member = user(2L, "dev.chen", "ACTIVE");
+        ProjectMember existing = row(7L, projectRepository.findById(10L).orElseThrow(), member, "ACTIVE");
+        existing.setProjectRole("MEMBER");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.updateProjectMember(7L, memberRequest(10L, 3L, "MEMBER"), "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot be changed");
+        verify(projectMemberRepository, never()).save(any());
+    }
+
+    @Test
+    void updateMembership_stillAllowsChangingTheRole() {
+        User member = user(2L, "dev.chen", "ACTIVE");
+        ProjectMember existing = row(7L, projectRepository.findById(10L).orElseThrow(), member, "ACTIVE");
+        existing.setProjectRole("MEMBER");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(existing));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(member));
+        when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "VIEWER"), "pm.olivia");
+
+        assertThat(existing.getProjectRole()).isEqualTo("VIEWER");
+    }
 }

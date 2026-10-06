@@ -97,15 +97,23 @@ public class ProjectMemberService {
                 .toList();
     }
 
-    // Directory-style lookup ("which projects is this member on") — kept
-    // open like GET /api/users, matching the Team page's existing use of it
-    // to show any member's project involvement, not just the caller's own.
+    // "Which projects is this user on" — limited to what the caller may see:
+    // a system administrator gets every row; anyone else gets only the ACTIVE
+    // memberships in projects the caller is themself an active member of, so
+    // the lookup can't reveal projects (or pending invitations) outside the
+    // caller's own visibility.
     @Transactional(readOnly = true)
-    public List<ProjectMemberResponse> getProjectsByUserId(Long userId) {
-        return projectMemberRepository.findByUserId(userId)
-                .stream()
-                .map(ProjectMemberResponse::new)
-                .toList();
+    public List<ProjectMemberResponse> getProjectsByUserId(Long userId, String username) {
+        User caller = requireUser(username);
+        List<ProjectMember> rows = projectMemberRepository.findByUserId(userId);
+        if (!projectAccessGuard.isAdmin(caller)) {
+            List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
+            rows = rows.stream()
+                    .filter(m -> "ACTIVE".equals(m.getStatus()))
+                    .filter(m -> visibleProjectIds.contains(m.getProject().getId()))
+                    .toList();
+        }
+        return rows.stream().map(ProjectMemberResponse::new).toList();
     }
 
     // Team-Admin-only: invitations sent for a project, awaiting a response.
@@ -261,6 +269,15 @@ public class ProjectMemberService {
         User caller = requireUser(username);
         ProjectMember projectMember = getProjectMemberEntityById(id);
         projectAccessGuard.assertCanManage(caller, projectMember.getProject().getId());
+        // A membership row can have its ROLE changed, but not be re-pointed
+        // at a different project or user — that would let a manager of one
+        // project write into another, or hand someone else's membership to a
+        // different person. To move someone, remove the row and add a new one.
+        if (!projectMember.getProject().getId().equals(request.getProjectId())
+                || !projectMember.getUser().getId().equals(request.getUserId())) {
+            throw new IllegalArgumentException(
+                    "A membership's project and user cannot be changed — remove it and add a new one");
+        }
         if ("OWNER".equals(request.getProjectRole())) {
             projectAccessGuard.assertIsOwner(caller, projectMember.getProject().getId());
         }

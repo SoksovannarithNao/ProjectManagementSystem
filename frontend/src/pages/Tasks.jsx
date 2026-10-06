@@ -655,6 +655,7 @@ export function Tasks() {
                             key={s.id}
                             type="button"
                             onClick={(e) => toggleSubtaskInList(t, s, e)}
+                            disabled={!canEditProjectContent(myProjectRoleMap.get(t.project?.id), isSystemAdmin)}
                             className="bg-card border-border hover:bg-subtle flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12.5px] transition-colors"
                           >
                             {s.status === 'COMPLETED' ? (

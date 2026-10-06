@@ -207,9 +207,21 @@ public class TaskService {
             assertNotCompletingWithOpenSubtasks(id);
         }
 
-        if (projectAccessGuard.canManage(caller, task.getProject().getId())) {
+        Long currentProjectId = task.getProject().getId();
+        if (projectAccessGuard.canManage(caller, currentProjectId)) {
+            // Moving a task to another project is a write into THAT project
+            // too — being able to manage the project it's leaving isn't
+            // enough, otherwise a project owner/admin could push tasks into
+            // any project in the system, including ones they can't even see.
+            if (request.getProjectId() != null && !request.getProjectId().equals(currentProjectId)) {
+                projectAccessGuard.assertCanManage(caller, request.getProjectId());
+            }
             applyRequest(task, request);
         } else {
+            // A VIEWER is read-only even for a task that was assigned to them.
+            if (!projectAccessGuard.canEditContent(caller, currentProjectId)) {
+                throw new AccessDeniedException("You do not have permission to edit this task");
+            }
             if (!taskAssigneeRepository.existsByTaskIdAndUserId(id, caller.getId())) {
                 throw new AccessDeniedException("You are not assigned to this task");
             }

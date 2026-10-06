@@ -36,14 +36,17 @@ public class UserController {
         return userService.getAllUsers(authentication.getName());
     }
 
+    // Scoped in the service to the same visibility as GET /api/users
+    // (administrator, yourself, or someone you share an active project with);
+    // anyone else gets 404.
     @GetMapping("/{id}")
-    public UserResponse getUserById(@PathVariable Long id) {
-        return userService.getUserById(id);
+    public UserResponse getUserById(@PathVariable Long id, Authentication authentication) {
+        return userService.getUserById(id, authentication.getName());
     }
 
     @GetMapping("/username/{username}")
-    public UserResponse getUserByUsername(@PathVariable String username) {
-        return userService.getUserByUsername(username);
+    public UserResponse getUserByUsername(@PathVariable String username, Authentication authentication) {
+        return userService.getUserByUsername(username, authentication.getName());
     }
 
     @PreAuthorize("hasRole('ADMINISTRATOR')")

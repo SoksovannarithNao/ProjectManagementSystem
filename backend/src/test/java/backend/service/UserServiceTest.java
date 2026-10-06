@@ -132,11 +132,86 @@ class UserServiceTest {
         assertThat(existing.getPasswordHash()).isEqualTo("$2a$10$existingHashValueUnchanged");
     }
 
+    // ---- single-user lookups are scoped like the directory --------------
+
+    private User person(Long id, String username, String roleName) {
+        User u = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(u, "id", id);
+        u.setUsername(username);
+        u.setFullName(username);
+        if (roleName != null) {
+            Role r = new Role();
+            r.setName(roleName);
+            u.setRole(r);
+        }
+        return u;
+    }
+
     @Test
     void getUserById_throwsNotFoundExceptionForAMissingUser() {
+        User caller = person(1L, "caller", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
         when(userRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> userService.getUserById(999L))
+        assertThatThrownBy(() -> userService.getUserById(999L, "caller"))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void getUserById_allowsTheCallerToReadThemself() {
+        User caller = person(1L, "caller", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(caller));
+
+        assertThat(userService.getUserById(1L, "caller").getUsername()).isEqualTo("caller");
+    }
+
+    @Test
+    void getUserById_allowsAnAdministratorToReadAnyone() {
+        User admin = person(1L, "admin", "ADMINISTRATOR");
+        User other = person(2L, "other", null);
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(admin));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(other));
+
+        assertThat(userService.getUserById(2L, "admin").getUsername()).isEqualTo("other");
+    }
+
+    @Test
+    void getUserById_allowsSomeoneWhoSharesAnActiveProject() {
+        User caller = person(1L, "caller", null);
+        User teammate = person(2L, "teammate", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(teammate));
+        when(projectMemberRepository.findActiveCoMemberUserIds(1L)).thenReturn(java.util.List.of(1L, 2L));
+
+        assertThat(userService.getUserById(2L, "caller").getUsername()).isEqualTo("teammate");
+    }
+
+    @Test
+    void getUserById_hidesAStrangerWithTheSame404AsAMissingUser() {
+        User caller = person(1L, "caller", null);
+        User stranger = person(3L, "stranger", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
+        when(userRepository.findById(3L)).thenReturn(Optional.of(stranger));
+        when(projectMemberRepository.findActiveCoMemberUserIds(1L)).thenReturn(java.util.List.of(1L));
+
+        assertThatThrownBy(() -> userService.getUserById(3L, "caller"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("User not found");
+    }
+
+    @Test
+    void getUserByUsername_isScopedTheSameWay() {
+        User caller = person(1L, "caller", null);
+        User stranger = person(3L, "stranger", null);
+        User teammate = person(2L, "teammate", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
+        when(userRepository.findByUsername("stranger")).thenReturn(Optional.of(stranger));
+        when(userRepository.findByUsername("teammate")).thenReturn(Optional.of(teammate));
+        when(projectMemberRepository.findActiveCoMemberUserIds(1L)).thenReturn(java.util.List.of(1L, 2L));
+
+        assertThat(userService.getUserByUsername("teammate", "caller").getUsername()).isEqualTo("teammate");
+        assertThatThrownBy(() -> userService.getUserByUsername("stranger", "caller"))
                 .isInstanceOf(NotFoundException.class);
     }
 }

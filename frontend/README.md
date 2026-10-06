@@ -33,7 +33,7 @@ npm run test:e2e:ui   # same, with Playwright's interactive UI runner
 ```
 src/
   components/     # shared components (StatCard, ProjectCard, TaskDetailPanel, TaskFormModal,
-                  # NewProjectModal, AddMemberModal, AddLookupModal, HelpModal)
+                  # NewProjectModal, AddMemberModal, AddProjectMemberModal, AddLookupModal, HelpModal)
   components/ui/  # small reusable primitives — Avatar, Badge, DonutChart, ProgressBar, ProgressRing,
                   # LookupSelect, Modal, Dropdown (generic popover), ConfirmDialog, Toast, Skeleton,
                   # EmptyState
@@ -61,7 +61,7 @@ e2e/              # Playwright E2E specs (see Testing below)
 | `/register` | Register — self-service sign-up (public) |
 | `/verify-otp` | VerifyOtp — email OTP verification step after registering (public) |
 | `/` | Dashboard |
-| `/tasks` | Tasks |
+| `/tasks` | Tasks — every task in your projects grouped by project; search, filter (priority, project, **My Tasks** = tasks you are an assignee of), sort. Renamed from "My Tasks" |
 | `/projects` | Projects |
 | `/projects/:id` | ProjectDetail — status/priority/dates/manager/progress, a filterable task list with an "Add Task" action, a Members list, and a Milestones list (add/delete) |
 | `/kanban` | Kanban |
@@ -105,7 +105,7 @@ npm run test:e2e              # headless run
 npm run test:e2e:ui           # interactive runner
 ```
 
-`e2e/helpers.js`'s `login()` uses the seeded `admin.system` / `DevPassword123!` credentials. Current coverage: `auth.spec.js` (login success/failure, redirect when unauthenticated) and `projects.spec.js` (project cards render and link correctly, opening a project navigates to its detail page, opening a task there opens the task detail panel). Not yet wired into CI (`ci.yml` only lints/builds the frontend) — run it locally before a PR that touches these flows.
+`e2e/helpers.js`'s `login()` uses the seeded `admin.system` / `DevPassword123!` credentials. Current coverage (30 tests): `auth.spec.js` (login success/failure, redirect when unauthenticated), `projects.spec.js` (project cards render and link correctly, opening a project navigates to its detail page, opening a task there opens the task detail panel), `project-team.spec.js` (duplicate project-code `409`, inactive/suspended users cannot be invited, org-wide invitation suggestions, pending-invitation count, the Add-member picker) `team.spec.js` (the Team page offers no invitation for inactive/suspended users) and `permissions.spec.js` (scoped user/membership lookups, no cross-project task moves, read-only `VIEWER`, deactivated accounts' tokens rejected). Not covered: Tasks/My Tasks, Kanban, Calendar, Reports, Dashboard, Profile/Settings, registration/OTP, notifications — see [docs/testing.md](../docs/testing.md). Not yet wired into CI (`ci.yml` only lints/builds the frontend) — run it locally before a PR that touches these flows.
 
 ## Contributing
 

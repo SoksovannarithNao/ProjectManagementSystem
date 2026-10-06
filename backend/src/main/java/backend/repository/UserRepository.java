@@ -54,6 +54,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
             @Param("pattern") String pattern,
             Pageable pageable);
 
+    // Status only, no entity — runs on EVERY authenticated request (see
+    // config/ActiveAccountJwtValidator), so it must stay cheap: loading the
+    // User entity would also read the stored profile photo bytes.
+    @Query("SELECT u.accountStatus FROM User u WHERE u.username = :username")
+    Optional<String> findAccountStatusByUsername(@Param("username") String username);
+
     Optional<User> findByEmail(String email);
 
     // Case-insensitive, matching idx_users_username_lower/idx_users_email_lower

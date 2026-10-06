@@ -46,7 +46,8 @@ public class CommentService {
     public CommentResponse createComment(CommentRequest request, String username) {
         User caller = requireUser(username);
         Task task = requireTask(request.getTaskId());
-        projectAccessGuard.assertAccess(caller, task.getProject().getId());
+        // Commenting is a content write — a VIEWER can read the discussion but not add to it.
+        projectAccessGuard.assertCanEditContent(caller, task.getProject().getId());
 
         Comment comment = new Comment();
         comment.setTask(task);
