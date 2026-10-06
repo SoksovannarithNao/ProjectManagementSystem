@@ -5,6 +5,8 @@ import backend.dto.ProjectResponse;
 import backend.entity.Project;
 import backend.entity.ProjectMember;
 import backend.entity.User;
+import backend.exception.ConflictException;
+import backend.exception.GlobalExceptionHandler;
 import backend.exception.NotFoundException;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
@@ -125,6 +127,21 @@ public class ProjectService {
         projectRepository.delete(project);
     }
 
+    // Next PRJ-#### after the highest one in use (seed data starts at
+    // PRJ-2001, so the first generated code is PRJ-2004). The unique
+    // constraint on project_code remains the backstop for two simultaneous
+    // creates picking the same number.
+    private String generateProjectCode() {
+        int max = 0;
+        for (String code : projectRepository.findAutoProjectCodes()) {
+            String digits = code.substring("PRJ-".length());
+            if (digits.matches("\\d{1,9}")) {
+                max = Math.max(max, Integer.parseInt(digits));
+            }
+        }
+        return String.format("PRJ-%04d", max + 1);
+    }
+
     private User requireUser(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new NotFoundException("User not found"));
@@ -146,7 +163,20 @@ public class ProjectService {
                     .orElseThrow(() -> new NotFoundException("Manager (user) not found"));
         }
 
-        project.setProjectCode(request.getProjectCode());
+        if (request.getProjectCode() != null && !request.getProjectCode().isBlank()) {
+            String code = request.getProjectCode().trim();
+            // Friendly 409 up front; the DB unique constraint stays as the
+            // backstop (see GlobalExceptionHandler for the racing case).
+            boolean taken = project.getId() == null
+                    ? projectRepository.existsByProjectCode(code)
+                    : projectRepository.existsByProjectCodeAndIdNot(code, project.getId());
+            if (taken) {
+                throw new ConflictException(GlobalExceptionHandler.PROJECT_CODE_EXISTS_MESSAGE);
+            }
+            project.setProjectCode(code);
+        } else if (project.getProjectCode() == null) {
+            project.setProjectCode(generateProjectCode());
+        }
         project.setName(request.getName());
         project.setDescription(request.getDescription());
         project.setStartDate(request.getStartDate());

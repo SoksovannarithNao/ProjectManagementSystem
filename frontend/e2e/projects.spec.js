@@ -20,7 +20,9 @@ test('opening a project card navigates to its detail page', async ({ page }) => 
 
   await expect(page).toHaveURL(/\/projects\/\d+$/)
   await expect(page.getByRole('heading', { name })).toBeVisible()
-  await expect(page.getByText(/^Tasks/)).toBeVisible()
+  // A role query, not getByText: the sidebar's "Tasks" nav link would also
+  // match a bare text selector, and only this section heading is meant here.
+  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible()
   await expect(page.getByText(/^Members/)).toBeVisible()
   await expect(page.getByText(/^Milestones/)).toBeVisible()
 })

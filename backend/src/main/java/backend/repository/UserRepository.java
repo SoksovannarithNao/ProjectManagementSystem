@@ -1,8 +1,10 @@
 package backend.repository;
 
 import backend.entity.User;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +30,29 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.role")
     List<User> findAllWithRoles();
+
+    // Who can be invited to :projectId — searched across the WHOLE org (not
+    // just co-members of the caller) but filtered and paged in the database:
+    // ACTIVE accounts only, never the caller, and nobody who already has an
+    // ACTIVE or PENDING membership on this project (a DECLINED one can be
+    // re-invited, matching ProjectMemberService.inviteMember). :pattern is a
+    // pre-built, lower-cased LIKE pattern using '!' as its escape character.
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.accountStatus = 'ACTIVE'
+              AND u.id <> :callerId
+              AND (LOWER(u.username) LIKE :pattern ESCAPE '!' OR LOWER(u.fullName) LIKE :pattern ESCAPE '!')
+              AND NOT EXISTS (
+                  SELECT 1 FROM ProjectMember pm
+                  WHERE pm.project.id = :projectId AND pm.user.id = u.id
+                    AND pm.status IN ('ACTIVE', 'PENDING'))
+            ORDER BY u.fullName, u.id
+            """)
+    List<User> findInvitableUsers(
+            @Param("projectId") Long projectId,
+            @Param("callerId") Long callerId,
+            @Param("pattern") String pattern,
+            Pageable pageable);
 
     Optional<User> findByEmail(String email);
 

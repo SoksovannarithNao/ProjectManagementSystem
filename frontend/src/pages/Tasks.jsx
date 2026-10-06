@@ -83,6 +83,7 @@ export function Tasks() {
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState(() => new Set())
   const [projectFilter, setProjectFilter] = useState('')
+  const [myTasksOnly, setMyTasksOnly] = useState(false)
   const [sortBy, setSortBy] = useState('dueDate')
   const [expandedTaskIds, setExpandedTaskIds] = useState(() => new Set())
   // Empty by default — every project group starts fully expanded, matching
@@ -116,7 +117,7 @@ export function Tasks() {
     const t = list.find((task) => task.id === activeTaskId)
     return t ? { ...t, assigneeIds: assigneeMap.get(t.id) ?? [] } : null
   }, [activeTaskId, list, assigneeMap])
-  const activeFilterCount = priorityFilter.size + (projectFilter ? 1 : 0)
+  const activeFilterCount = priorityFilter.size + (projectFilter ? 1 : 0) + (myTasksOnly ? 1 : 0)
 
   const filteredList = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -127,9 +128,12 @@ export function Tasks() {
       }
       if (priorityFilter.size > 0 && !priorityFilter.has(t.priority)) return false
       if (projectFilter && String(t.project?.id) !== projectFilter) return false
+      // "My Tasks" = the caller is one of the task's actual assignees (the
+      // task-assignees join table, whoever assigned them) — not its creator.
+      if (myTasksOnly && !(assigneeMap.get(t.id) ?? []).includes(profile?.id)) return false
       return true
     })
-  }, [list, search, priorityFilter, projectFilter])
+  }, [list, search, priorityFilter, projectFilter, myTasksOnly, assigneeMap, profile])
 
   // Project name -> To do/Doing/Done -> its tasks (sorted by the current
   // sort choice) -> each task's subtasks, fetched on demand when expanded
@@ -303,7 +307,7 @@ export function Tasks() {
   return (
     <div>
       <TopBar
-        title="My Tasks"
+        title="Tasks"
         subtitle={`${list.length} tasks across all your projects`}
         searchValue={search}
         onSearchChange={setSearch}
@@ -319,6 +323,15 @@ export function Tasks() {
             >
               {({ close }) => (
                 <div className="flex w-[220px] flex-col gap-3 p-1">
+                  <div>
+                    <span className="text-faint mb-1.5 block text-[11px] font-[650] tracking-[0.04em] uppercase">
+                      Assignment
+                    </span>
+                    <label className="hover:bg-subtle flex items-center gap-2 rounded-sm px-1.5 py-1 text-[13px]">
+                      <input type="checkbox" checked={myTasksOnly} onChange={() => setMyTasksOnly((v) => !v)} />
+                      My Tasks
+                    </label>
+                  </div>
                   <div>
                     <span className="text-faint mb-1.5 block text-[11px] font-[650] tracking-[0.04em] uppercase">
                       Priority
@@ -359,6 +372,7 @@ export function Tasks() {
                       onClick={() => {
                         setPriorityFilter(new Set())
                         setProjectFilter('')
+                        setMyTasksOnly(false)
                         close()
                       }}
                     >

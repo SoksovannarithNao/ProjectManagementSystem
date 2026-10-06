@@ -1,5 +1,7 @@
 package backend.service;
 
+import backend.dto.InvitableUserResponse;
+import backend.dto.PendingInvitationCountResponse;
 import backend.dto.ProjectMemberRequest;
 import backend.dto.ProjectMemberResponse;
 import backend.dto.TeamInviteRequest;
@@ -10,6 +12,7 @@ import backend.exception.NotFoundException;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -115,6 +118,57 @@ public class ProjectMemberService {
                 .toList();
     }
 
+    // Same Team-Admin gate as the invitation list above — just the size of it
+    // (PENDING rows for this project), for the "N pending invitations" line
+    // on the project page, without shipping every invitee's details.
+    @Transactional(readOnly = true)
+    public PendingInvitationCountResponse countPendingInvitations(Long projectId, String username) {
+        Project project = requireProject(projectId);
+        projectAccessGuard.assertCanManage(requireUser(username), project.getId());
+        return new PendingInvitationCountResponse(
+                projectMemberRepository.countByProjectIdAndStatus(project.getId(), "PENDING"));
+    }
+
+    static final int INVITABLE_MAX_RESULTS = 20;
+
+    // Type-ahead for the invite picker: searches every ACTIVE user in the org
+    // (not only the caller's co-members) by username or full name, excluding
+    // the caller and anyone already ACTIVE/PENDING on this project. Filtering
+    // and the result cap happen in the database query. Gated like inviting
+    // itself — only someone who can invite to this project can browse for
+    // people to invite.
+    @Transactional(readOnly = true)
+    public List<InvitableUserResponse> searchInvitableUsers(Long projectId, String query, int limit, String username) {
+        User caller = requireUser(username);
+        Project project = requireProject(projectId);
+        projectAccessGuard.assertCanManage(caller, project.getId());
+
+        int size = Math.min(Math.max(limit, 1), INVITABLE_MAX_RESULTS);
+        return userRepository
+                .findInvitableUsers(project.getId(), caller.getId(), likePattern(query), PageRequest.of(0, size))
+                .stream()
+                .map(InvitableUserResponse::new)
+                .toList();
+    }
+
+    // "%text%", lower-cased, with LIKE wildcards in the user's text escaped
+    // ('!' is the ESCAPE character in UserRepository.findInvitableUsers) so
+    // typing "%" or "_" matches those literal characters, not everyone.
+    static String likePattern(String query) {
+        String text = query == null ? "" : query.trim().toLowerCase();
+        String escaped = text.replace("!", "!!").replace("%", "!%").replace("_", "!_");
+        return "%" + escaped + "%";
+    }
+
+    // INACTIVE/SUSPENDED accounts can't sign in, so they can't act on an
+    // invitation or work in a project — keep them off every team.
+    private void assertEligibleForTeam(User target) {
+        if (!"ACTIVE".equals(target.getAccountStatus())) {
+            throw new IllegalArgumentException(
+                    target.getUsername() + " has an inactive account and can't be added to a project");
+        }
+    }
+
     // Only OWNER/ADMIN of the project (or a system ADMINISTRATOR) may invite
     // a user to it. Re-invites a previously DECLINED row rather than
     // creating a second one — the (project_id, user_id) UNIQUE constraint
@@ -129,6 +183,7 @@ public class ProjectMemberService {
         if (target.getId().equals(caller.getId())) {
             throw new IllegalArgumentException("You cannot invite yourself");
         }
+        assertEligibleForTeam(target);
 
         Optional<ProjectMember> existing = projectMemberRepository.findByProjectIdAndUserId(project.getId(), target.getId());
         ProjectMember member;
@@ -198,6 +253,7 @@ public class ProjectMemberService {
         }
         ProjectMember projectMember = new ProjectMember();
         applyRequest(projectMember, request);
+        assertEligibleForTeam(projectMember.getUser());
         return new ProjectMemberResponse(projectMemberRepository.save(projectMember));
     }
 

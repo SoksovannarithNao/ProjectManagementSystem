@@ -12,7 +12,9 @@ import java.time.LocalDate;
 
 public class ProjectRequest {
 
-    @NotBlank
+    // Optional — omitted/blank on create means the server generates the next
+    // PRJ-#### code (see ProjectService.generateProjectCode); on update a
+    // blank value keeps the project's existing code.
     @Size(max = 30)
     private String projectCode;
 

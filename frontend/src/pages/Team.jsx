@@ -49,6 +49,10 @@ export function Team() {
   const activeId = selectedId ?? members[0]?.id
   const selected = members.find((m) => m.id === activeId)
   const isSelf = selected?.id === profile?.id
+  // INACTIVE/SUSPENDED accounts can't be invited to a project (the backend
+  // rejects it in ProjectMemberService.inviteMember — this just avoids
+  // offering a control that can only fail).
+  const isSelectedInvitable = selected?.accountStatus === 'ACTIVE'
 
   // Projects the current user actually administers (an active OWNER/ADMIN
   // membership, or a system ADMINISTRATOR) — mirrors
@@ -103,7 +107,7 @@ export function Team() {
       : ''
 
   const handleInviteToProject = async () => {
-    if (!effectiveAddProjectId || !selected) return
+    if (!effectiveAddProjectId || !selected || !isSelectedInvitable) return
     setAddingProject(true)
     try {
       await inviteMember({
@@ -314,7 +318,13 @@ export function Team() {
                 ))}
               </div>
 
-              {!isSelf && availableProjects.length > 0 && (
+              {!isSelf && !isSelectedInvitable && (isAdmin || administeredProjectIds?.size > 0) && (
+                <p className="text-faint mt-3 text-[12.5px]">
+                  This account is {selected.accountStatus?.toLowerCase() ?? 'not active'} and can&apos;t be invited to a project.
+                </p>
+              )}
+
+              {!isSelf && isSelectedInvitable && availableProjects.length > 0 && (
                 <div className="mt-3 flex items-center gap-2">
                   <select
                     value={effectiveAddProjectId}
