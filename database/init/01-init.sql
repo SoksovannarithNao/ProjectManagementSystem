@@ -18,38 +18,48 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ==================== roles ==================== --
+-- Two levels of role (docs/adr/0015-two-level-roles-system-and-project.md):
+--   * system roles  (users.role_id): ADMINISTRATOR, PROJECT_MANAGER, USER - what
+--                    the account may do anywhere (create a project, generate
+--                    reports across projects, manage users and roles).
+--   * project roles (project_members.project_role): OWNER, ADMIN, MEMBER, VIEWER -
+--                    what a person may do inside ONE project. The business names
+--                    are Project Manager (the OWNER), Team Leader (ADMIN) and
+--                    Team Member (MEMBER); roles.project_role maps each project
+--                    role to its row here so the same person can be OWNER of one
+--                    project and MEMBER of another.
+-- Migration V10 builds the same end state for databases created before it.
 
 CREATE TABLE roles (
-    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    name        VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(255),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name         VARCHAR(50) NOT NULL UNIQUE,
+    description  VARCHAR(255),
+    scope        VARCHAR(10) NOT NULL DEFAULT 'SYSTEM'
+                 CONSTRAINT roles_scope_check CHECK (scope IN ('SYSTEM', 'PROJECT', 'BOTH')),
+    project_role VARCHAR(20)
+                 CONSTRAINT roles_project_role_check CHECK (project_role IS NULL OR project_role IN ('OWNER', 'ADMIN', 'MEMBER', 'VIEWER')),
+    built_in     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Two system-level roles. Project/task authorization is entirely
--- project-scoped (see project_members.project_role below) — neither role
--- below grants any project-specific power beyond what ADMINISTRATOR's
--- bypass gives it:
---   USER          — assigned to every self-registered account by default
---                   (UserService.registerSelfServiceUser). No special
---                   access of any kind; purely an account-level label. All
---                   real authority still comes from project_members rows.
---   ADMINISTRATOR — genuinely global concerns unrelated to any one project:
---                   managing user accounts, managing this roles list, and a
---                   "sees every project/task" bypass (ProjectAccessGuard.isAdmin).
---                   Only granted by promoting an existing account; never
---                   assigned at registration.
-INSERT INTO roles (name, description) VALUES
-    ('USER', 'Standard registered account — no special access; all authority comes from project membership'),
-    ('ADMINISTRATOR', 'Full access to user accounts, system roles, and every project/report');
+CREATE UNIQUE INDEX idx_roles_project_role ON roles (project_role) WHERE project_role IS NOT NULL;
+
+INSERT INTO roles (name, description, scope, project_role, built_in) VALUES
+    ('ADMINISTRATOR',   'Full access to users, roles, permissions, reports and every project',                                              'SYSTEM',  NULL,     TRUE),
+    ('PROJECT_MANAGER', 'Creates projects and generates reports across the projects they belong to; owns the projects they create',          'SYSTEM',  NULL,     TRUE),
+    ('USER',            'A registered person with no global management rights; works through the role held in each project',                'SYSTEM',  NULL,     TRUE),
+    ('OWNER',           'Project owner (the Project Manager of this project): full authority inside it',                                     'PROJECT', 'OWNER',  TRUE),
+    ('ADMIN',           'Team Leader: plans, assigns and approves inside one project; cannot delete it',                                     'PROJECT', 'ADMIN',  TRUE),
+    ('MEMBER',          'Team Member: works on assigned tasks, subtasks, comments and time',                                                 'PROJECT', 'MEMBER', TRUE),
+    ('VIEWER',          'Read-only access inside a project (project role only, not a system role)',                                          'PROJECT', 'VIEWER', TRUE);
 
 -- ==================== permissions / role_permissions ==================== --
--- Granular authorization on top of the 4 fixed roles. Role_Requirment.md's
--- "Available actions" list (View, Create, Edit, Delete, Assign, Approve,
--- Generate Reports) becomes a flat permission catalog; role_permissions is
--- the default matrix. Deliberately role-level only — no per-user override
--- table — since nothing in the app needs finer granularity yet (see the
--- README's Authorization section for the reasoning and the ADMIN/PM caveat).
+-- Role_Requirment.md's "Available actions" (View, Create, Edit, Delete, Assign,
+-- Approve, Generate Reports) are the 7 permission codes. role_permissions says
+-- which role may do which action on which resource, at system scope or inside
+-- a project. The backend reads it (PermissionService); administrators edit it
+-- in the Role & Permission screen. Deliberately role-level only - no per-user
+-- override table. See docs/database.md section 13.
 
 CREATE TABLE permissions (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -63,26 +73,97 @@ INSERT INTO permissions (code, description) VALUES
     ('EDIT',             'Edit existing projects, tasks, and other records'),
     ('DELETE',           'Delete projects, tasks, and other records'),
     ('ASSIGN',           'Assign tasks or team members'),
-    ('APPROVE',          'Approve task/milestone completion or other workflow steps'),
+    ('APPROVE',          'Approve task completion'),
     ('GENERATE_REPORTS', 'Generate and view reports/KPIs');
 
 CREATE TABLE role_permissions (
     role_id       BIGINT NOT NULL REFERENCES roles (id) ON DELETE CASCADE,
     permission_id BIGINT NOT NULL REFERENCES permissions (id) ON DELETE CASCADE,
-    PRIMARY KEY (role_id, permission_id)
+    resource      VARCHAR(30) NOT NULL
+                  CONSTRAINT role_permissions_resource_check
+                  CHECK (resource IN ('PROJECT', 'MILESTONE', 'MEMBER', 'TASK', 'TASK_STATUS', 'SUBTASK',
+                                      'COMMENT', 'WORK_LOG', 'REPORT', 'USER', 'ROLE', 'LOOKUP')),
+    scope         VARCHAR(10) NOT NULL
+                  CONSTRAINT role_permissions_scope_check CHECK (scope IN ('SYSTEM', 'PROJECT')),
+    PRIMARY KEY (role_id, permission_id, resource, scope)
 );
 
 CREATE INDEX idx_role_permissions_permission_id ON role_permissions (permission_id);
 
--- ADMINISTRATOR gets every action at this flat, action-only granularity.
--- Project-scoped roles (OWNER/ADMIN/MEMBER/VIEWER on project_members) are
--- deliberately NOT rows here — this table only ever described the old
--- global-role matrix, and nothing in the backend actually queries it (see
--- README's Authorization section) — project/task permission is computed
--- directly from project_members.project_role instead.
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p
-WHERE r.name = 'ADMINISTRATOR';
+-- scope SYSTEM  = applies everywhere, independent of any project
+-- scope PROJECT = applies inside a project where the user is an ACTIVE member
+--                 with the role's project_role (OWNER/ADMIN/MEMBER/VIEWER)
+-- ADMINISTRATOR holds every action on every resource at SYSTEM scope and also
+-- bypasses project membership in code (ProjectAccessGuard.isAdmin).
+INSERT INTO role_permissions (role_id, permission_id, resource, scope)
+SELECT r.id, p.id, g.resource, g.scope
+FROM (VALUES
+    -- Administrator: everything, system-wide
+    ('ADMINISTRATOR', 'SYSTEM', 'PROJECT',     ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'MILESTONE',   ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'MEMBER',      ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'TASK',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'TASK_STATUS', ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'SUBTASK',     ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'COMMENT',     ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'WORK_LOG',    ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'REPORT',      ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'USER',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'ROLE',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'LOOKUP',      ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+
+    -- System scope of Project Manager: create projects, cross-project reports.
+    -- USER holds nothing at system scope.
+    ('PROJECT_MANAGER', 'SYSTEM', 'PROJECT', ARRAY['CREATE']),
+    ('PROJECT_MANAGER', 'SYSTEM', 'REPORT',  ARRAY['GENERATE_REPORTS']),
+
+    -- Project scope: OWNER (the Project Manager of this project)
+    ('OWNER', 'PROJECT', 'PROJECT',     ARRAY['VIEW','EDIT','DELETE','ASSIGN']),
+    ('OWNER', 'PROJECT', 'MILESTONE',   ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('OWNER', 'PROJECT', 'MEMBER',      ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('OWNER', 'PROJECT', 'TASK',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE']),
+    ('OWNER', 'PROJECT', 'TASK_STATUS', ARRAY['EDIT']),
+    ('OWNER', 'PROJECT', 'SUBTASK',     ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('OWNER', 'PROJECT', 'COMMENT',     ARRAY['VIEW','CREATE','DELETE']),
+    ('OWNER', 'PROJECT', 'WORK_LOG',    ARRAY['VIEW','CREATE','DELETE']),
+    ('OWNER', 'PROJECT', 'REPORT',      ARRAY['GENERATE_REPORTS']),
+
+    -- Project scope: ADMIN (Team Leader). May delete work items and remove
+    -- members, never the project or the owner (D-01).
+    ('ADMIN', 'PROJECT', 'PROJECT',     ARRAY['VIEW','EDIT']),
+    ('ADMIN', 'PROJECT', 'MILESTONE',   ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('ADMIN', 'PROJECT', 'MEMBER',      ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('ADMIN', 'PROJECT', 'TASK',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE']),
+    ('ADMIN', 'PROJECT', 'TASK_STATUS', ARRAY['EDIT']),
+    ('ADMIN', 'PROJECT', 'SUBTASK',     ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('ADMIN', 'PROJECT', 'COMMENT',     ARRAY['VIEW','CREATE','DELETE']),
+    ('ADMIN', 'PROJECT', 'WORK_LOG',    ARRAY['VIEW','CREATE','DELETE']),
+    ('ADMIN', 'PROJECT', 'REPORT',      ARRAY['GENERATE_REPORTS']),
+
+    -- Project scope: MEMBER (Team Member). Limited create/edit; no task
+    -- creation, no deletes (authors may still delete their own content).
+    ('MEMBER', 'PROJECT', 'PROJECT',     ARRAY['VIEW']),
+    ('MEMBER', 'PROJECT', 'MILESTONE',   ARRAY['VIEW']),
+    ('MEMBER', 'PROJECT', 'MEMBER',      ARRAY['VIEW']),
+    ('MEMBER', 'PROJECT', 'TASK',        ARRAY['VIEW']),
+    ('MEMBER', 'PROJECT', 'TASK_STATUS', ARRAY['EDIT']),
+    ('MEMBER', 'PROJECT', 'SUBTASK',     ARRAY['VIEW','CREATE','EDIT']),
+    ('MEMBER', 'PROJECT', 'COMMENT',     ARRAY['VIEW','CREATE']),
+    ('MEMBER', 'PROJECT', 'WORK_LOG',    ARRAY['VIEW','CREATE']),
+
+    -- Project scope: VIEWER - read only
+    ('VIEWER', 'PROJECT', 'PROJECT',   ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'MILESTONE', ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'MEMBER',    ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'TASK',      ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'SUBTASK',   ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'COMMENT',   ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'WORK_LOG',  ARRAY['VIEW'])
+) AS g(role_name, scope, resource, perms)
+JOIN roles r ON r.name = g.role_name
+CROSS JOIN LATERAL unnest(g.perms) AS u(perm_code)
+JOIN permissions p ON p.code = u.perm_code
+ON CONFLICT DO NOTHING;
 
 -- ==================== positions / departments ==================== --
 -- Org-wide lookup lists (Requirement: Position/Department must be managed by
@@ -121,7 +202,7 @@ CREATE TABLE users (
     date_of_birth    DATE,
     phone_number     VARCHAR(30),
     -- The photo itself, stored in the database rather than on local disk —
-    -- see backend/README.md — so it travels with a pg_dump/restore or a
+    -- see docs/backend.md — so it travels with a pg_dump/restore or a
     -- managed-Postgres migration instead of being left behind on whichever
     -- host originally received the upload. profile_photo_token is the
     -- public lookup key (regenerated on every upload) — never the user's
@@ -130,7 +211,7 @@ CREATE TABLE users (
     profile_photo_content_type  VARCHAR(50),
     profile_photo_token   UUID,
     -- Set only by a Team Admin (via project_members-scoped authorization in
-    -- the backend), never by the user themselves — see backend/README.md.
+    -- the backend), never by the user themselves — see docs/backend.md.
     position_id      BIGINT REFERENCES positions (id) ON DELETE SET NULL,
     department_id    BIGINT REFERENCES departments (id) ON DELETE SET NULL,
     -- Nullable: this is a SYSTEM-level role (ADMINISTRATOR or nothing), not
@@ -146,7 +227,7 @@ CREATE TABLE users (
     account_status   VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
                      CHECK (account_status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION')),
     -- Appearance/notification preferences: per-user application settings,
-    -- distinct from the personal-info fields above (see database/README.md).
+    -- distinct from the personal-info fields above (see docs/database.md).
     theme_preference VARCHAR(10) NOT NULL DEFAULT 'SYSTEM'
                      CHECK (theme_preference IN ('LIGHT', 'DARK', 'SYSTEM')),
     task_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
@@ -254,49 +335,58 @@ CREATE INDEX idx_project_members_project_id ON project_members (project_id);
 CREATE INDEX idx_project_members_user_id ON project_members (user_id);
 CREATE INDEX idx_project_members_status ON project_members (status);
 
--- "A project must always have at least one ACTIVE owner." Without this, an
--- OWNER could demote/remove themselves (or be removed via a user account
--- deletion, which cascades into this table) and permanently orphan the
--- project — granting OWNER requires already being one (see backend
--- ProjectAccessGuard.assertIsOwner), so nobody could ever become OWNER
--- again. Mirrors ProjectMemberService.assertNotRemovingLastOwner at the
--- application layer; kept here too since ON DELETE CASCADE from `users`
--- reaches this table directly, bypassing that Java code path. To transfer
--- ownership: promote the new OWNER first (now two active owners exist),
--- then demote/remove the old one — the second step then sees the new owner
--- already in place and passes.
-CREATE OR REPLACE FUNCTION check_project_has_active_owner()
+-- "A project has exactly one ACTIVE owner." (ADR-0015; V10 replaces V8's
+-- "at least one owner" trigger.) Without it an OWNER could demote/remove
+-- themselves - or be removed by a user-account deletion, which cascades into
+-- this table - and orphan the project, or a second OWNER could be added.
+-- The check is DEFERRED to the end of the transaction so ownership moves in one
+-- step (demote the old owner and promote the new one together), and it is
+-- skipped when the project itself is being deleted, so a project with a single
+-- owner can be deleted. The backend (ProjectOwnership, ProjectMemberService)
+-- gives friendly errors first; this is the backstop.
+CREATE OR REPLACE FUNCTION check_project_has_single_owner()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_remaining_owners INTEGER;
+    v_project_id BIGINT;
+    v_owners     INTEGER;
 BEGIN
-    -- Only the removal/demotion of a currently-ACTIVE-OWNER row matters.
-    IF OLD.project_role <> 'OWNER' OR OLD.status <> 'ACTIVE' THEN
-        RETURN COALESCE(NEW, OLD);
-    END IF;
-    -- Still an active owner afterwards (e.g. an unrelated field changed) —
-    -- nothing to check.
-    IF TG_OP = 'UPDATE' AND NEW.project_role = 'OWNER' AND NEW.status = 'ACTIVE' THEN
-        RETURN NEW;
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.project_role <> 'OWNER' OR OLD.status <> 'ACTIVE' THEN RETURN NULL; END IF;
+        v_project_id := OLD.project_id;
+    ELSIF TG_OP = 'INSERT' THEN
+        IF NEW.project_role <> 'OWNER' OR NEW.status <> 'ACTIVE' THEN RETURN NULL; END IF;
+        v_project_id := NEW.project_id;
+    ELSE
+        IF NOT ((OLD.project_role = 'OWNER' AND OLD.status = 'ACTIVE')
+                OR (NEW.project_role = 'OWNER' AND NEW.status = 'ACTIVE')) THEN
+            RETURN NULL;
+        END IF;
+        v_project_id := NEW.project_id;
     END IF;
 
-    SELECT COUNT(*) INTO v_remaining_owners
+    -- The project is gone (it is being deleted): nothing to protect.
+    IF NOT EXISTS (SELECT 1 FROM projects WHERE id = v_project_id) THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT COUNT(*) INTO v_owners
     FROM project_members
-    WHERE project_id = OLD.project_id AND project_role = 'OWNER' AND status = 'ACTIVE'
-      AND id <> OLD.id;
+    WHERE project_id = v_project_id AND project_role = 'OWNER' AND status = 'ACTIVE';
 
-    IF v_remaining_owners = 0 THEN
-        RAISE EXCEPTION 'Project % must keep at least one active owner — promote another member to OWNER first',
-            OLD.project_id
-            USING ERRCODE = '23514'; -- check_violation — see the milestone trigger below
+    IF v_owners <> 1 THEN
+        RAISE EXCEPTION 'Project % must have exactly one active owner (it would have %) - transfer ownership instead of adding or removing an owner',
+            v_project_id, v_owners
+            USING ERRCODE = '23514'; -- check_violation, cleaned for the client by GlobalExceptionHandler
     END IF;
-    RETURN COALESCE(NEW, OLD);
+    RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_project_members_owner_integrity
-    BEFORE UPDATE OR DELETE ON project_members
-    FOR EACH ROW EXECUTE FUNCTION check_project_has_active_owner();
+DROP TRIGGER IF EXISTS trg_project_members_single_owner ON project_members;
+CREATE CONSTRAINT TRIGGER trg_project_members_single_owner
+    AFTER INSERT OR UPDATE OR DELETE ON project_members
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION check_project_has_single_owner();
 
 -- ==================== milestones ==================== --
 
@@ -604,7 +694,7 @@ CREATE TRIGGER trg_tasks_milestone_project_match
 -- enforcement points below: the AFTER trigger on tasks recomputes both
 -- parents whenever a task changes, and the BEFORE UPDATE triggers on
 -- projects/milestones themselves recompute on *any* direct update to that
--- row, silently overriding whatever value was sent — see the README's
+-- row, silently overriding whatever value was sent — see docs/database.md's
 -- Business Rules section for the "writable but not authoritative" framing.
 
 CREATE OR REPLACE FUNCTION fn_compute_project_progress(p_project_id BIGINT)
@@ -953,7 +1043,7 @@ WHERE t.due_date < CURRENT_DATE
 -- of this function today, but still gets a fresh one tomorrow if the task
 -- is still overdue. Nothing calls this on a schedule yet — wiring a daily
 -- caller (a Spring @Scheduled job, pg_cron, etc.) is a backend follow-up;
--- see the README.
+-- see docs/database.md.
 CREATE OR REPLACE FUNCTION fn_generate_overdue_notifications()
 RETURNS INTEGER AS $$
 DECLARE

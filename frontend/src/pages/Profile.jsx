@@ -144,7 +144,7 @@ export function Profile() {
                 photoUrl={profile?.profilePhotoUrl}
                 size={64}
               />
-              <span className="bg-charcoal text-white group-hover:bg-lavender pointer-events-none absolute right-0 bottom-0 flex h-6 w-6 items-center justify-center rounded-full border-2 border-card transition-colors">
+              <span className="bg-charcoal text-on-charcoal group-hover:bg-lavender pointer-events-none absolute right-0 bottom-0 flex h-6 w-6 items-center justify-center rounded-full border-2 border-card transition-colors">
                 <Pencil size={11} />
               </span>
             </button>
@@ -156,11 +156,11 @@ export function Profile() {
               className="hidden"
             />
             <div className="flex flex-col items-start gap-2">
-              <span className="text-faint text-[11.5px]">JPEG, PNG, WEBP, or GIF — up to 5MB</span>
+              <span className="text-faint text-[12px]">JPEG, PNG, WEBP, or GIF — up to 5MB</span>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  className="btn btn-secondary px-3 py-1.5 text-[12.5px]"
+                  className="btn btn-secondary hit-area px-3 py-1.5 text-[12px]"
                   onClick={() => photoInputRef.current?.click()}
                   disabled={uploadingPhoto}
                 >
@@ -173,7 +173,7 @@ export function Profile() {
                 {profile?.profilePhotoUrl && (
                   <button
                     type="button"
-                    className="text-danger text-[11.5px] font-semibold"
+                    className="text-danger-ink text-[12px] font-semibold"
                     onClick={handleRemovePhoto}
                     disabled={uploadingPhoto}
                   >
@@ -184,7 +184,7 @@ export function Profile() {
             </div>
           </div>
 
-          <div className="bg-subtle border-border mb-5 flex flex-wrap gap-x-8 gap-y-2 rounded-md border px-4 py-3 text-[12.5px]">
+          <div className="bg-subtle border-border mb-5 flex flex-wrap gap-x-8 gap-y-2 rounded-md border px-4 py-3 text-[12px]">
             <span className="text-muted">
               Username: <span className="text-ink font-semibold">{username}</span>
             </span>
@@ -192,34 +192,34 @@ export function Profile() {
 
           <form onSubmit={handleSaveProfile} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1.5">
-              <span className="text-muted text-[12.5px] font-semibold">Full name</span>
+              <span className="text-muted text-[12px] font-semibold">Full name</span>
               <input
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                className="field"
                 required
               />
             </label>
 
             <label className="flex flex-col gap-1.5">
-              <span className="text-muted text-[12.5px] font-semibold">Email</span>
+              <span className="text-muted text-[12px] font-semibold">Email</span>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                className="field"
                 required
               />
             </label>
 
-            <div className="flex gap-3">
-              <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">Gender</span>
+            <div className="flex gap-3 max-[520px]:flex-col">
+              <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">Gender</span>
                 <select
                   value={gender ?? ''}
                   onChange={(e) => setGender(e.target.value)}
-                  className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                  className="field"
                 >
                   {GENDER_OPTIONS.map((g) => (
                     <option key={g} value={g}>
@@ -229,27 +229,27 @@ export function Profile() {
                 </select>
               </label>
               <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">Date of birth</span>
+                <span className="text-muted text-[12px] font-semibold">Date of birth</span>
                 <input
                   type="date"
                   value={dateOfBirth ?? ''}
                   onChange={(e) => setDateOfBirth(e.target.value)}
-                  className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                  className="field"
                 />
               </label>
             </div>
 
             <label className="flex flex-col gap-1.5">
-              <span className="text-muted text-[12.5px] font-semibold">Phone number</span>
+              <span className="text-muted text-[12px] font-semibold">Phone number</span>
               <input
                 type="text"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
-                className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                className="field"
               />
             </label>
 
-            {profileError && <p className="text-danger text-[12.5px] font-semibold">{profileError}</p>}
+            {profileError && <p className="text-danger-ink text-[12px] font-semibold">{profileError}</p>}
 
             <div className="mt-1 flex justify-end">
               <button type="submit" className="btn btn-primary" disabled={savingProfile}>
@@ -267,44 +267,44 @@ export function Profile() {
 
           <form onSubmit={handleChangePassword} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1.5">
-              <span className="text-muted text-[12.5px] font-semibold">Current password</span>
+              <span className="text-muted text-[12px] font-semibold">Current password</span>
               <input
                 type="password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 autoComplete="current-password"
-                className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                className="field"
                 required
               />
             </label>
 
-            <div className="flex gap-3">
-              <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">New password</span>
+            <div className="flex gap-3 max-[520px]:flex-col">
+              <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">New password</span>
                 <input
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   autoComplete="new-password"
-                  className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                  className="field"
                   required
                 />
               </label>
-              <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">Confirm new password</span>
+              <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">Confirm new password</span>
                 <input
                   type="password"
                   value={confirmNewPassword}
                   onChange={(e) => setConfirmNewPassword(e.target.value)}
                   autoComplete="new-password"
-                  className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                  className="field"
                   required
                 />
               </label>
             </div>
             <PasswordChecklist password={newPassword} className="-mt-2" />
 
-            {passwordError && <p className="text-danger text-[12.5px] font-semibold">{passwordError}</p>}
+            {passwordError && <p className="text-danger-ink text-[12px] font-semibold">{passwordError}</p>}
 
             <div className="flex justify-end">
               <button type="submit" className="btn btn-primary" disabled={savingPassword}>

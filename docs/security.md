@@ -6,7 +6,7 @@ What the application does to keep data valid and access controlled, and where it
 
 | Layer | Mechanism | Examples |
 |---|---|---|
-| Browser | form validation, hidden controls | password checklist, date-order check, `api/permissions.js` hiding buttons |
+| Browser | form validation, hidden controls | password checklist, date-order check, controls hidden from the server's permission list |
 | API entry | Spring Security filter chain, Bean Validation | JWT check, `@Valid` request DTOs, `@Pattern` enums |
 | Service | explicit rule checks | `ProjectAccessGuard`, last-owner protection, invitation eligibility |
 | Database | `CHECK`, `UNIQUE`, FK, triggers | date ranges, dependency order, assignee eligibility, progress |
@@ -44,12 +44,13 @@ The UI checks are conveniences only; the backend and database repeat every rule 
 
 ## 4. Authorization enforcement
 
-- **Where:** almost every rule is in service code via `ProjectAccessGuard`; `@PreAuthorize("hasRole('ADMINISTRATOR')")` is used only for system-wide actions (user and role management, creating positions/departments). See [authentication-authorization.md](authentication-authorization.md).
+- **Where:** every rule is a row in `role_permissions`, answered by `ProjectAccessGuard` / `PermissionService` in service code; system-wide endpoints (users, roles, the matrix, positions/departments) use `@PreAuthorize("@permissions.require(authentication, 'USER', 'CREATE')")`-style checks. A refused request is `403` with a specific sentence. `ADMINISTRATOR` bypasses the check in code, so the matrix can never lock it out. See [authentication-authorization.md](authentication-authorization.md).
 - **Scoping reads:** list endpoints first load the caller's active project ids and filter; single-resource endpoints call `assertAccess`.
 - **Non-disclosure:** `assertAccess` and notification lookups answer `404`, not `403`.
 - **Self-service endpoints** (`/api/users/me*`, `/api/notifications*`, accept/decline) take the target from the token; there is no id to tamper with. The self-profile DTO has no role or status field, so a user cannot escalate.
 - **Invariants:** last-owner protection (service + trigger), assignees must be active members (trigger).
-- **Frontend:** `api/permissions.js` mirrors the rules to hide actions; it is not a security boundary.
+- **Frontend:** the UI reads the caller's permission list from the server (`GET /api/users/me/permissions`) and hides what it would refuse; it is not a security boundary.
+- **Editing the matrix** (`PUT /api/roles/{id}/permissions`) needs `ROLE:EDIT`. The Administrator role is locked, a project role cannot lose `PROJECT:VIEW`, and the last Administrator cannot be demoted. **Known gap:** `REPORT:GENERATE_REPORTS` gates the Reports page only; there are no server-side report endpoints, so the underlying task data is reachable by anyone who may see the tasks.
 
 **Fixed on 2026-10-06** (each verified live before the fix and covered by tests afterwards; see [issues.md](issues.md#5-fixed) F-12 … F-18):
 
@@ -57,9 +58,9 @@ The UI checks are conveniences only; the backend and database repeat every rule 
 |---|---|
 | Any authenticated user could read any user's full profile by id or username | Scoped: administrator, the user themself, or someone sharing an active project; everyone else gets the same `404` as for a nonexistent user |
 | Any authenticated user could list any user's project memberships | Non-administrators see only the user's **active** memberships in projects they belong to |
-| A project owner/admin could move a task into any project | Moving needs manage rights on the **target** project too (`403`) |
+| A project owner/admin could move a task into any project | Moving needs the right to edit tasks in the **target** project too (`403`) |
 | `PUT` milestone / membership could re-point the row | Milestone: target-project check. Membership: only the role can change (`400` otherwise) |
-| `VIEWER` could add comments and subtasks; an assigned `VIEWER` could change task status | Content-edit rights (`OWNER`/`ADMIN`/`MEMBER`) are required; the UI hides the controls |
+| `VIEWER` could add comments and subtasks; an assigned `VIEWER` could change task status | The matching `COMMENT:CREATE` / `SUBTASK:CREATE` / `TASK_STATUS:EDIT` grant is required (a Viewer has none); the UI hides the controls |
 
 **Still open:**
 
@@ -132,7 +133,7 @@ Full catalogue in [database.md](database.md). The security-relevant ones:
 
 ## 9. Security checklist for contributors
 
-- New endpoint → decide its access rule; use `ProjectAccessGuard`; remember `assertAccess` returns `404` by design. Check the permission against the **target** project when a request body can change `projectId`.
+- New endpoint → decide its access rule as a *(resource, action)* pair; use `ProjectAccessGuard.assertCan` (or a `@PreAuthorize` permission check for system-wide ones) and add the grant rows to `V9`-style migration + `01-init.sql`; remember `assertAccess` returns `404` by design. Check the permission against the **target** project when a request body can change `projectId`.
 - New table → add a `GRANT` to `database/init/03-app-role.sh` **and** the duplicate in `.github/workflows/ci.yml`.
 - New cross-row rule as a trigger → `USING ERRCODE = '23514'`, and add the same change to a new Flyway migration.
 - New user-visible error → throw `IllegalArgumentException`/`ConflictException` with a human sentence rather than relying on a database message.

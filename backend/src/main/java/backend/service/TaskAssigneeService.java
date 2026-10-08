@@ -10,6 +10,8 @@ import backend.repository.ProjectMemberRepository;
 import backend.repository.TaskAssigneeRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -115,7 +117,7 @@ public class TaskAssigneeService {
                 .orElseThrow(() -> new NotFoundException("Task not found"));
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new NotFoundException("User not found"));
-        projectAccessGuard.assertCanManage(requireUser(username), task.getProject().getId());
+        projectAccessGuard.assertCan(requireUser(username), task.getProject().getId(), Resource.TASK, Action.ASSIGN);
 
         TaskAssignee taskAssignee = new TaskAssignee();
         taskAssignee.setTask(task);
@@ -130,7 +132,7 @@ public class TaskAssigneeService {
     public void deleteTaskAssignee(Long id, String username) {
         TaskAssignee taskAssignee = getTaskAssigneeEntityById(id);
         User caller = requireUser(username);
-        projectAccessGuard.assertCanManage(caller, taskAssignee.getTask().getProject().getId());
+        projectAccessGuard.assertCan(caller, taskAssignee.getTask().getProject().getId(), Resource.TASK, Action.ASSIGN);
         activityLogService.record(caller, taskAssignee.getTask(), "TASK_UNASSIGNED",
                 taskAssignee.getUser().getFullName() + " was unassigned");
         taskAssigneeRepository.delete(taskAssignee);

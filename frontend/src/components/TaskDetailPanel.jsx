@@ -19,10 +19,10 @@ import { Badge } from './ui/Badge'
 import { useToast } from './ui/Toast'
 import { ConfirmDialog } from './ui/ConfirmDialog'
 import { TaskFormModal } from './TaskFormModal'
+import { TimeTracking } from './TimeTracking'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
-import { canEditProjectContent, canManageProject } from '../api/permissions'
-import { buildMyProjectRoleMap, getActiveProjectMembers } from '../api/relations'
+import { getActiveProjectMembers } from '../api/relations'
 import { getProjectMembers } from '../api/projectMembers'
 import { setTaskStatus, deleteTask, getTasks } from '../api/tasks'
 import { useApi } from '../api/useApi'
@@ -36,13 +36,9 @@ const STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCE
 
 export function TaskDetailPanel({ task, onClose, onChange }) {
   const { getMember } = useMembers()
-  const { profile, role } = useAuth()
+  const { profile, can } = useAuth()
   const notify = useToast()
   const { data: projectMembers } = useApi(getProjectMembers)
-  const myProjectRoleMap = useMemo(
-    () => buildMyProjectRoleMap(projectMembers, profile?.id),
-    [projectMembers, profile]
-  )
   // The real ACTIVE members of THIS task's project only — not the org-wide
   // directory (useMembers()), which includes anyone the caller shares ANY
   // project with. Assigning a subtask outside this list isn't a valid
@@ -51,13 +47,25 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
     () => getActiveProjectMembers(projectMembers, task.project?.id),
     [projectMembers, task.project]
   )
-  // OWNER/ADMIN of THIS task's project (or system ADMINISTRATOR) — matches
-  // ProjectAccessGuard.canManage on the backend, which is what actually
-  // gates PUT/DELETE on this task and comment moderation.
-  const canManage = canManageProject(myProjectRoleMap.get(task?.project?.id), role === 'ADMINISTRATOR')
-  // OWNER/ADMIN/MEMBER (not VIEWER) — the backend refuses subtask and comment
-  // writes from a read-only VIEWER, so don't offer them.
-  const canEditContent = canEditProjectContent(myProjectRoleMap.get(task?.project?.id), role === 'ADMINISTRATOR')
+  // What this user may do on THIS task's project. The server decides (role_permissions);
+  // the panel only hides what would be refused. A control the user cannot use is
+  // not rendered at all rather than shown disabled.
+  const projectId = task?.project?.id
+  const canEditTask = can('TASK', 'EDIT', projectId)
+  const canDeleteTask = can('TASK', 'DELETE', projectId)
+  const canAssignTask = can('TASK', 'ASSIGN', projectId)
+  // Completing a task is an approval: only holders of TASK:APPROVE may set Completed.
+  // Everyone else submits the task for review instead.
+  const canApprove = can('TASK', 'APPROVE', projectId)
+  const isAssignee = (task?.assigneeIds ?? []).includes(profile?.id)
+  const canChangeStatus = canEditTask || (can('TASK_STATUS', 'EDIT', projectId) && isAssignee)
+  const canCreateSubtask = can('SUBTASK', 'CREATE', projectId)
+  const canEditSubtask = can('SUBTASK', 'EDIT', projectId)
+  const canDeleteSubtask = can('SUBTASK', 'DELETE', projectId)
+  const canComment = can('COMMENT', 'CREATE', projectId)
+  const canModerateComments = can('COMMENT', 'DELETE', projectId)
+  const canLogTime = can('WORK_LOG', 'CREATE', projectId)
+  const canDeleteAnyTimeEntry = can('WORK_LOG', 'DELETE', projectId)
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -314,7 +322,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
 
   return (
     <div
-      className="animate-fade-in fixed inset-0 z-[60] flex justify-end bg-[rgba(20,20,22,.4)] backdrop-blur-[2px]"
+      className="animate-fade-in fixed inset-0 z-[60] flex justify-end bg-scrim"
       onClick={onClose}
     >
       <aside
@@ -322,23 +330,23 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-divider flex items-center justify-between border-b px-[22px] py-[18px]">
-          <span className="text-faint text-[11.5px] font-[650] tracking-[0.05em] uppercase">
+          <span className="text-ink text-[15px] font-[650]">
             Task
           </span>
           <div className="flex items-center gap-2">
-            {canManage && (
-              <>
-                <button className="icon-btn" onClick={() => setEditing(true)} aria-label="Edit task">
-                  <Pencil size={16} />
-                </button>
-                <button
-                  className="icon-btn hover:text-danger"
-                  onClick={() => setConfirmingDelete(true)}
-                  aria-label="Delete task"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </>
+            {canEditTask && (
+              <button className="icon-btn" onClick={() => setEditing(true)} aria-label="Edit task">
+                <Pencil size={16} />
+              </button>
+            )}
+            {canDeleteTask && (
+              <button
+                className="icon-btn hover:text-danger-ink"
+                onClick={() => setConfirmingDelete(true)}
+                aria-label="Delete task"
+              >
+                <Trash2 size={16} />
+              </button>
             )}
             <button className="icon-btn" onClick={onClose} aria-label="Close panel">
               <X size={18} />
@@ -350,60 +358,65 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
           <h2 className="mb-3.5 text-xl font-bold tracking-[-0.015em]">{task.title}</h2>
 
           <div className={`flex flex-wrap items-center gap-2 ${hasIncompleteSubtasks ? 'mb-1.5' : 'mb-5'}`}>
-            <select
-              value={status}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              disabled={savingStatus}
-              className="bg-subtle border-border h-8 rounded-full border px-2.5 text-[11.5px] font-semibold outline-none"
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s} disabled={s === 'COMPLETED' && hasIncompleteSubtasks}>
-                  {humanizeEnum(s)}
-                </option>
-              ))}
-            </select>
+            {canChangeStatus ? (
+              <select
+                value={status}
+                onChange={(e) => handleStatusChange(e.target.value)}
+                disabled={savingStatus}
+                aria-label="Task status"
+                className="bg-subtle border-border h-8 rounded-full border px-2.5 text-[12px] font-semibold outline-none"
+              >
+                {STATUS_OPTIONS.filter((s) => s !== 'COMPLETED' || canApprove || status === 'COMPLETED').map((s) => (
+                  <option key={s} value={s} disabled={s === 'COMPLETED' && hasIncompleteSubtasks}>
+                    {s === 'IN_REVIEW' && !canApprove ? 'In Review (submit for approval)' : humanizeEnum(s)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Badge tone={status}>{humanizeEnum(status)}</Badge>
+            )}
             <Badge tone={task.priority}>{humanizeEnum(task.priority)}</Badge>
             {task.overdue && (
-              <span className="bg-danger-soft text-danger inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold">
+              <span className="bg-danger-soft text-danger-ink inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold">
                 <AlertTriangle size={12} /> Overdue
               </span>
             )}
             {task.blocked && (
               <span
                 title={blockedReason(task)}
-                className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold"
+                className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold"
               >
                 <Lock size={12} /> Blocked
               </span>
             )}
           </div>
           {hasIncompleteSubtasks && (
-            <p className="text-warning mb-3.5 text-[11.5px] font-medium">
+            <p className="text-warning-ink mb-3.5 text-[12px] font-medium">
               Complete all subtasks before marking this task as done.
             </p>
           )}
 
           <div className="bg-subtle border-border mb-[22px] grid grid-cols-2 gap-4 rounded-md border p-4 max-sm:grid-cols-1">
             <div className="flex flex-col gap-1.5">
-              <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                 <CalendarDays size={14} /> Due date
               </span>
               <span className="text-ink text-[13px] font-semibold">{formatDate(task.dueDate)}</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                 <FolderKanban size={14} /> Project
               </span>
               <span className="text-ink text-[13px] font-semibold">{task.project?.name}</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                 <Flag size={14} /> Priority
               </span>
               <span className="text-ink text-[13px] font-semibold">{humanizeEnum(task.priority)}</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-faint text-[11.5px] font-semibold">Assignee</span>
+              <span className="text-faint text-[12px] font-semibold">Assignee</span>
               {assignee ? (
                 <span className="inline-flex items-center gap-2 text-[13px] font-semibold">
                   <Avatar initials={assignee.initials} color={assignee.color} photoUrl={assignee.photoUrl} size={22} />
@@ -425,7 +438,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
           <div className="mb-[22px]">
             <div className="mb-2.5 flex items-center justify-between">
               <h4 className="text-[13px] font-[650]">Subtasks</h4>
-              <span className="text-faint text-[11.5px] font-semibold">
+              <span className="text-faint text-[12px] font-semibold">
                 {doneCount}/{subtasks.length}
               </span>
             </div>
@@ -439,7 +452,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                         value={editSubtaskTitle}
                         onChange={(e) => setEditSubtaskTitle(e.target.value)}
                         autoFocus
-                        className="bg-card border-border focus:border-lavender h-8 rounded-md border px-2.5 text-[12.5px] outline-none"
+                        className="bg-card border-border focus:border-focus h-8 rounded-md border px-2.5 text-[12px] outline-none"
                       />
                       <div className="flex gap-2">
                         <select
@@ -464,14 +477,14 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                       <div className="flex justify-end gap-3">
                         <button
                           type="button"
-                          className="text-muted hover:text-ink text-[11.5px] font-semibold"
+                          className="text-muted hover:text-ink text-[12px] font-semibold"
                           onClick={() => setEditingSubtaskId(null)}
                         >
                           Cancel
                         </button>
                         <button
                           type="button"
-                          className="text-lavender text-[11.5px] font-semibold"
+                          className="text-lavender text-[12px] font-semibold"
                           onClick={() => saveEditSubtask(s)}
                         >
                           Save
@@ -482,16 +495,16 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                 }
 
                 const subtaskAssignee = getMember(s.assigneeId)
+                const RowTag = canEditSubtask ? 'button' : 'div'
                 return (
                   <div
                     key={s.id}
                     className="text-ink hover:bg-subtle group duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex items-center gap-2.5 rounded-sm px-1 py-2 text-left text-[13px] transition-colors [&_svg]:text-faint [&_svg]:shrink-0"
                   >
-                    <button
-                      type="button"
+                    <RowTag
+                      type={canEditSubtask ? 'button' : undefined}
                       className="flex min-w-0 flex-1 items-center gap-2.5 border-none bg-none text-left"
-                      onClick={() => toggleSubtask(s)}
-                      disabled={!canEditContent}
+                      onClick={canEditSubtask ? () => toggleSubtask(s) : undefined}
                     >
                       {s.status === 'COMPLETED' ? <CheckSquare size={17} className="shrink-0" /> : <Square size={17} className="shrink-0" />}
                       <span className="flex min-w-0 flex-1 flex-col">
@@ -499,39 +512,39 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                           {s.title}
                         </span>
                         {(subtaskAssignee || s.dueDate) && (
-                          <span className="text-faint flex items-center gap-1.5 truncate text-[11px] font-normal">
+                          <span className="text-faint flex items-center gap-1.5 truncate text-[12px] font-normal">
                             {subtaskAssignee && <span className="truncate">{subtaskAssignee.name}</span>}
                             {subtaskAssignee && s.dueDate && <span>·</span>}
                             {s.dueDate && <span className="shrink-0">{formatDate(s.dueDate)}</span>}
                           </span>
                         )}
                       </span>
-                    </button>
-                    {canEditContent && (
-                      <>
-                        <button
-                          type="button"
-                          className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100"
-                          aria-label="Edit subtask"
-                          onClick={() => startEditSubtask(s)}
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger"
-                          aria-label="Delete subtask"
-                          onClick={() => removeSubtask(s.id)}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </>
+                    </RowTag>
+                    {canEditSubtask && (
+                      <button
+                        type="button"
+                        className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100"
+                        aria-label="Edit subtask"
+                        onClick={() => startEditSubtask(s)}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    )}
+                    {canDeleteSubtask && (
+                      <button
+                        type="button"
+                        className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger-ink"
+                        aria-label="Delete subtask"
+                        onClick={() => removeSubtask(s.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     )}
                   </div>
                 )
               })}
             </div>
-            {canEditContent && (
+            {canCreateSubtask && (
               <form
                 className="mt-1 flex items-center gap-2"
                 onSubmit={(e) => {
@@ -545,7 +558,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                   name="subtask"
                   type="text"
                   placeholder="Add a subtask..."
-                  className="bg-subtle border-border focus:border-lavender h-9 flex-1 rounded-md border px-3 text-[12.5px] outline-none"
+                  className="field field-sm flex-1"
                 />
                 <button type="submit" className="btn btn-secondary px-3 py-2 text-[12px]">
                   Add
@@ -560,7 +573,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               <h4 className="text-[13px] font-[650]">Depends on</h4>
             </div>
             {dependencies.length === 0 && (
-              <p className="text-faint text-[12.5px]">No dependencies.</p>
+              <p className="text-faint text-[12px]">No dependencies.</p>
             )}
             <div className="flex flex-col gap-0.5">
               {dependencies.map((d) => (
@@ -569,7 +582,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                   className="hover:bg-subtle group flex items-center gap-2.5 rounded-sm px-1 py-2 text-[13px]"
                 >
                   {d.dependsOnTask.status === 'COMPLETED' ? (
-                    <CheckSquare size={15} className="text-success shrink-0" />
+                    <CheckSquare size={15} className="text-success-ink shrink-0" />
                   ) : (
                     <Square size={15} className="text-faint shrink-0" />
                   )}
@@ -578,10 +591,10 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                   >
                     {d.dependsOnTask.title}
                   </span>
-                  {canManage && (
+                  {canAssignTask && (
                     <button
                       type="button"
-                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger"
+                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger-ink"
                       aria-label="Remove dependency"
                       onClick={() => removeDependency(d.dependsOnTask.id)}
                     >
@@ -591,12 +604,12 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                 </div>
               ))}
             </div>
-            {canManage && availableToDepend.length > 0 && (
+            {canAssignTask && availableToDepend.length > 0 && (
               <div className="mt-1 flex items-center gap-2">
                 <select
                   value={newDependencyId}
                   onChange={(e) => setNewDependencyId(e.target.value)}
-                  className="bg-subtle border-border h-9 flex-1 rounded-md border px-2.5 text-[12.5px] outline-none"
+                  className="field field-sm flex-1"
                 >
                   <option value="">Select a task…</option>
                   {availableToDepend.map((t) => (
@@ -617,10 +630,18 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
             )}
           </div>
 
+          <TimeTracking
+            task={task}
+            canLog={canLogTime}
+            canManage={canDeleteAnyTimeEntry}
+            currentUserId={profile?.id}
+            onChange={onChange}
+          />
+
           <div className="mb-[22px]">
             <h4 className="mb-2.5 text-[13px] font-[650]">Comments</h4>
             {comments.length === 0 && (
-              <p className="text-faint text-[12.5px]">No comments yet.</p>
+              <p className="text-faint text-[12px]">No comments yet.</p>
             )}
             <div className="flex flex-col gap-3.5">
               {comments.map((c) => {
@@ -636,8 +657,8 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="mb-[3px] flex items-baseline gap-2">
-                        <span className="text-[12.5px] font-[650]">{c.authorName}</span>
-                        <span className="text-faint text-[11px]">{timeAgo(c.createdAt)}</span>
+                        <span className="text-[12px] font-[650]">{c.authorName}</span>
+                        <span className="text-faint text-[12px]">{timeAgo(c.createdAt)}</span>
                         {isOwn && (
                           <span className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100">
                             <button
@@ -650,7 +671,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                             </button>
                             <button
                               type="button"
-                              className="icon-btn h-6 w-6 hover:text-danger"
+                              className="icon-btn h-6 w-6 hover:text-danger-ink"
                               aria-label="Delete comment"
                               onClick={() => removeComment(c.id)}
                             >
@@ -658,10 +679,10 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                             </button>
                           </span>
                         )}
-                        {!isOwn && canManage && (
+                        {!isOwn && canModerateComments && (
                           <button
                             type="button"
-                            className="icon-btn ml-auto h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-danger"
+                            className="icon-btn ml-auto h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-danger-ink"
                             aria-label="Delete comment"
                             onClick={() => removeComment(c.id)}
                           >
@@ -682,21 +703,21 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                             value={editingCommentText}
                             onChange={(e) => setEditingCommentText(e.target.value)}
                             autoFocus
-                            className="bg-subtle border-border focus:border-lavender h-8 flex-1 rounded-md border px-2.5 text-[12.5px] outline-none"
+                            className="bg-subtle border-border focus:border-focus h-8 flex-1 rounded-md border px-2.5 text-[12px] outline-none"
                           />
-                          <button type="submit" className="text-lavender text-[11.5px] font-semibold">
+                          <button type="submit" className="text-lavender text-[12px] font-semibold">
                             Save
                           </button>
                           <button
                             type="button"
-                            className="text-muted text-[11.5px] font-semibold"
+                            className="text-muted text-[12px] font-semibold"
                             onClick={() => setEditingCommentId(null)}
                           >
                             Cancel
                           </button>
                         </form>
                       ) : (
-                        <p className="text-muted text-[12.5px] leading-normal">{c.message}</p>
+                        <p className="text-muted text-[12px] leading-normal">{c.message}</p>
                       )}
                     </div>
                   </div>
@@ -710,7 +731,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               <History size={14} className="text-faint" />
               <h4 className="text-[13px] font-[650]">Activity</h4>
             </div>
-            {activity.length === 0 && <p className="text-faint text-[12.5px]">No activity yet.</p>}
+            {activity.length === 0 && <p className="text-faint text-[12px]">No activity yet.</p>}
             <div className="flex flex-col gap-3">
               {activity.map((a) => (
                 <div key={a.id} className="flex gap-2.5">
@@ -718,8 +739,8 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                     <History size={12} />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-ink text-[12.5px] leading-snug">{a.description}</p>
-                    <span className="text-faint text-[11px]">
+                    <p className="text-ink text-[12px] leading-snug">{a.description}</p>
+                    <span className="text-faint text-[12px]">
                       {a.userName} · {timeAgo(a.createdAt)}
                     </span>
                   </div>
@@ -729,7 +750,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
           </div>
         </div>
 
-        {canEditContent && (
+        {canComment && (
           <form
             className="border-divider flex items-center gap-2 border-t px-[18px] py-3.5"
             onSubmit={submitComment}
@@ -739,7 +760,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               placeholder="Add a comment..."
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              className="bg-subtle border-border focus:border-lavender h-10 flex-1 rounded-md border px-3.5 text-[13px] outline-none"
+              className="field flex-1"
             />
             <button type="submit" className="icon-btn" aria-label="Send comment">
               <Send size={16} />

@@ -5,6 +5,7 @@ import { AddLookupModal } from './AddLookupModal'
 import { useToast } from './ui/Toast'
 import { useApi } from '../api/useApi'
 import { getRoles } from '../api/roles'
+import { humanizeEnum } from '../api/format'
 import { createUser } from '../api/users'
 import { getPositions, createPosition } from '../api/positions'
 import { getDepartments, createDepartment } from '../api/departments'
@@ -25,10 +26,10 @@ export function AddMemberModal({ onClose, onCreated }) {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  // No global role by default — most accounts should have none at all (see
-  // User.role on the backend). The Role select below is only for
-  // explicitly granting a system-level role (currently just ADMINISTRATOR).
+  // Empty = the server's default (User). Project roles (Owner, Team Leader,
+  // Team Member, Viewer) are not offered: they only exist inside a project.
   const [roleId, setRoleId] = useState('')
+  const assignableRoles = (roles ?? []).filter((r) => r.scope !== 'PROJECT')
   const [positionId, setPositionId] = useState(null)
   const [departmentId, setDepartmentId] = useState(null)
   const [addingPosition, setAddingPosition] = useState(false)
@@ -70,12 +71,12 @@ export function AddMemberModal({ onClose, onCreated }) {
     <Modal title="Invite Member" onClose={onClose}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1.5">
-          <span className="text-muted text-[12.5px] font-semibold">Full name</span>
+          <span className="text-muted text-[12px] font-semibold">Full name</span>
           <input
             type="text"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+            className="field"
             autoFocus
             required
           />
@@ -83,35 +84,35 @@ export function AddMemberModal({ onClose, onCreated }) {
 
         <div className="flex gap-3">
           <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Username</span>
+            <span className="text-muted text-[12px] font-semibold">Username</span>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+              className="field"
               required
             />
           </label>
           <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Email</span>
+            <span className="text-muted text-[12px] font-semibold">Email</span>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+              className="field"
               required
             />
           </label>
         </div>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-muted text-[12.5px] font-semibold">Temporary password</span>
+          <span className="text-muted text-[12px] font-semibold">Temporary password</span>
           <input
             type="text"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="At least 8 characters"
-            className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+            className="field"
             required
           />
           <PasswordChecklist password={password} />
@@ -119,18 +120,20 @@ export function AddMemberModal({ onClose, onCreated }) {
 
         <div className="flex gap-3">
           <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">System role</span>
+            <span className="text-muted text-[12px] font-semibold">System role</span>
             <select
               value={roleId}
               onChange={(e) => setRoleId(e.target.value)}
-              className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+              className="field"
             >
-              <option value="">No system role (normal account)</option>
-              {roles?.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
+              <option value="">User (default)</option>
+              {assignableRoles
+                .filter((r) => r.name !== 'USER')
+                .map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {humanizeEnum(r.name)}
+                  </option>
+                ))}
             </select>
           </label>
         </div>
@@ -152,7 +155,7 @@ export function AddMemberModal({ onClose, onCreated }) {
           />
         </div>
 
-        {error && <p className="text-danger text-[12.5px] font-semibold">{error}</p>}
+        {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
 
         <div className="mt-1 flex justify-end gap-2">
           <button type="button" className="btn btn-secondary" onClick={onClose}>

@@ -1,6 +1,6 @@
 # ADR-0002: Authorization from per-project roles, not global roles
 
-- **Status:** Accepted
+- **Status:** Accepted — partly superseded by [ADR-0014](0014-requirement-roles-and-permission-matrix.md) (the global-role and hard-coded-matrix parts; the project-scoped model and the 404 rule stand)
 - **Date:** read isolation 2026-09-13 (`87ccf00`, `ProjectAccessGuard`); write authorization moved 2026-09-14 (`35c6daf`, migration `V5`)
 - **Area:** authorization
 
@@ -24,7 +24,7 @@ The header of `V5__project_scoped_authorization.sql` records the failure: every 
 ## Alternatives considered
 
 - **Keep four global roles** (the requirement document's literal model) — rejected by migration `V5`: unworkable for new users (stated above). The roles `PROJECT_MANAGER`, `TEAM_LEADER`, `TEAM_MEMBER` were deleted from the database.
-- **A data-driven permission matrix** (`permissions` + `role_permissions`) — the tables were built and still exist but are **not consulted** by any code; `database/README.md` calls them "vestigial for anything project-scoped" and notes a resource-scoped matrix as a possible future step. Hard-coded checks were chosen for simplicity *(inferred)*.
+- **A data-driven permission matrix** (`permissions` + `role_permissions`) — the tables were built and still exist but are **not consulted** by any code; `../database.md` calls them "vestigial for anything project-scoped" and notes a resource-scoped matrix as a possible future step. Hard-coded checks were chosen for simplicity *(inferred)*.
 - **Per-user permission overrides** — explicitly avoided: the `role_permissions` comment says "deliberately role-level only — no per-user override table".
 
 ## Consequences
@@ -37,4 +37,4 @@ The header of `V5__project_scoped_authorization.sql` records the failure: every 
 
 ## Evidence
 
-`ProjectAccessGuard`, `V5__project_scoped_authorization.sql`, `database/README.md` (Authorization), commits `87ccf00`, `35c6daf`, `9f0a872`; [../authentication-authorization.md](../authentication-authorization.md).
+`ProjectAccessGuard`, `V5__project_scoped_authorization.sql`, `../database.md` (Authorization), commits `87ccf00`, `35c6daf`, `9f0a872`; [../authentication-authorization.md](../authentication-authorization.md).

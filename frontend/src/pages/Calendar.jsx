@@ -5,26 +5,30 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import { TaskFormModal } from '../components/TaskFormModal'
 import { useAuth } from '../auth/AuthContext'
-import { canEditProjectContent } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getTasks } from '../api/tasks'
-import { getProjectMembers } from '../api/projectMembers'
-import { buildMyProjectRoleMap } from '../api/relations'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const VIEWS = ['Month', 'Week', 'Day']
 
 const eventTones = {
-  success: 'bg-success-soft text-success',
-  warning: 'bg-warning-soft text-warning',
-  danger: 'bg-danger-soft text-danger',
-  info: 'bg-info-soft text-info',
+  success: 'bg-success-soft text-success-ink',
+  warning: 'bg-warning-soft text-warning-ink',
+  danger: 'bg-danger-soft text-danger-ink',
+  info: 'bg-info-soft text-info-ink',
+}
+
+const eventDots = {
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-danger',
+  info: 'bg-info',
 }
 
 const PRIORITY_TONE = { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', URGENT: 'danger' }
 
 const eventClass = (tone) =>
-  `truncate rounded-[2px] px-1.5 py-[3px] text-[10.5px] font-semibold max-[900px]:text-[9.5px] ${eventTones[tone] ?? eventTones.info}`
+  `truncate rounded-[2px] px-1.5 py-[3px] text-[12px] font-semibold ${eventTones[tone] ?? eventTones.info}`
 
 function buildMonthGrid(year, month) {
   const firstOfMonth = new Date(year, month, 1)
@@ -59,18 +63,11 @@ function toISODate(d) {
 }
 
 export function Calendar() {
-  const { role, profile } = useAuth()
-  const { data: projectMembers } = useApi(getProjectMembers)
-  const myProjectRoleMap = useMemo(
-    () => buildMyProjectRoleMap(projectMembers, profile?.id),
-    [projectMembers, profile]
-  )
+  const { canAny } = useAuth()
   // Whether there's at least one project the caller can add tasks to —
   // TaskFormModal itself only offers projects the caller can actually
   // create tasks in.
-  const canAdd =
-    role === 'ADMINISTRATOR' ||
-    Array.from(myProjectRoleMap.values()).some((r) => canEditProjectContent(r, false))
+  const canAdd = canAny('TASK', 'CREATE')
   const { data: tasks, loading, refetch } = useApi(getTasks)
   const today = useMemo(() => new Date(), [])
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()))
@@ -150,11 +147,11 @@ export function Calendar() {
 
       <div className="card px-[22px] pt-5 pb-6">
         <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3.5">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 max-[640px]:w-full">
             <button className="icon-btn" onClick={() => shiftPeriod(-1)} aria-label={`Previous ${view.toLowerCase()}`}>
               <ChevronLeft size={16} />
             </button>
-            <span className="min-w-[190px] text-center text-[15px] font-[650]">{periodLabel}</span>
+            <span className="min-w-[190px] text-center text-[15px] font-[650] max-[640px]:min-w-0 max-[640px]:flex-1">{periodLabel}</span>
             <button className="icon-btn" onClick={() => shiftPeriod(1)} aria-label={`Next ${view.toLowerCase()}`}>
               <ChevronRight size={16} />
             </button>
@@ -169,8 +166,8 @@ export function Calendar() {
             {VIEWS.map((v) => (
               <button
                 key={v}
-                className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] rounded-sm border-none px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
-                  view === v ? 'bg-charcoal text-white' : 'bg-transparent text-muted'
+                className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] rounded-sm border-none px-3.5 py-[7px] text-[12px] font-semibold transition-colors ${
+                  view === v ? 'bg-charcoal text-on-charcoal' : 'bg-transparent text-muted'
                 }`}
                 onClick={() => setView(v)}
               >
@@ -194,7 +191,7 @@ export function Calendar() {
               {WEEKDAYS.map((w) => (
                 <span
                   key={w}
-                  className="text-faint text-center text-[11.5px] font-[650] tracking-[0.03em] uppercase max-[900px]:text-[10px]"
+                  className="text-faint text-center text-[12px] font-[650] tracking-[0.03em] uppercase"
                 >
                   {w}
                 </span>
@@ -215,18 +212,30 @@ export function Calendar() {
                   >
                     <span
                       className={`inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-xs font-[650] ${
-                        isToday ? 'bg-charcoal text-white' : !inMonth ? 'text-faint' : ''
+                        isToday ? 'bg-charcoal text-on-charcoal' : !inMonth ? 'text-faint' : ''
                       }`}
                     >
                       {d.getDate()}
                     </span>
-                    <div className={`flex flex-col gap-[3px] ${isToday ? '' : 'max-[640px]:hidden'}`}>
+                    <div className="flex flex-col gap-[3px] max-[640px]:hidden">
                       {events?.map((ev, idx) => (
                         <span key={idx} className={eventClass(ev.tone)}>
                           {ev.title}
                         </span>
                       ))}
                     </div>
+                    {/* Phones: cells are ~40px wide, so a title cannot fit. One dot per
+                        task, in the task's status colour; the Week and Day views list them. */}
+                    {events?.length > 0 && (
+                      <div
+                        className="hidden flex-wrap gap-[3px] max-[640px]:flex"
+                        aria-label={`${events.length} ${events.length === 1 ? 'task' : 'tasks'} due`}
+                      >
+                        {events.slice(0, 4).map((ev, idx) => (
+                          <span key={idx} className={`h-1.5 w-1.5 rounded-full ${eventDots[ev.tone] ?? eventDots.info}`} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )
               })}

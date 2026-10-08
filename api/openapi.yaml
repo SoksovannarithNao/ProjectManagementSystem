@@ -2,8 +2,9 @@ openapi: 3.0.3
 info:
   title: Task & Project Management System API
   description: >
-    **Partly out of date — read `docs/api-reference.md` for the complete,
-    current API (84 endpoints).** This file documents 57 of the 84 endpoints
+    **Partly out of date and no longer maintained — read
+    `docs/api-reference.md` for the complete, current API (87 endpoints).**
+    This file documents 57 of the 87 endpoints
     and still describes authorization with the removed global roles
     `PROJECT_MANAGER` / `TEAM_LEADER` / `TEAM_MEMBER`; the real model is
     project-level roles `OWNER` / `ADMIN` / `MEMBER` / `VIEWER` plus the
@@ -18,7 +19,7 @@ info:
     JSON errors, uses response DTOs (never raw JPA entities), sets correct
     HTTP status codes, and enforces role-based access control. Remaining
     gaps/quirks are called out inline via `description` fields; see
-    `api/README.md` for the summary list.
+    `docs/api-reference.md` (known quirks) for the summary list.
   version: "0.2.0"
 servers:
   - url: http://localhost:8080
@@ -1357,7 +1358,7 @@ components:
         a `ROLE_<name>` granted authority by a custom
         `JwtAuthenticationConverter`. Policy is coarse role gates per
         resource (see each operation's description and
-        `backend/README.md#security`), with one ownership-scoped exception:
+        `docs/backend.md#security`), with one ownership-scoped exception:
         `PUT /api/tasks/{id}` for a `TEAM_MEMBER` caller. Every `GET`
         endpoint, `PUT /api/users/me`, and every `/api/notifications`
         endpoint have no role gate at all beyond a valid JWT.

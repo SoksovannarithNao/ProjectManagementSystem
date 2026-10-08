@@ -1,36 +1,49 @@
-// Mirrors the backend's project-scoped authorization (see
-// ProjectAccessGuard) — kept here so the UI can hide actions a caller can't
-// actually perform instead of letting them hit a 403 after filling out a
-// form. Project/task permissions come from the CALLER'S ROLE IN THAT
-// SPECIFIC PROJECT (project_members.project_role: OWNER/ADMIN/MEMBER/
-// VIEWER), not from any global role on the account — the same user can be
-// OWNER of one project and VIEWER of another. `isSystemAdmin` is the one
-// exception: a system-level ADMINISTRATOR (unrelated to any one project)
-// always has full access everywhere, same as the backend's bypass.
-const MANAGE_ROLES = new Set(['OWNER', 'ADMIN'])
-const CONTENT_ROLES = new Set(['OWNER', 'ADMIN', 'MEMBER'])
-const USER_MANAGE_ROLES = new Set(['ADMINISTRATOR'])
+// What the signed-in user may do. The server decides (GET /api/users/me/permissions
+// reads the role_permissions table); this file only reads that answer so the UI
+// can HIDE what the user cannot use. It is advisory: every request is checked
+// again on the server, so a stale or tampered copy here can never grant access.
+//
+// A grant is the string "RESOURCE:ACTION", e.g. "TASK:CREATE". There are 7
+// actions (VIEW, CREATE, EDIT, DELETE, ASSIGN, APPROVE, GENERATE_REPORTS) and the
+// resources are PROJECT, MILESTONE, MEMBER, TASK, TASK_STATUS, SUBTASK, COMMENT,
+// WORK_LOG, REPORT, USER, ROLE and LOOKUP (see docs/adr/0014-...).
+//
+// Shape of `permissions` (the API response):
+//   { role, administrator, system: ['PROJECT:CREATE', ...],
+//     projects: [{ projectId, projectRole, roleName, grants: ['TASK:CREATE', ...] }] }
 
-// Create/edit tasks, milestones, and other content within a project.
-// Excludes VIEWER (read-only).
-export function canEditProjectContent(projectRole, isSystemAdmin) {
-  return isSystemAdmin || CONTENT_ROLES.has(projectRole)
+export const EMPTY_PERMISSIONS = { role: null, administrator: false, system: [], projects: [] }
+
+function projectGrants(permissions, projectId) {
+  if (projectId == null) return []
+  return permissions.projects.find((p) => p.projectId === Number(projectId))?.grants ?? []
 }
 
-// Manage a project itself (edit details, milestones, members, task
-// assignment/dependencies/deletion) — OWNER or ADMIN of that project.
-export function canManageProject(projectRole, isSystemAdmin) {
-  return isSystemAdmin || MANAGE_ROLES.has(projectRole)
+// Inside one project: the user's grants in that project, plus any system-wide grant.
+export function canInProject(permissions, resource, action, projectId) {
+  if (!permissions) return false
+  if (permissions.administrator) return true
+  const key = `${resource}:${action}`
+  return permissions.system.includes(key) || projectGrants(permissions, projectId).includes(key)
 }
 
-// Delete/transfer ownership of a project, or promote a member to OWNER —
-// OWNER only (ADMIN can manage content/members but not this).
-export function isProjectOwner(projectRole, isSystemAdmin) {
-  return isSystemAdmin || projectRole === 'OWNER'
+// Not about one project (create a project, reports, users, roles).
+export function canSystem(permissions, resource, action) {
+  if (!permissions) return false
+  if (permissions.administrator) return true
+  return permissions.system.includes(`${resource}:${action}`)
 }
 
-// System-level account management (creating other user accounts, granting
-// ADMINISTRATOR) — a global role, genuinely unrelated to any one project.
-export function canManageUsers(role) {
-  return USER_MANAGE_ROLES.has(role)
+// "In at least one project the user belongs to": used to decide whether a
+// control that needs a project to be chosen first (New Task) is worth showing.
+export function canAnywhere(permissions, resource, action) {
+  if (!permissions) return false
+  if (permissions.administrator) return true
+  const key = `${resource}:${action}`
+  return permissions.system.includes(key) || permissions.projects.some((p) => p.grants.includes(key))
+}
+
+// Projects (from a list of project ids) where the user holds the grant.
+export function projectIdsWhere(permissions, resource, action, projectIds) {
+  return projectIds.filter((id) => canInProject(permissions, resource, action, id))
 }

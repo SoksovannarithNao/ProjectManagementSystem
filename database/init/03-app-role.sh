@@ -46,13 +46,17 @@ psql -v ON_ERROR_STOP=1 \
 
     -- Only the tables the backend's JPA entities actually touch today.
     -- Add a matching line here when a new table gets a real entity/repository
-    -- (see database/README.md).
+    -- (see docs/database.md).
     GRANT SELECT, INSERT, UPDATE, DELETE ON
         roles, users, projects, project_members, milestones,
         tasks, task_assignees, task_dependencies, notifications,
         otp_verifications, positions, departments, subtasks, comments,
-        activity_logs
+        activity_logs, work_logs, role_permissions
         TO taskmanager_app;
+
+    -- The permission catalog (VIEW, CREATE, ...) is read-only for the backend;
+    -- role_permissions above is the editable role x resource x action matrix.
+    GRANT SELECT ON permissions TO taskmanager_app;
 
     -- GENERATED ALWAYS AS IDENTITY columns still back onto a real sequence;
     -- a non-owner role needs USAGE on it to INSERT (the implicit nextval()

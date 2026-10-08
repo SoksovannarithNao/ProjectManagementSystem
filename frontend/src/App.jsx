@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import { AppLayout } from './layout/AppLayout'
 import { ProtectedRoute } from './auth/ProtectedRoute'
+import { RequirePermission } from './auth/RequirePermission'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
 import { VerifyOtp } from './pages/VerifyOtp'
@@ -14,6 +15,8 @@ import { Reports } from './pages/Reports'
 import { Team } from './pages/Team'
 import { Profile } from './pages/Profile'
 import { Settings } from './pages/Settings'
+import { UsersAdmin } from './pages/admin/UsersAdmin'
+import { RolesPermissions } from './pages/admin/RolesPermissions'
 
 function App() {
   return (
@@ -30,7 +33,15 @@ function App() {
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/kanban" element={<Kanban />} />
           <Route path="/team" element={<Team />} />
-          <Route path="/reports" element={<Reports />} />
+          <Route element={<RequirePermission resource="REPORT" action="GENERATE_REPORTS" anywhere />}>
+            <Route path="/reports" element={<Reports />} />
+          </Route>
+          <Route element={<RequirePermission resource="USER" action="VIEW" />}>
+            <Route path="/admin/users" element={<UsersAdmin />} />
+          </Route>
+          <Route element={<RequirePermission resource="ROLE" action="VIEW" />}>
+            <Route path="/admin/roles" element={<RolesPermissions />} />
+          </Route>
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
         </Route>

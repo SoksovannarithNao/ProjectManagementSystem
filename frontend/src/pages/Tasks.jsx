@@ -25,6 +25,7 @@ import {
 import { TopBar } from '../layout/TopBar'
 import { AvatarGroup } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
+import { TimeChip } from '../components/ui/TimeChip'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { TaskFormModal } from '../components/TaskFormModal'
@@ -34,14 +35,12 @@ import { Dropdown } from '../components/ui/Dropdown'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
-import { canEditProjectContent, canManageProject } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getTasks, advanceTaskStatus, canAdvanceStatus, deleteTask } from '../api/tasks'
 import { getSubtasksByTask, updateSubtask } from '../api/subtasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
-import { getProjectMembers } from '../api/projectMembers'
-import { buildTaskAssigneeMap, buildMyProjectRoleMap } from '../api/relations'
+import { buildTaskAssigneeMap } from '../api/relations'
 import { humanizeEnum, formatDate, taskDisplayTitle, blockedReason } from '../api/format'
 
 // Distinct colors per section, using the same soft-background + colored-
@@ -50,9 +49,9 @@ import { humanizeEnum, formatDate, taskDisplayTitle, blockedReason } from '../ap
 // page background turned out to be too low-contrast on their own, since
 // this app's status hues are deliberately muted/pastel.
 const STATUS_GROUPS = [
-  { key: 'todo', title: 'To do', match: (status) => status === 'TO_DO', color: 'text-warning', soft: 'bg-warning-soft' },
-  { key: 'doing', title: 'Doing', match: (status) => status === 'IN_PROGRESS' || status === 'IN_REVIEW', color: 'text-info', soft: 'bg-info-soft' },
-  { key: 'done', title: 'Done', match: (status) => status === 'COMPLETED' || status === 'CANCELLED', color: 'text-success', soft: 'bg-success-soft' },
+  { key: 'todo', title: 'To do', match: (status) => status === 'TO_DO', color: 'text-warning-ink', soft: 'bg-warning-soft' },
+  { key: 'doing', title: 'Doing', match: (status) => status === 'IN_PROGRESS' || status === 'IN_REVIEW', color: 'text-info-ink', soft: 'bg-info-soft' },
+  { key: 'done', title: 'Done', match: (status) => status === 'COMPLETED' || status === 'CANCELLED', color: 'text-success-ink', soft: 'bg-success-soft' },
 ]
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
@@ -69,12 +68,11 @@ const SORTERS = {
 }
 
 export function Tasks() {
-  const { role, profile } = useAuth()
+  const { profile, can, canAny } = useAuth()
   const notify = useToast()
   const { data: tasks, loading, refetch } = useApi(getTasks)
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects, refetch: refetchProjects } = useApi(getProjects)
-  const { data: projectMembers } = useApi(getProjectMembers)
   const [activeTaskId, setActiveTaskId] = useState(null)
   const [newTaskModal, setNewTaskModal] = useState(null)
   const [editingTask, setEditingTask] = useState(null)
@@ -92,17 +90,10 @@ export function Tasks() {
   const [collapsedProjectIds, setCollapsedProjectIds] = useState(() => new Set())
   const [subtasksByTask, setSubtasksByTask] = useState(() => new Map())
   const [loadingSubtasksFor, setLoadingSubtasksFor] = useState(() => new Set())
-  const isSystemAdmin = role === 'ADMINISTRATOR'
-  const myProjectRoleMap = useMemo(
-    () => buildMyProjectRoleMap(projectMembers, profile?.id),
-    [projectMembers, profile]
-  )
   // Whether there's at least one project the caller can add tasks to —
-  // gates the top-level "New Task"/"Add task" affordances. Per-row
-  // edit/delete (canManage below) instead checks that specific task's own
-  // project role — see the "More actions" dropdown further down.
-  const canAddTasks =
-    isSystemAdmin || Array.from(myProjectRoleMap.values()).some((r) => canEditProjectContent(r, false))
+  // gates the top-level "New Task"/"Add task" affordances. Per-row actions
+  // instead check that specific task's own project: see the row below.
+  const canAddTasks = canAny('TASK', 'CREATE')
 
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
   const list = useMemo(() => tasks ?? [], [tasks])
@@ -268,7 +259,7 @@ export function Tasks() {
 
   const advanceTask = async (task, e) => {
     e.stopPropagation()
-    if (!canAdvanceStatus(task.status)) return
+    if (!canAdvanceStatus(task.status, can('TASK', 'APPROVE', task.project?.id))) return
     // The one step this quick-advance control can attempt that's actually
     // gated: Doing -> Done requires every subtask complete (see
     // TaskDetailPanel's identical check and, ultimately,
@@ -281,7 +272,7 @@ export function Tasks() {
       return
     }
     try {
-      await advanceTaskStatus(task)
+      await advanceTaskStatus(task, can('TASK', 'APPROVE', task.project?.id))
       refetchAll()
     } catch (err) {
       notify(err.message || 'Failed to update task', { tone: 'error' })
@@ -324,7 +315,7 @@ export function Tasks() {
               {({ close }) => (
                 <div className="flex w-[220px] flex-col gap-3 p-1">
                   <div>
-                    <span className="text-faint mb-1.5 block text-[11px] font-[650] tracking-[0.04em] uppercase">
+                    <span className="text-faint mb-1.5 block text-[12px] font-[650] tracking-[0.04em] uppercase">
                       Assignment
                     </span>
                     <label className="hover:bg-subtle flex items-center gap-2 rounded-sm px-1.5 py-1 text-[13px]">
@@ -333,7 +324,7 @@ export function Tasks() {
                     </label>
                   </div>
                   <div>
-                    <span className="text-faint mb-1.5 block text-[11px] font-[650] tracking-[0.04em] uppercase">
+                    <span className="text-faint mb-1.5 block text-[12px] font-[650] tracking-[0.04em] uppercase">
                       Priority
                     </span>
                     <div className="flex flex-col gap-0.5">
@@ -349,13 +340,13 @@ export function Tasks() {
                     </div>
                   </div>
                   <div>
-                    <span className="text-faint mb-1.5 block text-[11px] font-[650] tracking-[0.04em] uppercase">
+                    <span className="text-faint mb-1.5 block text-[12px] font-[650] tracking-[0.04em] uppercase">
                       Project
                     </span>
                     <select
                       value={projectFilter}
                       onChange={(e) => setProjectFilter(e.target.value)}
-                      className="bg-subtle border-border h-9 w-full rounded-md border px-2 text-[12.5px] outline-none"
+                      className="field field-sm w-full"
                     >
                       <option value="">All projects</option>
                       {projects?.map((p) => (
@@ -433,7 +424,7 @@ export function Tasks() {
         {loading &&
           projectGroups.length === 0 &&
           Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="bg-card border-border flex items-center gap-2.5 rounded-[10px] border px-3.5 py-2.5">
+            <div key={i} className="bg-card border-border flex items-center gap-2.5 rounded-md border px-3.5 py-2.5">
               <Skeleton className="h-[18px] w-[18px] shrink-0 rounded-full" />
               <Skeleton className="h-3.5 flex-1" />
               <Skeleton className="h-6 w-[110px] shrink-0 rounded-full" />
@@ -441,8 +432,7 @@ export function Tasks() {
           ))}
 
         {projectGroups.map((group) => {
-          const canAddToProject =
-            group.project != null && (isSystemAdmin || canEditProjectContent(myProjectRoleMap.get(group.project.id), false))
+          const canAddToProject = group.project != null && can('TASK', 'CREATE', group.project.id)
           const projectProgress = group.project ? Math.round(Number(group.project.progress ?? 0)) : null
           const isCollapsed = collapsedProjectIds.has(group.id)
 
@@ -453,7 +443,7 @@ export function Tasks() {
                 <button
                   type="button"
                   onClick={() => toggleProjectCollapse(group.id)}
-                  className="icon-btn h-7 w-7 shrink-0"
+                  className="icon-btn hit-area h-7 w-7 shrink-0"
                   aria-label={isCollapsed ? `Expand ${group.name}` : `Collapse ${group.name}`}
                   title={isCollapsed ? 'Expand project' : 'Collapse project'}
                 >
@@ -488,13 +478,20 @@ export function Tasks() {
               {group.statusGroups.map((sg) => (
                 <div key={sg.key} className="flex flex-col gap-2">
                   <span
-                    className={`${sg.soft} ${sg.color} inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-[650] tracking-[0.04em] uppercase`}
+                    className={`${sg.soft} ${sg.color} inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[12px] font-[650] tracking-[0.04em] uppercase`}
                   >
                     {sg.title} · {sg.tasks.length}
                   </span>
                   {sg.tasks.map((t, i) => {
                 const assigneeIds = assigneeMap.get(t.id) ?? []
-                const canManage = canManageProject(myProjectRoleMap.get(t.project?.id), isSystemAdmin)
+                const canEditThisTask = can('TASK', 'EDIT', t.project?.id)
+                const canDeleteThisTask = can('TASK', 'DELETE', t.project?.id)
+                const canApproveThisTask = can('TASK', 'APPROVE', t.project?.id)
+                const canEditSubtasks = can('SUBTASK', 'EDIT', t.project?.id)
+                // Quick-advance is only offered to someone who may change this
+                // task's status: an editor, or an assignee (TASK_STATUS:EDIT).
+                const canChangeStatus =
+                  canEditThisTask || (can('TASK_STATUS', 'EDIT', t.project?.id) && assigneeIds.includes(profile?.id))
                 const done = t.status === 'COMPLETED'
                 const cancelled = t.status === 'CANCELLED'
                 const doing = t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW'
@@ -506,13 +503,19 @@ export function Tasks() {
                 // Mirrors TaskDetailPanel's hasIncompleteSubtasks for the
                 // same underlying check.
                 const blockedBySubtasks = doing && t.totalSubtasks > 0 && t.completedSubtasks < t.totalSubtasks
-                const advanceable = canAdvanceStatus(t.status)
+                const advanceable = canChangeStatus && canAdvanceStatus(t.status, canApproveThisTask)
+                // A control the user cannot use is not a button at all: just the status icon.
+                const AdvanceTag = advanceable ? 'button' : 'span'
                 const advanceLabel = t.status === 'TO_DO'
                   ? 'Move to Doing'
                   : blockedBySubtasks
                     ? 'Complete all subtasks before marking this task as done'
                     : doing
-                      ? 'Mark as Done'
+                      ? canApproveThisTask
+                        ? 'Mark as Done'
+                        : t.status === 'IN_REVIEW'
+                          ? 'Awaiting approval'
+                          : 'Submit for review'
                       : cancelled
                         ? 'Task cancelled'
                         : 'Task completed'
@@ -523,12 +526,12 @@ export function Tasks() {
                   <div key={t.id} className="flex flex-col gap-1">
                     <div
                       onClick={() => setActiveTaskId(t.id)}
-                      className="group bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in flex cursor-pointer flex-wrap items-center gap-2.5 rounded-[10px] border px-3.5 py-2.5 transition hover:-translate-y-px sm:flex-nowrap"
+                      className="group bg-card border-border hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in flex cursor-pointer flex-wrap items-center gap-2.5 rounded-md border px-3.5 py-2.5 transition hover:-translate-y-px sm:flex-nowrap"
                       style={{ animationDelay: `${Math.min(i, 8) * 30}ms`, animationFillMode: 'backwards' }}
                     >
                       <button
                         onClick={(e) => toggleExpand(t.id, e)}
-                        className="text-faint hover:text-ink hover:bg-subtle -m-1.5 shrink-0 rounded-full p-1.5 transition-colors"
+                        className="hit-area text-faint hover:text-ink hover:bg-subtle -m-1.5 shrink-0 rounded-full p-1.5 transition-colors"
                         aria-label={expanded ? 'Hide subtasks' : 'Show subtasks'}
                         title={expanded ? 'Hide subtasks' : 'Show subtasks'}
                       >
@@ -537,9 +540,8 @@ export function Tasks() {
 
                       <GripVertical size={14} className="text-faint hidden shrink-0 sm:block" />
 
-                      <button
-                        onClick={(e) => advanceTask(t, e)}
-                        disabled={!advanceable}
+                      <AdvanceTag
+                        {...(advanceable ? { type: 'button', onClick: (e) => advanceTask(t, e) } : { role: 'img' })}
                         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${advanceable ? '' : 'cursor-default'} ${
                           done ? 'bg-success-soft' : cancelled ? 'bg-danger-soft' : doing ? 'bg-info-soft' : 'bg-warning-soft'
                         }`}
@@ -547,19 +549,19 @@ export function Tasks() {
                         title={advanceLabel}
                       >
                         {done ? (
-                          <CheckCircle2 size={16} className="text-success" />
+                          <CheckCircle2 size={16} className="text-success-ink" />
                         ) : cancelled ? (
-                          <CheckCircle2 size={16} className="text-danger" />
+                          <CheckCircle2 size={16} className="text-danger-ink" />
                         ) : doing ? (
-                          <CircleDot size={16} className="text-info" />
+                          <CircleDot size={16} className="text-info-ink" />
                         ) : (
-                          <Circle size={16} className="text-warning" />
+                          <Circle size={16} className="text-warning-ink" />
                         )}
-                      </button>
+                      </AdvanceTag>
 
                       <div className="min-w-[140px] flex-1">
                         <p
-                          className={`truncate text-[13.5px] font-semibold ${done ? 'text-faint line-through' : 'text-ink'}`}
+                          className={`truncate text-[13px] font-semibold ${done ? 'text-faint line-through' : 'text-ink'}`}
                         >
                           {taskDisplayTitle(t.title, t.project?.name)}
                         </p>
@@ -569,25 +571,26 @@ export function Tasks() {
                         <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
                           <Badge tone={t.priority}>{humanizeEnum(t.priority)}</Badge>
                           {t.overdue && (
-                            <span className="bg-danger-soft text-danger inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap">
+                            <span className="bg-danger-soft text-danger-ink inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold whitespace-nowrap">
                               <AlertTriangle size={12} /> Overdue
                             </span>
                           )}
                           {t.blocked && (
                             <span
                               title={blockedReason(t)}
-                              className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap"
+                              className="bg-subtle text-muted inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold whitespace-nowrap"
                             >
                               <Lock size={12} /> Blocked
                             </span>
                           )}
                           {t.dueDate && (
-                            <span className="text-muted inline-flex items-center gap-1 text-[11px]">
+                            <span className="text-muted inline-flex items-center gap-1 text-[12px]">
                               <CalendarDays size={12} /> {formatDate(t.dueDate)}
                             </span>
                           )}
+                          <TimeChip task={t} />
                           {t.totalSubtasks > 0 && (
-                            <span className="text-muted inline-flex items-center gap-1 text-[11px]">
+                            <span className="text-muted inline-flex items-center gap-1 text-[12px]">
                               <ListChecks size={12} />
                               {t.completedSubtasks}/{t.totalSubtasks} subtasks · {Math.round((t.completedSubtasks / t.totalSubtasks) * 100)}%
                             </span>
@@ -599,7 +602,7 @@ export function Tasks() {
                         <div className="flex w-7 shrink-0 items-center justify-center">
                           {assigneeIds.length > 0 && <AvatarGroup memberIds={assigneeIds} size={28} />}
                         </div>
-                        {canManage && (
+                        {(canEditThisTask || canDeleteThisTask) && (
                           <Dropdown
                             align="right"
                             button={({ toggle }) => (
@@ -617,26 +620,30 @@ export function Tasks() {
                           >
                             {({ close }) => (
                               <div className="flex flex-col gap-0.5 p-1">
-                                <button
-                                  type="button"
-                                  className="hover:bg-subtle flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px]"
-                                  onClick={() => {
-                                    setEditingTask({ ...t, assigneeIds })
-                                    close()
-                                  }}
-                                >
-                                  <Pencil size={14} /> Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  className="hover:bg-subtle text-danger flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px]"
-                                  onClick={() => {
-                                    setDeletingTask(t)
-                                    close()
-                                  }}
-                                >
-                                  <Trash2 size={14} /> Delete
-                                </button>
+                                {canEditThisTask && (
+                                  <button
+                                    type="button"
+                                    className="hover:bg-subtle flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px]"
+                                    onClick={() => {
+                                      setEditingTask({ ...t, assigneeIds })
+                                      close()
+                                    }}
+                                  >
+                                    <Pencil size={14} /> Edit
+                                  </button>
+                                )}
+                                {canDeleteThisTask && (
+                                  <button
+                                    type="button"
+                                    className="hover:bg-subtle text-danger-ink flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px]"
+                                    onClick={() => {
+                                      setDeletingTask(t)
+                                      close()
+                                    }}
+                                  >
+                                    <Trash2 size={14} /> Delete
+                                  </button>
+                                )}
                               </div>
                             )}
                           </Dropdown>
@@ -650,24 +657,26 @@ export function Tasks() {
                         {!loadingSubtasksFor.has(t.id) && subtasks.length === 0 && (
                           <p className="text-faint px-1 text-[12px]">No subtasks</p>
                         )}
-                        {subtasks.map((s) => (
-                          <button
+                        {subtasks.map((s) => {
+                          const SubtaskTag = canEditSubtasks ? 'button' : 'div'
+                          return (
+                          <SubtaskTag
                             key={s.id}
-                            type="button"
-                            onClick={(e) => toggleSubtaskInList(t, s, e)}
-                            disabled={!canEditProjectContent(myProjectRoleMap.get(t.project?.id), isSystemAdmin)}
-                            className="bg-card border-border hover:bg-subtle flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12.5px] transition-colors"
+                            type={canEditSubtasks ? 'button' : undefined}
+                            onClick={canEditSubtasks ? (e) => toggleSubtaskInList(t, s, e) : undefined}
+                            className={`bg-card border-border flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[12px] transition-colors ${canEditSubtasks ? 'hover:bg-subtle' : ''}`}
                           >
                             {s.status === 'COMPLETED' ? (
-                              <CheckSquare size={14} className="text-success shrink-0" />
+                              <CheckSquare size={14} className="text-success-ink shrink-0" />
                             ) : (
                               <Square size={14} className="text-faint shrink-0" />
                             )}
                             <span className={s.status === 'COMPLETED' ? 'text-faint line-through' : 'text-ink'}>
                               {s.title}
                             </span>
-                          </button>
-                        ))}
+                          </SubtaskTag>
+                          )
+                        })}
                       </div>
                     )}
                   </div>

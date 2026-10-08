@@ -66,14 +66,14 @@ export function AddProjectMemberModal({ projectId, onClose, onInvited }) {
       {({ requestClose }) => (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Username</span>
+            <span className="text-muted text-[12px] font-semibold">Username</span>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               list="project-member-suggestions"
               placeholder="Search by name or username"
-              className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+              className="field"
               autoComplete="off"
               autoFocus
               required
@@ -85,12 +85,12 @@ export function AddProjectMemberModal({ projectId, onClose, onInvited }) {
                 </option>
               ))}
             </datalist>
-            <span className="text-faint text-[11.5px]">
+            <span className="text-faint text-[12px]">
               They&apos;ll get an invitation and join as a member once they accept.
             </span>
           </label>
 
-          {error && <p className="text-danger text-[12.5px] font-semibold">{error}</p>}
+          {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
 
           <div className="mt-1 flex justify-end gap-2">
             <button type="button" className="btn btn-secondary" onClick={requestClose}>

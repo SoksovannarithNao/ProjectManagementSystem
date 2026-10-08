@@ -7,9 +7,13 @@ import backend.entity.Task;
 import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.SubtaskRepository;
+import backend.repository.TaskAssigneeRepository;
 import backend.repository.TaskDependencyRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +29,7 @@ public class SubtaskService {
     private final UserRepository userRepository;
     private final ActivityLogService activityLogService;
     private final ProjectAccessGuard projectAccessGuard;
+    private final TaskAssigneeRepository taskAssigneeRepository;
 
     public SubtaskService(
             SubtaskRepository subtaskRepository,
@@ -32,13 +37,30 @@ public class SubtaskService {
             TaskDependencyRepository taskDependencyRepository,
             UserRepository userRepository,
             ActivityLogService activityLogService,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            TaskAssigneeRepository taskAssigneeRepository) {
         this.subtaskRepository = subtaskRepository;
         this.taskRepository = taskRepository;
         this.taskDependencyRepository = taskDependencyRepository;
         this.userRepository = userRepository;
         this.activityLogService = activityLogService;
         this.projectAccessGuard = projectAccessGuard;
+        this.taskAssigneeRepository = taskAssigneeRepository;
+    }
+
+    // Someone who can edit tasks (Owner, Team Leader) edits any subtask. A Team
+    // Member is limited: only subtasks of tasks assigned to them, or subtasks
+    // assigned to them (specification B3.5).
+    private void assertMayWorkOn(User caller, Subtask subtask) {
+        Long projectId = subtask.getTask().getProject().getId();
+        if (projectAccessGuard.can(caller, projectId, Resource.TASK, Action.EDIT)) {
+            return;
+        }
+        boolean onTask = taskAssigneeRepository.existsByTaskIdAndUserId(subtask.getTask().getId(), caller.getId());
+        boolean onSubtask = subtask.getAssignee() != null && subtask.getAssignee().getId().equals(caller.getId());
+        if (!onTask && !onSubtask) {
+            throw new AccessDeniedException("You can only change subtasks of tasks assigned to you");
+        }
     }
 
     @Transactional(readOnly = true)
@@ -53,7 +75,7 @@ public class SubtaskService {
         User caller = requireUser(username);
         Task task = requireTask(request.getTaskId());
         // Writing subtasks is a content write — a VIEWER stays read-only.
-        projectAccessGuard.assertCanEditContent(caller, task.getProject().getId());
+        projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.SUBTASK, Action.CREATE);
 
         Subtask subtask = new Subtask();
         subtask.setTask(task);
@@ -71,7 +93,8 @@ public class SubtaskService {
     public SubtaskResponse updateSubtask(Long id, SubtaskRequest request, String username) {
         User caller = requireUser(username);
         Subtask subtask = requireSubtask(id);
-        projectAccessGuard.assertCanEditContent(caller, subtask.getTask().getProject().getId());
+        projectAccessGuard.assertCan(caller, subtask.getTask().getProject().getId(), Resource.SUBTASK, Action.EDIT);
+        assertMayWorkOn(caller, subtask);
 
         String previousStatus = subtask.getStatus();
         applyRequest(subtask, request);
@@ -116,7 +139,7 @@ public class SubtaskService {
     public void deleteSubtask(Long id, String username) {
         User caller = requireUser(username);
         Subtask subtask = requireSubtask(id);
-        projectAccessGuard.assertCanEditContent(caller, subtask.getTask().getProject().getId());
+        projectAccessGuard.assertCan(caller, subtask.getTask().getProject().getId(), Resource.SUBTASK, Action.DELETE);
 
         activityLogService.record(caller, subtask.getTask(), "SUBTASK_DELETED",
                 "Subtask \"" + subtask.getTitle() + "\" deleted");

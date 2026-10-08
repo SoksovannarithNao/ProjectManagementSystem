@@ -10,6 +10,8 @@ import backend.repository.MilestoneRepository;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -87,7 +89,7 @@ public class MilestoneService {
 
     // Requires OWNER/ADMIN (or system ADMINISTRATOR) of the target project.
     public MilestoneResponse createMilestone(MilestoneRequest request, String username) {
-        projectAccessGuard.assertCanManage(requireUser(username), request.getProjectId());
+        projectAccessGuard.assertCan(requireUser(username), request.getProjectId(), Resource.MILESTONE, Action.CREATE);
         Milestone milestone = new Milestone();
         applyRequest(milestone, request);
         return new MilestoneResponse(milestoneRepository.save(milestone));
@@ -97,11 +99,11 @@ public class MilestoneService {
         Milestone milestone = getMilestoneEntityById(id);
         User caller = requireUser(username);
         Long currentProjectId = milestone.getProject().getId();
-        projectAccessGuard.assertCanManage(caller, currentProjectId);
+        projectAccessGuard.assertCan(caller, currentProjectId, Resource.MILESTONE, Action.EDIT);
         // Moving a milestone into another project needs manage rights there
         // too (same reasoning as TaskService.updateTask).
         if (request.getProjectId() != null && !request.getProjectId().equals(currentProjectId)) {
-            projectAccessGuard.assertCanManage(caller, request.getProjectId());
+            projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.MILESTONE, Action.EDIT);
         }
         applyRequest(milestone, request);
         return new MilestoneResponse(milestoneRepository.save(milestone));
@@ -109,7 +111,7 @@ public class MilestoneService {
 
     public void deleteMilestone(Long id, String username) {
         Milestone milestone = getMilestoneEntityById(id);
-        projectAccessGuard.assertCanManage(requireUser(username), milestone.getProject().getId());
+        projectAccessGuard.assertCan(requireUser(username), milestone.getProject().getId(), Resource.MILESTONE, Action.DELETE);
         milestoneRepository.delete(milestone);
     }
 

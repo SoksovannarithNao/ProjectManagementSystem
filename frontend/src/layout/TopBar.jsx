@@ -97,7 +97,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
           <h1 className="text-ink truncate text-[30px] font-bold tracking-[-0.02em] max-sm:text-2xl">
             {title}
           </h1>
-          {subtitle && <p className="text-muted mt-1 text-[13.5px]">{subtitle}</p>}
+          {subtitle && <p className="text-muted mt-1 text-[13px]">{subtitle}</p>}
         </div>
       </div>
 
@@ -111,7 +111,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
               placeholder={searchPlaceholder}
               value={searchValue ?? ''}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="text-ink placeholder:text-faint w-full border-none bg-transparent text-[13.5px] outline-none"
+              className="text-ink placeholder:text-faint w-full border-none bg-transparent text-[13px] outline-none"
             />
           </div>
         )}
@@ -134,7 +134,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                 {unreadCount > 0 && (
                   <button
                     type="button"
-                    className="text-muted hover:text-ink text-[11.5px] font-semibold"
+                    className="text-muted hover:text-ink text-[12px] font-semibold"
                     onClick={markAllRead}
                   >
                     Mark all read
@@ -156,14 +156,14 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                           <span className="flex items-center gap-1.5">
                             {!n.read && <span className="bg-info h-1.5 w-1.5 shrink-0 rounded-full" />}
-                            <span className="text-ink text-[12.5px] font-semibold">{n.title}</span>
+                            <span className="text-ink text-[12px] font-semibold">{n.title}</span>
                           </span>
                           {n.message && <span className="text-muted text-[12px]">{n.message}</span>}
-                          <span className="text-faint text-[11px]">{timeAgo(n.createdAt)}</span>
+                          <span className="text-faint text-[12px]">{timeAgo(n.createdAt)}</span>
                           <div className="mt-1 flex gap-2">
                             <button
                               type="button"
-                              className="btn btn-primary px-2.5 py-1 text-[11.5px]"
+                              className="btn btn-primary px-2.5 py-1 text-[12px]"
                               disabled={respondingId === n.id}
                               onClick={() => handleRespond(n, true)}
                             >
@@ -171,7 +171,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                             </button>
                             <button
                               type="button"
-                              className="btn btn-secondary px-2.5 py-1 text-[11.5px]"
+                              className="btn btn-secondary px-2.5 py-1 text-[12px]"
                               disabled={respondingId === n.id}
                               onClick={() => handleRespond(n, false)}
                             >
@@ -187,10 +187,10 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                         >
                           <span className="flex items-center gap-1.5">
                             {!n.read && <span className="bg-info h-1.5 w-1.5 shrink-0 rounded-full" />}
-                            <span className="text-ink text-[12.5px] font-semibold">{n.title}</span>
+                            <span className="text-ink text-[12px] font-semibold">{n.title}</span>
                           </span>
                           {n.message && <span className="text-muted text-[12px]">{n.message}</span>}
-                          <span className="text-faint text-[11px]">{timeAgo(n.createdAt)}</span>
+                          <span className="text-faint text-[12px]">{timeAgo(n.createdAt)}</span>
                         </button>
                       )}
                       <button
@@ -269,7 +269,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
             <div className="flex flex-col gap-0.5">
               <div className="border-divider mb-1 border-b px-2.5 pb-2">
                 <p className="text-ink truncate text-[13px] font-semibold">{displayName}</p>
-                <p className="text-faint truncate text-[11.5px]">{username}</p>
+                <p className="text-faint truncate text-[12px]">{username}</p>
               </div>
               <button
                 type="button"
@@ -293,7 +293,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
               </button>
               <button
                 type="button"
-                className="hover:bg-subtle text-danger flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px]"
+                className="hover:bg-subtle text-danger-ink flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px]"
                 onClick={() => {
                   close()
                   handleLogout()

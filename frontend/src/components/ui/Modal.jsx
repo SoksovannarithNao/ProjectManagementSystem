@@ -41,7 +41,7 @@ export function Modal({ title, onClose, children, isDirty = false }) {
   return (
     <>
       <div
-        className="animate-fade-in fixed inset-0 z-[70] flex items-center justify-center bg-[rgba(20,20,22,.4)] p-4 backdrop-blur-[2px]"
+        className="animate-fade-in fixed inset-0 z-[70] flex items-center justify-center bg-scrim p-4"
         onClick={(e) => {
           e.stopPropagation()
           requestClose()
@@ -65,7 +65,7 @@ export function Modal({ title, onClose, children, isDirty = false }) {
 
       {confirmingClose && (
         <div
-          className="animate-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-[rgba(20,20,22,.4)] p-4 backdrop-blur-[2px]"
+          className="animate-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-scrim p-4"
           onClick={(e) => {
             e.stopPropagation()
             setConfirmingClose(false)
@@ -86,7 +86,7 @@ export function Modal({ title, onClose, children, isDirty = false }) {
                 <button type="button" className="btn btn-secondary" onClick={() => setConfirmingClose(false)}>
                   Keep editing
                 </button>
-                <button type="button" className="btn bg-danger text-white hover:opacity-90" onClick={onClose}>
+                <button type="button" className="btn bg-danger text-on-danger hover:opacity-90" onClick={onClose}>
                   Discard
                 </button>
               </div>

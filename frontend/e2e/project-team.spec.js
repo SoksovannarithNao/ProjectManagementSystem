@@ -215,7 +215,7 @@ test.describe('project team: invitations, eligibility and suggestions', () => {
     const dialog = page.locator('div.animate-scale-in')
     await dialog.getByPlaceholder('Search by name or username').fill('contractor.felix')
     await dialog.getByRole('button', { name: /send invitation/i }).click()
-    await expect(dialog.locator('p.text-danger')).toContainText('inactive account')
+    await expect(dialog.getByText(/inactive account/)).toBeVisible()
     expect(await (await request.get(`/api/project-members/project/${id}/invitations/count`, { headers })).json()).toEqual({ count: before })
   })
 })

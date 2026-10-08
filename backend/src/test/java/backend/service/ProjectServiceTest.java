@@ -8,6 +8,8 @@ import backend.exception.ConflictException;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,13 +44,16 @@ class ProjectServiceTest {
     @Mock
     private ProjectAccessGuard projectAccessGuard;
 
+    @Mock
+    private ProjectOwnership projectOwnership;
+
     private ProjectService projectService;
 
     private User caller;
 
     @BeforeEach
     void setUp() {
-        projectService = new ProjectService(projectRepository, projectMemberRepository, userRepository, projectAccessGuard);
+        projectService = new ProjectService(projectRepository, projectMemberRepository, userRepository, projectAccessGuard, projectOwnership);
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 7L);
         caller.setUsername("pm.olivia");
@@ -74,7 +79,27 @@ class ProjectServiceTest {
 
     private void stubSave() {
         when(projectRepository.save(any(Project.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(projectMemberRepository.existsByProjectIdAndUserId(any(), any())).thenReturn(true);
+    }
+
+    @Test
+    void create_makesTheCreatorTheProjectsOwner() {
+        when(projectRepository.findAutoProjectCodes()).thenReturn(List.of());
+        stubSave();
+
+        projectService.createProject(request(null), "pm.olivia");
+
+        verify(projectOwnership).assignOwner(any(Project.class), org.mockito.ArgumentMatchers.eq(caller));
+    }
+
+    @Test
+    void update_keepsTheOwnerInStepWithTheManager() {
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(existingProject()));
+        when(projectRepository.existsByProjectCodeAndIdNot("PRJ-2005", 5L)).thenReturn(false);
+        stubSave();
+
+        projectService.updateProject(5L, request("PRJ-2005"), "pm.olivia");
+
+        verify(projectOwnership).assignOwner(any(Project.class), org.mockito.ArgumentMatchers.eq(caller));
     }
 
     @Test
@@ -151,5 +176,32 @@ class ProjectServiceTest {
         verify(projectRepository).save(saved.capture());
         assertThat(saved.getValue().getProjectCode()).isEqualTo("PRJ-2005");
         assertThat(response.getProjectCode()).isEqualTo("PRJ-2005");
+    }
+
+    @Test
+    void create_needsTheSystemPermissionToCreateProjects_andSavesNothingWithout() {
+        org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException(
+                        "Only a Project Manager or an Administrator can create a project"))
+                .when(projectAccessGuard).assertSystemCan(caller, Resource.PROJECT, Action.CREATE);
+
+        assertThatThrownBy(() -> projectService.createProject(request("WEB-RD"), "pm.olivia"))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class)
+                .hasMessageContaining("Project Manager");
+        verify(projectRepository, never()).save(any());
+    }
+
+    @Test
+    void update_needsProjectEdit_andDelete_needsProjectDelete() {
+        org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("no"))
+                .when(projectAccessGuard).assertCan(caller, 5L, Resource.PROJECT, Action.EDIT);
+        org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("no"))
+                .when(projectAccessGuard).assertCan(caller, 5L, Resource.PROJECT, Action.DELETE);
+
+        assertThatThrownBy(() -> projectService.updateProject(5L, request("PRJ-2005"), "pm.olivia"))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        assertThatThrownBy(() -> projectService.deleteProject(5L, "pm.olivia"))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        verify(projectRepository, never()).save(any());
+        verify(projectRepository, never()).delete(any());
     }
 }

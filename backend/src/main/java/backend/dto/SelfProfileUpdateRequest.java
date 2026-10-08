@@ -13,7 +13,7 @@ import java.time.LocalDate;
 // which requires the current password rather than accepting a bare
 // replacement from anyone holding a still-valid JWT. Also no position/
 // department — those are Team-Admin-managed only, via
-// UserService.updateMemberPositionDepartment (see backend/README.md). Also
+// UserService.updateMemberPositionDepartment (see docs/backend.md). Also
 // no profilePhotoUrl — that's upload-only now, via
 // UserService.uploadOwnProfilePhoto/deleteOwnProfilePhoto.
 public class SelfProfileUpdateRequest {

@@ -9,14 +9,14 @@ A task **always belongs to exactly one project** (`tasks.project_id NOT NULL`, `
 | Field | Type / rule | Notes |
 |---|---|---|
 | `id` | identity | |
-| `project` | required | Cannot be omitted. The New Task form only offers projects where the caller is `OWNER`/`ADMIN`/`MEMBER` |
+| `project` | required | Cannot be omitted. The New Task form only offers projects where the caller holds `TASK:CREATE` |
 | `milestone` | optional | Must belong to the **same project** (trigger `trg_tasks_milestone_project_match`). The UI forms have no milestone picker; the API accepts `milestoneId` |
 | `title` | required, ≤ 200 | |
 | `description` | optional text | |
 | `priority` | `LOW`, `MEDIUM` (default), `HIGH`, `URGENT` | |
 | `status` | `TO_DO` (default), `IN_PROGRESS`, `IN_REVIEW`, `COMPLETED`, `CANCELLED` | |
 | `startDate`, `dueDate` | **both required** (`NOT NULL`) | `dueDate ≥ startDate` (CHECK) and `dueDate ≤ project.endDate` (trigger) |
-| `estimatedHours` | optional, ≥ 0 (`NUMERIC(6,2)`) | There is no "actual hours" — work logs are not implemented |
+| `estimatedHours` | optional, ≥ 0 (`NUMERIC(6,2)`, so at most 9999.99) | Entered as hours, minutes or days (`4`, `1h 30m`, `45m`, `2d` — a day is 8 hours) and stored as decimal hours. The response also carries read-only `actualHours`, the sum of the task's work logs (see "Time tracking" below) |
 | `progress` | 0–100 | Derived when the task has subtasks (see §5); otherwise stored as sent (default 0) |
 | `completedAt` | timestamp | **Set automatically** when status becomes `COMPLETED` and cleared when it leaves it (`trg_tasks_completed_at`); any value in a request is overridden |
 | `createdBy` | user | Always the caller on create (a client-supplied `createdById` is honoured only for a system administrator) |
@@ -30,19 +30,20 @@ Computed in `TaskResponse` (not stored): `overdue` (due date before today and st
 
 How the UI moves a task (`frontend/src/api/tasks.js`):
 
-- **Quick-advance circle** (Tasks page): one click = one step — `TO_DO → IN_PROGRESS`, `IN_PROGRESS`/`IN_REVIEW → COMPLETED`. `COMPLETED` and `CANCELLED` are terminal for this control, so a finished task is never reopened by a stray click. The Tasks page groups `IN_PROGRESS` and `IN_REVIEW` together as **Doing**, and `COMPLETED` as **Done**; clicking while Doing with open subtasks shows the blocking message instead of failing.
-- **Status dropdown** (task panel, project page): all five statuses, including reopening and `IN_REVIEW`/`CANCELLED`.
+- **Quick-advance circle** (Tasks page): one click = one step — `TO_DO → IN_PROGRESS`, then — for someone who may **approve** (`TASK:APPROVE`) — `IN_PROGRESS`/`IN_REVIEW → COMPLETED`; for everyone else `IN_PROGRESS → IN_REVIEW` ("Submit for review"), which then waits ("Awaiting approval") for an approver. `COMPLETED` and `CANCELLED` are terminal for this control, so a finished task is never reopened by a stray click. The Tasks page groups `IN_PROGRESS` and `IN_REVIEW` together as **Doing**, and `COMPLETED` as **Done**; clicking while Doing with open subtasks shows the blocking message instead of failing.
+- **Status dropdown** (task panel, project page): all five statuses, including reopening and `IN_REVIEW`/`CANCELLED`; *Completed* is not offered to someone without `TASK:APPROVE`, and the dropdown is replaced by a plain badge for someone who cannot change the status at all.
+- **Approval gate:** the backend refuses `COMPLETED` without `TASK:APPROVE` (`403`, [authentication-authorization.md](authentication-authorization.md#53-task-update-rule-row-level)); the UI hides the option so a Team Member is never offered it.
 - **Kanban**: columns *To Do*, *In Progress*, *Review*, *Done*, plus a computed *Blocked* column (a `TO_DO` task that is blocked by an unfinished dependency — "Blocked" is never a stored status). Cards open the task panel; **cards cannot be dragged** to change status.
 
 **Priorities** — `LOW`, `MEDIUM`, `HIGH`, `URGENT` (tasks); projects use `CRITICAL` instead of `URGENT`. The Tasks page can sort by priority (Urgent first).
 
 ## 3. Assignment
 
-Table `task_assignees` (`UNIQUE (task_id, user_id)`) — many assignees per task are possible at the data and API level; **the UI assigns a single person** (one Assignee dropdown, shown only to `OWNER`/`ADMIN`).
+Table `task_assignees` (`UNIQUE (task_id, user_id)`) — many assignees per task are possible at the data and API level; **the UI assigns a single person** (one Assignee dropdown, shown only to holders of `TASK:ASSIGN`).
 
 | Rule | Enforced by |
 |---|---|
-| Only `OWNER`/`ADMIN` of the task's project (or an administrator) may assign/unassign | `TaskAssigneeService` |
+| Only a holder of `TASK:ASSIGN` in the task's project (Project Manager, Team Leader, administrator) may assign/unassign | `TaskAssigneeService` |
 | The assignee must be an **active member of the task's project** | trigger `trg_task_assignees_project_member`; the UI dropdown lists only active members (`getActiveProjectMembers`) |
 | The assignee's account must be `ACTIVE` | trigger `trg_task_assignees_not_suspended` |
 | Assigning notifies the assignee (`TASK_ASSIGNED`) unless they disabled notifications | `NotificationService.notifyTaskAssigned` |
@@ -67,7 +68,7 @@ Page behaviour: search matches title, description and project name; filters are 
 
 ## 4a. Permissions summary
 
-See the full matrix in [authentication-authorization.md](authentication-authorization.md#52-permission-matrix). In short: `OWNER`/`ADMIN` do everything; `MEMBER` creates tasks and edits subtasks/comments; an **assigned** user may change only `status`/`progress` of that task; `VIEWER` is read-only — it cannot add comments or subtasks, nor change a task even if assigned to it (changed 2026-10-06).
+See the full matrix in [authentication-authorization.md](authentication-authorization.md#52-permission-matrix). In short: Project Managers and Team Leaders (`OWNER`/`ADMIN`) do everything, including **approving** a task as completed; a Team Member (`MEMBER`) creates tasks and edits subtasks/comments; an **assigned** user may change only `status`/`progress` of that task, and may move it to *In Review* but not to *Completed*; `VIEWER` is read-only — it cannot add comments or subtasks, nor change a task even if assigned to it (changed 2026-10-06).
 
 ## 5. Subtasks
 
@@ -75,7 +76,7 @@ Table `subtasks`: `title` (≤ 200, required), `assigneeId` (optional), `dueDate
 
 Rules:
 
-- **Permissions:** reading needs project membership; creating, editing and deleting subtasks need content-edit rights (`OWNER`/`ADMIN`/`MEMBER`) — a `VIEWER` gets `403` and the task panel hides the controls (changed 2026-10-06).
+- **Permissions:** reading needs project membership; creating, editing and deleting subtasks need the `SUBTASK:*` grants (everyone except `VIEWER`) — a `VIEWER` gets `403` and the task panel hides the controls (changed 2026-10-06).
 - **Assignee:** must be an active member of the project and `ACTIVE` — checked only when the assignee actually *changes* (`SubtaskService.applyRequest`), so editing an old subtask whose assignee later left the project still works.
 - **Progress:** if a task has subtasks, its `progress` is `100 × completed ÷ total`, recomputed by triggers (`trg_subtasks_sync_parent_task`, `trg_tasks_progress_derived_from_subtasks`). With no subtasks, progress is not subtask-derived.
 - **Completion gate:** a task cannot **enter** `COMPLETED` while any subtask is not `COMPLETED` — `400 "Complete all subtasks before marking this task as done."`, checked in `TaskService` and again by trigger `trg_tasks_not_completed_with_open_subtasks`. It only blocks the transition; an already-`COMPLETED` task stays completed if a subtask is added or reopened later.
@@ -90,9 +91,9 @@ Table `comments`: `message` (required, ≤ 4000), `task`, `user`, optional `pare
 
 | Aspect | Behaviour |
 |---|---|
-| Who can read / add | **read:** any active project member (including `VIEWER`); **add:** content-edit rights (`OWNER`/`ADMIN`/`MEMBER`) — a `VIEWER` gets `403` and the UI hides the comment box (changed 2026-10-06) |
+| Who can read / add | **read:** any active project member (including `VIEWER`); **add:** `COMMENT:CREATE` (everyone except `VIEWER`) — a `VIEWER` gets `403` and the UI hides the comment box (changed 2026-10-06) |
 | Edit | the author only |
-| Delete | the author, or an `OWNER`/`ADMIN` (or administrator) of the project |
+| Delete | the author, or a holder of `COMMENT:DELETE` (Project Manager, Team Leader, administrator) |
 | UI | add, edit own, delete (task panel). **No reply control** — `parentCommentId` is accepted by the API but the UI never sends it |
 | Notification | **none** — `COMMENT_ADDED` exists as an allowed type but no code creates it |
 | Activity | **none** — `COMMENT_ADDED` is allowed in `activity_logs.action` but is never written |
@@ -101,7 +102,7 @@ Table `comments`: `message` (required, ≤ 4000), `task`, `user`, optional `pare
 
 ## 7. Dependencies
 
-Table `task_dependencies (task_id, depends_on_task_id)`: "`task` cannot start until `depends_on_task` is `COMPLETED`". `POST /api/task-dependencies` and `DELETE /api/task-dependencies?taskId=&dependsOnTaskId=` require `OWNER`/`ADMIN` of the **dependent task's** project. The task panel lists, adds and removes dependencies.
+Table `task_dependencies (task_id, depends_on_task_id)`: "`task` cannot start until `depends_on_task` is `COMPLETED`". `POST /api/task-dependencies` and `DELETE /api/task-dependencies?taskId=&dependsOnTaskId=` require `TASK:ASSIGN` in the **dependent task's** project. The task panel lists, adds and removes dependencies.
 
 Database rules:
 
@@ -117,7 +118,7 @@ Surfacing: `TaskResponse.blocked` and `blockingTaskTitles` (names of the unfinis
 
 Table `milestones`: `title` (≤ 200, required), `description`, `dueDate` (required), `status` (`PENDING`, `IN_PROGRESS`, `COMPLETED`), `progress`.
 
-- Create / update / delete: `OWNER`/`ADMIN`/administrator (moving a milestone to another project via update also needs manage rights on the target project — changed 2026-10-06). The project page lets you **add** (title + due date) and **delete**; **editing a milestone exists only in the API**.
+- Create / update / delete: `MILESTONE:CREATE/EDIT/DELETE` (Project Manager, Team Leader, administrator) (moving a milestone to another project via update also needs the right on the target project — changed 2026-10-06). The project page lets you **add** (title + due date) and **delete**; **editing a milestone exists only in the API**.
 - `dueDate` must fall within the project's start and end dates (trigger).
 - `progress` is derived like a project's (completed ÷ non-cancelled tasks linked to it); `status` is **not** derived — it stays whatever was set.
 - Calendar does not show milestones; the milestone selector is absent from the task forms.
@@ -158,3 +159,17 @@ Changes to title, description, dates other than due date, estimated hours, proje
 | Project and milestone progress follow tasks | triggers |
 | Only owners/admins edit everything; assignees change only status/progress | `TaskService.updateTask` |
 | New tasks start as `TO_DO` with progress 0 | UI forms (`status: 'TO_DO'`, `progress: 0`); the API accepts any status on create |
+
+
+## Time tracking (estimated vs. actual)
+
+Implements the "Estimated Time / Actual Time" part of the assignment (Time Tracking & Work Logs). Time tracking is an **optional** feature in the specification ([assignment-brief.md](../assignment-brief.md) §B11).
+
+- **Estimate** — the optional `estimatedHours` on the task (New Task / Edit Task form).
+- **Actual** — the sum of the task's **work logs** (`work_logs` table; `WorkLog` entity). `TaskResponse.actualHours` is filled from one grouped query for the whole list, so listing tasks does not run a query per task.
+- **Logging** — in the task panel's *Time tracking* section a member types a time (`1h 30m`, `45m`, `1.5`, `2d`), a date (default today, never in the future) and an optional note (≤ 500). One entry is 0.01–24 hours. Anyone who can edit the project's content (`OWNER`/`ADMIN`/`MEMBER`, or a system administrator) can log; a `VIEWER` can read the entries but not add any.
+- **Timer** — *Start timer* keeps a clock in the browser (`localStorage`, one running timer per user, survives a reload). *Stop* does not save by itself: it fills the time and date into the form so the person can trim it or add a note. A run under a minute is discarded; one over 24 hours is capped and flagged.
+- **Deleting** — the author, or a holder of `WORK_LOG:DELETE` (Project Manager, Team Leader, administrator), can delete an entry. There is no edit; delete and log again.
+- **Display** — the panel shows `logged / estimated`, a progress bar and the time left, or in the danger colour how far over the estimate the task is. Task rows and board cards show a small `1h 30m / 13h` chip (danger colour once over).
+
+Not covered: logging does not write to the task's activity history, because `activity_logs.action` has a `CHECK` list with no work-log value (adding one needs a schema migration); the workload view (`v_team_workload`) still has no API or screen, so per-person actual hours are not shown anywhere yet.

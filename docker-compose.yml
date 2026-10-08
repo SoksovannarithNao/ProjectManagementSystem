@@ -21,6 +21,35 @@ services:
       timeout: 5s
       retries: 5
 
+  # One-shot schema migration (Flyway). The init scripts in database/init only
+  # run against an EMPTY data volume, so a database that already exists never
+  # sees a new schema change. This service applies database/taskmanager/migrations
+  # to it on every `docker compose up` and exits; the backend waits for it.
+  # -baselineVersion=8: V1-V8 are already part of any database that has no
+  # Flyway history yet (built by init/01-init.sql before this service existed),
+  # so Flyway adopts that state and applies V9 onward. A database created from
+  # the current init scripts carries its own baseline row (init/04-flyway-baseline.sql,
+  # version 10), so nothing already folded into 01-init.sql is replayed.
+  # It uses the postgres superuser because migrations change the schema; the
+  # backend itself still connects as the least-privileged taskmanager_app.
+  migrate:
+    image: flyway/flyway:11
+    container_name: taskmanager-migrate
+    command: >-
+      -url=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-taskmanager}
+      -user=${POSTGRES_USER:-postgres}
+      -password=${POSTGRES_PASSWORD:-postgres}
+      -locations=filesystem:/flyway/sql
+      -connectRetries=10
+      -baselineOnMigrate=true
+      -baselineVersion=8
+      migrate
+    volumes:
+      - ./database/taskmanager/migrations:/flyway/sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Local SMTP catcher for registration OTP emails — nothing actually leaves
   # the machine. Swap in a real provider by overriding MAIL_HOST/MAIL_PORT/
   # MAIL_USERNAME/MAIL_PASSWORD (and MAIL_SMTP_AUTH/MAIL_SMTP_STARTTLS) via
@@ -65,6 +94,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       mailpit:
         condition: service_healthy
     healthcheck:

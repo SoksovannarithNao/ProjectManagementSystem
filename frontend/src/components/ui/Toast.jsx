@@ -5,7 +5,7 @@ const ToastContext = createContext(null)
 
 const ICONS = { success: CheckCircle2, error: XCircle, info: Info }
 const ACCENT = { success: 'bg-success', error: 'bg-danger', info: 'bg-info' }
-const ICON_COLOR = { success: 'text-success', error: 'text-danger', info: 'text-info' }
+const ICON_COLOR = { success: 'text-success-ink', error: 'text-danger-ink', info: 'text-info-ink' }
 
 let idCounter = 0
 

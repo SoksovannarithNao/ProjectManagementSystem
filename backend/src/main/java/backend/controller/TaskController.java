@@ -66,7 +66,7 @@ public class TaskController {
     // OWNER/ADMIN (or system ADMINISTRATOR) may still edit every field on
     // any task in that project; anyone else may only act on a task they're
     // assigned to, and only its status/progress take effect — see
-    // TaskService.updateTask and the README's Security section.
+    // TaskService.updateTask and docs/backend.md's Security section.
     @PutMapping("/{id}")
     public TaskResponse updateTask(
             @PathVariable Long id,

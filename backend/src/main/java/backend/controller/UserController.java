@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import backend.dto.EffectivePermissionsResponse;
+import backend.dto.RoleAssignmentRequest;
 
 @RestController
 @RequestMapping("/api/users")
@@ -49,11 +51,19 @@ public class UserController {
         return userService.getUserByUsername(username, authentication.getName());
     }
 
-    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    @PreAuthorize("@permissions.require(authentication, 'USER', 'CREATE')")
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public UserResponse createUser(@Valid @RequestBody UserCreateRequest request) {
         return userService.createUser(request);
+    }
+
+    // What the signed-in user may do (system-wide and per project). The frontend
+    // uses it to hide controls the user cannot use; every request is still
+    // checked on the server.
+    @GetMapping("/me/permissions")
+    public EffectivePermissionsResponse getOwnPermissions(Authentication authentication) {
+        return userService.getOwnPermissions(authentication.getName());
     }
 
     // Any authenticated user updating their own profile — no role gate
@@ -104,6 +114,16 @@ public class UserController {
         return userService.updateOwnPreferences(authentication.getName(), request);
     }
 
+    // Gives an account its system role (Administrator, Project Manager, Team
+    // Leader, Team Member). Needs USER:ASSIGN.
+    @PreAuthorize("@permissions.require(authentication, 'USER', 'ASSIGN')")
+    @PutMapping("/{id}/role")
+    public UserResponse assignRole(
+            @PathVariable Long id,
+            @Valid @RequestBody RoleAssignmentRequest request) {
+        return userService.assignRole(id, request.getRoleId());
+    }
+
     // Not role-gated at the annotation level — UserService enforces the
     // actual "Team Admin for this specific member" check (system
     // ADMINISTRATOR, or an active OWNER/ADMIN of a project this member also
@@ -117,7 +137,7 @@ public class UserController {
         return userService.updateMemberPositionDepartment(authentication.getName(), id, request);
     }
 
-    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    @PreAuthorize("@permissions.require(authentication, 'USER', 'EDIT')")
     @PutMapping("/{id}")
     public UserResponse updateUser(
             @PathVariable Long id,
@@ -126,7 +146,7 @@ public class UserController {
         return userService.updateUser(id, request);
     }
 
-    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    @PreAuthorize("@permissions.require(authentication, 'USER', 'DELETE')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/{id}")
     public void deleteUser(@PathVariable Long id) {

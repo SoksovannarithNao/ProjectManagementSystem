@@ -6,7 +6,7 @@
 
 **TaskFlow** (the name shown in the UI and in the OTP email) is a full-stack **task and project management web application**. People register, create projects, build a team, break work into milestones, tasks and subtasks, assign it, track its progress, and discuss it in comments.
 
-The application is built to the requirements in [Role_Requirment.md](../Role_Requirment.md) (the summary) and [Project_requirement_plan.md](../Project_requirement_plan.md) (the detailed plan). The team areas — Frontend, Backend, API, Database — are described in [Contributing.md](../Contributing.md).
+The application is built to the requirements in [assignment-brief.md](../assignment-brief.md) (the assignment; its Part B is the resolved specification) and [project-workflow.md](../project-workflow.md) (the user flows), with [Project_requirement_plan.md](../Project_requirement_plan.md) as the detailed plan. The team areas — Frontend, Backend, API, Database — are described in [Contributing.md](../Contributing.md).
 
 **In scope and implemented:** authentication with self-registration, project-level authorization, projects, project membership and invitations, milestones, tasks, subtasks, task dependencies, comments, per-task activity history, notifications, a dashboard, Kanban board, calendar, reports charts, profile and settings.
 
@@ -45,7 +45,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 .
 ├── backend/               Spring Boot API
 │   └── src/main/java/backend/
-│       ├── controller/    17 REST controllers (84 endpoints)
+│       ├── controller/    19 REST controllers (91 endpoints)
 │       ├── service/       business rules, transactions, ProjectAccessGuard
 │       ├── repository/    Spring Data JPA repositories
 │       ├── entity/        15 JPA entities

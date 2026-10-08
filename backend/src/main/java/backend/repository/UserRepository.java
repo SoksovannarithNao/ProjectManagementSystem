@@ -73,4 +73,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // Public photo lookup (see PhotoController) — keyed by the random token
     // rather than user id, so photos aren't enumerable by walking ids.
     Optional<User> findByProfilePhotoToken(UUID profilePhotoToken);
+
+    // How many accounts currently hold a system role, e.g. ADMINISTRATOR: used to refuse
+    // removing the last administrator.
+    long countByRoleName(String roleName);
 }

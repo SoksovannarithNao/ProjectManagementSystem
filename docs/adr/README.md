@@ -19,6 +19,8 @@ Where a reason is stated in the project's own files it is cited. Where it is **i
 | [0011](0011-least-privilege-database-role.md) | Backend connects as a least-privilege database role | 2026-09-13 |
 | [0012](0012-derived-progress.md) | Progress is derived by the database, not trusted from clients | 2026-09-12 |
 | [0013](0013-manual-task-status-with-guards.md) | Task status is manual, with two guarded exceptions | 2026-09-14/15 |
+| [0014](0014-requirement-roles-and-permission-matrix.md) | A data-driven permission matrix (role set replaced by 0015) | 2026-10-08 |
+| [0015](0015-two-level-roles-system-and-project.md) | Two-level roles: system roles and project roles (**implemented**, migration V10) | 2026-10-08 |
 
 ## Template for new records
 

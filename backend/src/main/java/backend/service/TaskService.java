@@ -16,7 +16,10 @@ import backend.repository.TaskAssigneeRepository;
 import backend.repository.TaskDependencyRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import backend.repository.WorkLogRepository;
 import backend.util.TextFormat;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +46,7 @@ public class TaskService {
     private final NotificationService notificationService;
     private final ActivityLogService activityLogService;
     private final ProjectAccessGuard projectAccessGuard;
+    private final WorkLogRepository workLogRepository;
 
     public TaskService(
             TaskRepository taskRepository,
@@ -55,7 +59,8 @@ public class TaskService {
             TaskDependencyRepository taskDependencyRepository,
             NotificationService notificationService,
             ActivityLogService activityLogService,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            WorkLogRepository workLogRepository) {
         this.taskRepository = taskRepository;
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
@@ -67,6 +72,7 @@ public class TaskService {
         this.notificationService = notificationService;
         this.activityLogService = activityLogService;
         this.projectAccessGuard = projectAccessGuard;
+        this.workLogRepository = workLogRepository;
     }
 
     // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
@@ -150,6 +156,10 @@ public class TaskService {
         for (var row : subtaskRepository.countByTaskIds(taskIds)) {
             counts.put(row.getTaskId(), new long[] { row.getTotal(), row.getCompleted() });
         }
+        Map<Long, BigDecimal> loggedHours = new HashMap<>();
+        for (var row : workLogRepository.sumHoursByTaskIds(taskIds)) {
+            loggedHours.put(row.getTaskId(), row.getHours());
+        }
         Map<Long, List<String>> blockingTitles = new HashMap<>();
         for (var row : taskDependencyRepository.findBlockingTasks(taskIds)) {
             blockingTitles.computeIfAbsent(row.getTaskId(), k -> new ArrayList<>()).add(row.getTitle());
@@ -159,6 +169,7 @@ public class TaskService {
                     long[] c = counts.getOrDefault(t.getId(), new long[] { 0, 0 });
                     TaskResponse response = new TaskResponse(t, c[0], c[1]);
                     List<String> titles = blockingTitles.getOrDefault(t.getId(), List.of());
+                    response.setActualHours(loggedHours.get(t.getId()));
                     response.setBlocked(!titles.isEmpty());
                     response.setBlockingTaskTitles(titles);
                     return response;
@@ -179,7 +190,7 @@ public class TaskService {
     // spoofing gap this used to have.
     public TaskResponse createTask(TaskRequest request, String username) {
         User caller = requireUser(username);
-        projectAccessGuard.assertCanEditContent(caller, request.getProjectId());
+        projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.TASK, Action.CREATE);
 
         Task task = new Task();
         applyRequest(task, request);
@@ -203,25 +214,31 @@ public class TaskService {
         LocalDate previousDueDate = task.getDueDate();
         String effectiveStatus = request.getStatus() != null ? request.getStatus() : task.getStatus();
         boolean newlyCompleting = !"COMPLETED".equals(previousStatus) && "COMPLETED".equals(effectiveStatus);
+        Long currentProjectId = task.getProject().getId();
         if (newlyCompleting) {
+            // Marking a task Completed is an approval, not just a status change:
+            // it needs TASK:APPROVE (Project Manager, Team Leader, Administrator).
+            // A Team Member moves their work to In Review and an approver
+            // completes it. Checked before the subtask rule so the caller learns
+            // first that they may not do this at all.
+            projectAccessGuard.assertCan(caller, currentProjectId, Resource.TASK, Action.APPROVE);
             assertNotCompletingWithOpenSubtasks(id);
         }
 
-        Long currentProjectId = task.getProject().getId();
-        if (projectAccessGuard.canManage(caller, currentProjectId)) {
+        if (projectAccessGuard.can(caller, currentProjectId, Resource.TASK, Action.EDIT)) {
             // Moving a task to another project is a write into THAT project
             // too — being able to manage the project it's leaving isn't
             // enough, otherwise a project owner/admin could push tasks into
             // any project in the system, including ones they can't even see.
             if (request.getProjectId() != null && !request.getProjectId().equals(currentProjectId)) {
-                projectAccessGuard.assertCanManage(caller, request.getProjectId());
+                projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.TASK, Action.EDIT);
             }
             applyRequest(task, request);
         } else {
-            // A VIEWER is read-only even for a task that was assigned to them.
-            if (!projectAccessGuard.canEditContent(caller, currentProjectId)) {
-                throw new AccessDeniedException("You do not have permission to edit this task");
-            }
+            // Without TASK:EDIT the caller may only change status/progress of a task
+            // assigned to them (TASK_STATUS:EDIT). A VIEWER has neither, so is
+            // read-only even for a task that was assigned to them.
+            projectAccessGuard.assertCan(caller, currentProjectId, Resource.TASK_STATUS, Action.EDIT);
             if (!taskAssigneeRepository.existsByTaskIdAndUserId(id, caller.getId())) {
                 throw new AccessDeniedException("You are not assigned to this task");
             }
@@ -239,7 +256,9 @@ public class TaskService {
             notificationService.notifyTaskStatusChanged(saved, assignees);
         }
 
-        return new TaskResponse(saved);
+        TaskResponse response = new TaskResponse(saved);
+        response.setActualHours(workLogRepository.sumHoursByTaskId(saved.getId()));
+        return response;
     }
 
     // One activity-log row per changed field, so the panel's Activity feed
@@ -300,7 +319,7 @@ public class TaskService {
     public void deleteTask(Long id, String username) {
         Task task = getTaskEntityById(id);
         User caller = requireUser(username);
-        projectAccessGuard.assertCanManage(caller, task.getProject().getId());
+        projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.TASK, Action.DELETE);
         // recordForDeletedTask, not record(caller, task, ...) — see that
         // method's comment for why associating this entry with the Task
         // entity itself (even relying on ON DELETE SET NULL) trips a

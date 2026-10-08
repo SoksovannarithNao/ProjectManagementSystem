@@ -19,6 +19,8 @@ public class TaskResponse {
     private LocalDate startDate;
     private LocalDate dueDate;
     private BigDecimal estimatedHours;
+    // Sum of this task's work logs; set by TaskService from one batched query.
+    private BigDecimal actualHours = BigDecimal.ZERO;
     private BigDecimal progress;
     private OffsetDateTime completedAt;
     private UserResponse createdBy;
@@ -131,6 +133,14 @@ public class TaskResponse {
 
     public long getCompletedSubtasks() {
         return completedSubtasks;
+    }
+
+    public BigDecimal getActualHours() {
+        return actualHours;
+    }
+
+    public void setActualHours(BigDecimal actualHours) {
+        this.actualHours = actualHours != null ? actualHours : BigDecimal.ZERO;
     }
 
     public boolean isOverdue() {

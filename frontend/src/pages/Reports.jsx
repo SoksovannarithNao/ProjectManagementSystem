@@ -25,7 +25,7 @@ import { getTaskAssignees } from '../api/taskAssignees'
 import { buildTaskAssigneeMap, countByValue, filterTasksByProject } from '../api/relations'
 import { computePeriodTaskStats, PERIOD_OPTIONS } from '../api/stats'
 
-const barColors = ['#242426', '#66676B', '#AEB9D2', '#B9B0C8', '#7E9FC4', '#D2A85A']
+const barColors = ['var(--color-charcoal)', '#66676B', '#AEB9D2', '#B9B0C8', '#7E9FC4', '#D2A85A']
 
 function ChartCard({ title, loading, empty, children }) {
   return (
@@ -149,7 +149,7 @@ export function Reports() {
             >
               {({ close }) => (
                 <div className="flex w-[200px] flex-col gap-0.5 p-1">
-                  <span className="text-faint mb-1 block px-2 text-[11px] font-[650] tracking-[0.04em] uppercase">
+                  <span className="text-faint mb-1 block px-2 text-[12px] font-[650] tracking-[0.04em] uppercase">
                     Project
                   </span>
                   <button
@@ -213,7 +213,7 @@ export function Reports() {
         }
       />
 
-      <div className="mb-6 grid grid-cols-4 gap-[18px] max-[1100px]:grid-cols-2 max-[520px]:grid-cols-1">
+      <div className="mb-6 grid grid-cols-4 gap-[18px] max-[520px]:gap-3 max-[1100px]:grid-cols-2">
         {loading &&
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[86px] rounded-card" />)}
         {!loading && statCards.map((s) => <StatCard key={s.key} label={s.label} value={s.value} tone={s.tone} />)}
@@ -222,10 +222,10 @@ export function Reports() {
       <div className="grid grid-cols-2 gap-5 max-[900px]:grid-cols-1">
         <ChartCard title={`Task Completion — ${period.label}`} loading={loading}>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={periodReport} margin={{ top: 6, right: 8, left: -6, bottom: 0 }}>
+            <LineChart data={periodReport} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--border-divider)" />
-              <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} padding={{ left: 12 }} />
-              <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={26} />
+              <XAxis dataKey="day" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} padding={{ left: 12 }} />
+              <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
               <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-light)' }} />
               <Line type="monotone" dataKey="completed" name="Completed" stroke="var(--color-charcoal)" strokeWidth={2} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="created" name="Created" stroke="var(--accent-lavender)" strokeWidth={2} dot={{ r: 3 }} />
@@ -237,8 +237,8 @@ export function Reports() {
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={projectProgress} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
               <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11.5, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
               <Bar dataKey="progress" name="Progress %" radius={[0, 6, 6, 0]} barSize={16}>
                 {projectProgress.map((_, i) => (
@@ -251,12 +251,12 @@ export function Reports() {
 
         <ChartCard title="Team Productivity" loading={loading} empty={productivityByMember.length === 0}>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={productivityByMember} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+            <BarChart data={productivityByMember} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--border-divider)" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={26} />
+              <XAxis dataKey="name" interval={0} tickFormatter={(n) => (n.length > 6 ? `${n.slice(0, 5)}…` : n)} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
               <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
-              <Bar dataKey="completed" name="Tasks Completed" radius={[6, 6, 0, 0]} barSize={26} fill="var(--color-dark-gray)" />
+              <Bar dataKey="completed" name="Tasks Completed" radius={[6, 6, 0, 0]} barSize={26} fill="var(--color-charcoal)" />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -265,8 +265,8 @@ export function Reports() {
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={workloadByMember} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
               <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
-              <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 11.5, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+              <XAxis type="number" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
               <Bar dataKey="tasks" name="Assigned Tasks" radius={[0, 6, 6, 0]} barSize={16}>
                 {workloadByMember.map((_, i) => (

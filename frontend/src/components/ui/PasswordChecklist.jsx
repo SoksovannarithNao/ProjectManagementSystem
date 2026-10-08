@@ -12,7 +12,7 @@ export function PasswordChecklist({ password, className = '' }) {
         return (
           <li
             key={rule.id}
-            className={`flex items-center gap-1.5 text-[11.5px] ${met ? 'text-success font-semibold' : 'text-faint'}`}
+            className={`flex items-center gap-1.5 text-[12px] ${met ? 'text-success-ink font-semibold' : 'text-faint'}`}
           >
             {met ? <Check size={12} aria-hidden="true" /> : <Circle size={12} aria-hidden="true" />}
             <span>{rule.label}</span>
