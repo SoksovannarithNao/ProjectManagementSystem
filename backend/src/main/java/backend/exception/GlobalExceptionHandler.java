@@ -99,8 +99,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
         log.warn("Access denied: {}", ex.getMessage());
+        // The permission layer (ProjectAccessGuard, PermissionChecker) throws with a
+        // specific, fixed sentence such as "Only a Project Manager or an Administrator
+        // can create a project" - safe to show, and far more useful than a generic
+        // refusal. Spring's own default text ("Access Denied") is not, so it still
+        // falls back to the generic message.
+        String message = ex.getMessage();
+        boolean useful = message != null && !message.isBlank() && !"Access Denied".equalsIgnoreCase(message);
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "Forbidden", "You do not have permission to perform this action"));
+                .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "Forbidden",
+                        useful ? message : "You do not have permission to perform this action"));
     }
 
     // Bad username/password (or a disabled/non-ACTIVE account) from

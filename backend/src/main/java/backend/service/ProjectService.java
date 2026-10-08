@@ -11,6 +11,8 @@ import backend.exception.NotFoundException;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,16 +27,19 @@ public class ProjectService {
     private final ProjectMemberRepository projectMemberRepository;
     private final UserRepository userRepository;
     private final ProjectAccessGuard projectAccessGuard;
+    private final ProjectOwnership projectOwnership;
 
     public ProjectService(
             ProjectRepository projectRepository,
             ProjectMemberRepository projectMemberRepository,
             UserRepository userRepository,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            ProjectOwnership projectOwnership) {
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
+        this.projectOwnership = projectOwnership;
     }
 
     // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
@@ -73,56 +78,38 @@ public class ProjectService {
                 .orElseThrow(() -> new NotFoundException("Project not found"));
     }
 
-    // Any authenticated user may create a project — that's the whole point
-    // of project-scoped authorization: you don't need a global role to own
-    // your own project. The caller always becomes the manager/OWNER unless
-    // they're a system ADMINISTRATOR explicitly assigning someone else (the
-    // one pre-existing capability this preserves — e.g. an admin setting up
-    // a project on another user's behalf).
+    // Creating a project needs the project-creation capability (PROJECT:CREATE:
+    // Project Manager and Administrator). The caller becomes the project's single
+    // OWNER and manager, unless an ADMINISTRATOR names someone else who is able to
+    // own projects (D-03) - e.g. setting up a project on another person's behalf.
     public ProjectResponse createProject(ProjectRequest request, String callerUsername) {
         User caller = requireUser(callerUsername);
+        // Creating a project is not about any one project yet, so it is a SYSTEM
+        // permission (PROJECT:CREATE): Project Manager and Administrator.
+        projectAccessGuard.assertSystemCan(caller, Resource.PROJECT, Action.CREATE);
         Project project = new Project();
         applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
-        ensureManagerIsMember(saved);
+        projectOwnership.assignOwner(saved, saved.getManager());
         return new ProjectResponse(saved);
     }
 
     public ProjectResponse updateProject(Long id, ProjectRequest request, String callerUsername) {
         User caller = requireUser(callerUsername);
-        projectAccessGuard.assertCanManage(caller, id);
+        projectAccessGuard.assertCan(caller, id, Resource.PROJECT, Action.EDIT);
         Project project = getProjectEntityById(id);
         applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
-        ensureManagerIsMember(saved);
+        // Only an administrator can change the manager; that is an ownership transfer.
+        projectOwnership.assignOwner(saved, saved.getManager());
         return new ProjectResponse(saved);
-    }
-
-    // getAllProjects/getAllTasks scope non-admins to projects they're a
-    // project_member of, so the manager must always be one — otherwise
-    // whoever's responsible for a project couldn't see it. Matches how
-    // database/init/02-seed.sql seeds every project's manager as a
-    // project_member with that same role. Only used for a brand-new
-    // membership row (createProject) or when an ADMINISTRATOR reassigns the
-    // manager on updateProject — never downgrades an existing OWNER/ADMIN's
-    // role.
-    private void ensureManagerIsMember(Project project) {
-        Long managerId = project.getManager().getId();
-        if (projectMemberRepository.existsByProjectIdAndUserId(project.getId(), managerId)) {
-            return;
-        }
-        ProjectMember member = new ProjectMember();
-        member.setProject(project);
-        member.setUser(project.getManager());
-        member.setProjectRole("OWNER");
-        projectMemberRepository.save(member);
     }
 
     // OWNER-only (or system ADMINISTRATOR) — matches ADMIN's project-level
     // permissions excluding delete/transfer-ownership.
     public void deleteProject(Long id, String callerUsername) {
         User caller = requireUser(callerUsername);
-        projectAccessGuard.assertIsOwner(caller, id);
+        projectAccessGuard.assertCan(caller, id, Resource.PROJECT, Action.DELETE);
         Project project = getProjectEntityById(id);
         projectRepository.delete(project);
     }

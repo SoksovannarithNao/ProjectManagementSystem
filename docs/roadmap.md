@@ -18,7 +18,7 @@ What is built, what is incomplete, and what the project's own documents say come
 | **Partial** | Some behaviour is tested, important parts are not |
 | **None** | No automated test |
 
-Sources of evidence: the code (controllers, services, pages, SQL), the running application, the test suites ([testing.md](testing.md)), the project READMEs' *Future Enhancements* / *Next Steps* sections, and the requirement documents ([Role_Requirment.md](../Role_Requirment.md), [Project_requirement_plan.md](../Project_requirement_plan.md)).
+Sources of evidence: the code (controllers, services, pages, SQL), the running application, the test suites ([testing.md](testing.md)), the former project READMEs' *Future Enhancements* / *Next Steps* sections (now in the root README, [backend.md](backend.md#next-steps) and [database.md](database.md#14-api--backend-coverage)), and the requirement documents ([Role_Requirment.md](../Role_Requirment.md), [Project_requirement_plan.md](../Project_requirement_plan.md)).
 
 ## 1. Completed and partial features
 
@@ -84,7 +84,7 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | CD (build and push images to GHCR) | Partial | `.github/workflows/cd.yml` | No deploy step |
 | Java 25 / Spring Boot 4 | Done | `pom.xml`, `Dockerfile`, CI | Upgraded 2026-10-06 |
 | Flyway migrations | Partial | `database/taskmanager/` | Not run by the app; has drifted from `init/` (X-04) |
-| Documentation | Done | this `docs/` folder + READMEs | Some existing files remain stale (see [issues.md](issues.md#4-documentation-drift)) |
+| Documentation | Done | this `docs/` folder (the per-folder READMEs were merged into it on 2026-10-08) | Some existing files remain stale (see [issues.md](issues.md#4-documentation-drift)) |
 
 ## 2. Not started
 
@@ -93,7 +93,6 @@ Database tables exist for several of these, but **no entity, API or UI**:
 | Feature | What exists | Evidence |
 |---|---|---|
 | File attachments (projects/tasks) | `attachments` table | No controller, entity or UI |
-| Time tracking and work logs | `work_logs` table; estimated hours on tasks | No controller, entity or UI; the workload view cannot show actual hours |
 | Checklist items | `checklist_items` table | Subtasks serve as the checklist |
 | Deadline reminders | `DEADLINE_REMINDER` type allowed | No code or database function produces it |
 | Overdue notifications at runtime | `fn_generate_overdue_notifications()` | Called only by the seed script; no scheduler (`@Scheduled`/`pg_cron`) |
@@ -102,15 +101,15 @@ Database tables exist for several of these, but **no entity, API or UI**:
 | Gantt chart | — | Mentioned in `Contributing.md`/requirements only |
 | Refresh tokens, forgot-password, auto-logout | — | Listed as future work in the READMEs |
 | Project-wide/per-user audit feed | per-task feed only | Listed in the READMEs |
-| Data-driven permissions | `permissions`, `role_permissions` tables | Nothing reads them |
+| Server-side report endpoints | — | `REPORT:GENERATE_REPORTS` gates only the Reports page (done 2026-10-08: the permission matrix itself is data-driven) |
 | Pagination and server-side search/filter | — | Listed in the READMEs |
 
 ## 3. Planned work recorded by the project
 
-From the root `README.md` (*Future Enhancements*), `backend/README.md` (*Next Steps*), `database/README.md`, `frontend/README.md` and the requirement files. These are the project's own stated intentions, not commitments with dates; **no owners or dates are recorded anywhere in the repository**.
+From the root `README.md` (*Future Enhancements*), `backend.md` (*Next Steps*), `database.md`, `frontend.md` and the requirement files. These are the project's own stated intentions, not commitments with dates; **no owners or dates are recorded anywhere in the repository**.
 
 1. Refresh-token flow.
-2. Authorization driven by `permissions` / `role_permissions`.
+2. Server-side report endpoints gated by `REPORT:GENERATE_REPORTS` (the matrix itself became data-driven on 2026-10-08, [ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md)).
 3. Scheduled job for `fn_generate_overdue_notifications()` and deadline reminders.
 4. Remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `MILESTONE_UPDATED`, `DEADLINE_REMINDER`).
 5. Pagination, search and filtering on list endpoints.
@@ -123,6 +122,17 @@ From the root `README.md` (*Future Enhancements*), `backend/README.md` (*Next St
 12. Closing the CI vs `03-app-role.sh` grant drift.
 
 Requirement-document items that are **not** on any of the project's own lists (so there is no stated plan for them): Gantt chart, email login, per-member Team Tasks view, "Today / Upcoming" task sections, calendar milestones, Kanban drag-and-drop, project-completion date.
+
+## 3a. Specification alignment (approved 2026-10-08, not started)
+
+Work needed to bring the application to the model in [ADR-0015](adr/0015-two-level-roles-system-and-project.md) and [assignment-brief.md](../assignment-brief.md) Part B. The authoritative gap list is §B13.1 (G-01 … G-15); the order below is a proposal.
+
+1. ~~**Role model migration**~~ — **done 2026-10-08** (`V10`): the `TEAM_LEADER` / `TEAM_MEMBER` system roles are retired, new accounts are `USER`, one `OWNER` per project with single-step transfer. Still to do from this item: rename the stored status `TO_DO` → `TODO` (D-15).
+2. ~~**Matrix changes**~~ — **done 2026-10-08** (`V10`): Team Member loses task creation and "edit any subtask"; report access comes through the project roles; a Team Leader may delete everything except the project (D-01); a system role never widens a project role (D-02).
+3. **Approval workflow:** approval records, designated approver, Approved / Changes requested / Rejected, notifications, activity entries.
+4. **Profile and roles:** users edit their own position/department (D-16); administrators create and edit extra system roles (D-14).
+5. **Required features still missing:** checklists, file attachments, project timeline, Team Tasks, Delayed-project calculation, the seven named reports and the five KPIs (server-side), workload page, login by email, project filters, comment replies in the UI, project/comment/file activity events, deadline reminders and overdue notifications (scheduled), auto-logout.
+6. **Optional, if time allows:** Kanban moving, time-tracking polish (exists), report export, Gantt, documents, audit log.
 
 ## 4. In progress
 

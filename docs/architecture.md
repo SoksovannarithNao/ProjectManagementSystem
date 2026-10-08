@@ -60,10 +60,10 @@ Errors from any layer are turned into JSON by `exception/GlobalExceptionHandler`
 | `OtpService`, `MailService` | One-time codes (bcrypt-hashed), expiry, attempt cap, resend cooldown, the email |
 | `CustomUserDetailsService` | Adapts a `User` for Spring Security; only `ACTIVE` accounts are enabled |
 | `UserService` | User CRUD, self-service profile/password/photo/preferences, position/department, registration |
-| `RoleService`, `PositionService`, `DepartmentService` | Role list and the two org-wide lookup lists |
+| `RoleService`, `RolePermissionService`, `PositionService`, `DepartmentService` | Role list, the role × resource × action matrix and its guarded editing, and the two org-wide lookup lists |
 | `ProjectService` | Project CRUD, project-code generation, manager handling |
 | `ProjectMemberService` | Membership, invitations (invite / accept / decline), pending count, invitable-user search |
-| `ProjectAccessGuard` | **The single authorization helper** used by every project-scoped service |
+| `ProjectAccessGuard`, `PermissionService` | **The single authorization entry point**: `ProjectAccessGuard.assertCan / assertSystemCan / assertAccess` answer through `PermissionService`, an in-memory snapshot of the `role_permissions` table ([ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md)) |
 | `MilestoneService` | Milestone CRUD |
 | `TaskService` | Task CRUD, visibility scoping, status/priority/due-date change logging, "blocked" and subtask counts on responses |
 | `TaskAssigneeService`, `TaskDependencyService` | Assignment and dependencies |
@@ -98,7 +98,7 @@ flowchart TD
     AS --> RL[LoginRateLimiter]
 ```
 
-`ProjectAccessGuard` depends only on `ProjectMemberRepository`; every project-scoped service depends on it. `NotificationService` and `ActivityLogService` are called *by* other services right after the triggering change is saved — they never call back.
+`ProjectAccessGuard` depends on `ProjectMemberRepository` and `PermissionService`; every project-scoped service depends on it. `NotificationService` and `ActivityLogService` are called *by* other services right after the triggering change is saved — they never call back.
 
 ### 2.4 Cross-cutting design
 
@@ -135,7 +135,7 @@ BrowserRouter
 
 ### 3.3 Permissions in the UI
 
-`api/permissions.js` mirrors `ProjectAccessGuard` so the UI hides actions the caller cannot perform (`canEditProjectContent`, `canManageProject`, `isProjectOwner`, `canManageUsers`). It is a convenience only — the backend remains the authority. The two copies must be kept in sync by hand.
+The UI no longer carries its own copy of the rules. After login `AuthContext` loads `GET /api/users/me/permissions` (a list of `RESOURCE:ACTION` strings, per project and system-wide) and exposes `can(resource, action, projectId)`, `canSys(...)` and `canAny(...)`; `api/permissions.js` only turns that list into those helpers. Controls the caller cannot use are hidden, not disabled. It is a convenience only — the backend remains the authority, and editing the matrix changes both at once.
 
 ### 3.4 Frontend pages and routes
 
@@ -173,7 +173,9 @@ Each has a full record with context, alternatives and consequences in [adr/](adr
 | Decision | Record |
 |---|---|
 | Stateless JWT instead of server sessions | [ADR-0001](adr/0001-stateless-jwt-authentication.md) |
-| Authorization from per-project roles, not global roles | [ADR-0002](adr/0002-project-level-authorization.md) |
+| Authorization from per-project roles, not global roles | [ADR-0002](adr/0002-project-level-authorization.md) (partly superseded) |
+| A data-driven permission matrix | [ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md) |
+| Two-level roles: system roles and project roles | [ADR-0015](adr/0015-two-level-roles-system-and-project.md) |
 | A project *is* the team; invitations live on `project_members` | [ADR-0003](adr/0003-project-membership-and-invitations.md) |
 | Task assignment as a join table with database-enforced rules | [ADR-0004](adr/0004-task-assignment-model.md) |
 | Hand-written SQL schema; invariants in triggers | [ADR-0005](adr/0005-database-owned-schema-and-triggers.md) |

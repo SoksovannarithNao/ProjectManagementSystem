@@ -35,11 +35,11 @@ export function HelpModal({ onClose }) {
         {FAQS.map((item) => (
           <div key={item.q}>
             <p className="text-ink mb-1 text-[13px] font-semibold">{item.q}</p>
-            <p className="text-muted text-[12.5px] leading-relaxed">{item.a}</p>
+            <p className="text-muted text-[12px] leading-relaxed">{item.a}</p>
           </div>
         ))}
 
-        <div className="border-divider text-muted flex items-center gap-2 border-t pt-4 text-[12.5px]">
+        <div className="border-divider text-muted flex items-center gap-2 border-t pt-4 text-[12px]">
           <Mail size={14} className="shrink-0" />
           Still stuck? Reach your workspace administrator — account and permission changes go through them.
         </div>

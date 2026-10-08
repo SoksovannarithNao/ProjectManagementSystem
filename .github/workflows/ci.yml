@@ -105,8 +105,10 @@ jobs:
               GRANT SELECT, INSERT, UPDATE, DELETE ON
                   roles, users, projects, project_members, milestones,
                   tasks, task_assignees, task_dependencies, notifications,
-                  otp_verifications
+                  otp_verifications, positions, departments, subtasks, comments,
+                  activity_logs, work_logs, role_permissions
                   TO taskmanager_app;
+              GRANT SELECT ON permissions TO taskmanager_app;
               GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO taskmanager_app;
               GRANT EXECUTE ON FUNCTION fn_compute_project_progress(BIGINT) TO taskmanager_app;
               GRANT EXECUTE ON FUNCTION fn_compute_milestone_progress(BIGINT) TO taskmanager_app;

@@ -10,7 +10,7 @@
 
 ## Decision
 
-- Assignment is its own table `task_assignees (task_id, user_id)` with `UNIQUE (task_id, user_id)`; a task may have **zero, one or many** assignees. (`database/README.md`: "a `tasks` row can exist with zero `task_assignees` rows, the same way a GitHub issue can exist unassigned"; no "at least one assignee" rule.)
+- Assignment is its own table `task_assignees (task_id, user_id)` with `UNIQUE (task_id, user_id)`; a task may have **zero, one or many** assignees. (`../database.md`: "a `tasks` row can exist with zero `task_assignees` rows, the same way a GitHub issue can exist unassigned"; no "at least one assignee" rule.)
 - Eligibility is enforced by **database triggers**, not only by code: the assignee must be an `ACTIVE` member of the task's project (`trg_task_assignees_project_member`) and their account must be `ACTIVE` (`trg_task_assignees_not_suspended`).
 - Only `OWNER`/`ADMIN` may assign or unassign. Assigning notifies the assignee and writes an activity entry.
 - The UI exposes **one** assignee per task; the API and data model allow several.

@@ -65,7 +65,7 @@ export function Settings() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Theme</span>
+            <span className="text-muted text-[12px] font-semibold">Theme</span>
             <div className="bg-subtle border-border inline-flex w-fit gap-0.5 rounded-md border p-[3px]">
               {THEME_OPTIONS.map((opt) => (
                 <button
@@ -73,15 +73,15 @@ export function Settings() {
                   type="button"
                   disabled={saving}
                   onClick={() => handleThemeChange(opt.value)}
-                  className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] rounded-sm border-none px-4 py-[7px] text-[12.5px] font-semibold transition-colors ${
-                    theme === opt.value ? 'bg-charcoal text-white' : 'bg-transparent text-muted'
+                  className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] rounded-sm border-none px-4 py-[7px] text-[12px] font-semibold transition-colors ${
+                    theme === opt.value ? 'bg-charcoal text-on-charcoal' : 'bg-transparent text-muted'
                   }`}
                 >
                   {opt.label}
                 </button>
               ))}
             </div>
-            <span className="text-faint mt-1 text-[11.5px]">
+            <span className="text-faint mt-1 text-[12px]">
               System matches your device's light/dark setting automatically.
             </span>
           </div>
@@ -95,7 +95,7 @@ export function Settings() {
 
           <label className="flex cursor-pointer items-center justify-between gap-4">
             <span className="flex flex-col gap-0.5">
-              <span className="text-ink text-[13.5px] font-semibold">Task notifications</span>
+              <span className="text-ink text-[13px] font-semibold">Task notifications</span>
               <span className="text-faint text-[12px]">
                 Get notified in-app when you're assigned to a task or one of your tasks changes status.
               </span>
@@ -109,7 +109,7 @@ export function Settings() {
                 className="peer sr-only"
               />
               <span className="border-border bg-canvas peer-checked:bg-charcoal peer-checked:border-charcoal absolute inset-0 rounded-full border transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)]" />
-              <span className="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-[var(--duration-fast)] ease-[var(--ease-standard)] peer-checked:translate-x-5" />
+              <span className="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-card shadow-sm transition-transform duration-[var(--duration-fast)] ease-[var(--ease-standard)] peer-checked:translate-x-5" />
             </span>
           </label>
         </section>

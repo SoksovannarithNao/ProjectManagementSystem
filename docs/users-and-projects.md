@@ -18,13 +18,14 @@ stateDiagram-v2
 
 | Stage | How | Notes |
 |---|---|---|
-| Create (self) | `POST /api/auth/register` → `POST /api/auth/verify-otp` | Gets the global `USER` role; `fullName` = username until edited. See [authentication-authorization.md](authentication-authorization.md#12-self-registration-with-email-verification) |
-| Create (administrator) | `POST /api/users` (UI: Team → *Invite Member*) | The administrator sets a temporary password that must satisfy the [password policy](authentication-authorization.md#4-password-policy); optional role, position, department, status (default `ACTIVE`). The success message says to "share their temporary password to sign in" — no email is sent to the new user |
+| Create (self) | `POST /api/auth/register` → `POST /api/auth/verify-otp` | Gets the system role `USER` (cannot create projects until an Administrator makes the account a Project Manager); `fullName` = username until edited. See [authentication-authorization.md](authentication-authorization.md#12-self-registration-with-email-verification) |
+| Create (administrator) | `POST /api/users` (UI: Team → *Invite Member*) | The administrator sets a temporary password that must satisfy the [password policy](authentication-authorization.md#4-password-policy); optional system role (default Team Member; project-only roles are refused), position, department, status (default `ACTIVE`). The success message says to "share their temporary password to sign in" — no email is sent to the new user |
 | Profile | `PUT /api/users/me` | Editable by the user: full name, email, gender, date of birth, phone. **Not** editable by the user: username, role, status, position, department |
 | Photo | `PUT /api/users/me/photo` (multipart `file`), `DELETE /api/users/me/photo` | JPEG, PNG, WEBP or GIF only; max 5 MB (`spring.servlet.multipart`); stored as bytes in `users.profile_photo`; served publicly at `/api/photos/{token}` (see [ADR-0009](adr/0009-profile-photos-in-database.md)) |
 | Preferences | `PUT /api/users/me/preferences` | `themePreference` (`LIGHT`/`DARK`/`SYSTEM`) and `taskNotificationsEnabled`. **Turning notifications off also stops invitation notifications** — see [notifications.md](notifications.md#5-the-preference-switch) |
 | Position / department | `PUT /api/users/{id}/position-department` | By a "team admin" for that user; never by or for yourself. Lists are org-wide (`positions`, `departments`; names unique case-insensitively) |
 | Change status / edit | `PUT /api/users/{id}` (administrator) | Full replace of the fields in `UserUpdateRequest` including `username`. Setting a non-`ACTIVE` status is refused while the user is the **sole active owner** of any project |
+| Give a system role | `PUT /api/users/{id}/role` `{ "roleId" }` (`USER:ASSIGN`, administrator) | UI: Administration → Users. `VIEWER` (project-only) is refused; the last Administrator cannot be demoted |
 | Delete | `DELETE /api/users/{id}` (administrator) | Refused while the user is a sole active owner. Database cascades remove their memberships, comments, assignments, notifications and OTP rows; `tasks.created_by`, `subtasks.assignee_id` and `activity_logs.user_id` become NULL. `projects.manager_id` is `ON DELETE RESTRICT`, so deleting a user who is still a project's manager fails at the database |
 
 There is **no UI** for an administrator to edit, deactivate or delete an existing user, or to manage roles — those exist only as API endpoints. The Team page lists users the caller can see and lets team admins set position/department and manage a member's project membership.
@@ -53,11 +54,11 @@ The user directory (`GET /api/users`) is scoped: an administrator sees everyone;
 
 | Operation | Endpoint | Who | Behaviour |
 |---|---|---|---|
-| Create | `POST /api/projects` | any authenticated user | Creator becomes manager **and** an active `OWNER` member (`ensureManagerIsMember`). UI sends `status: PLANNING`, `progress: 0` |
+| Create | `POST /api/projects` | `PROJECT:CREATE` — Project Manager or Administrator (`403` otherwise) | Creator becomes manager **and** an active `OWNER` member (`ensureManagerIsMember`). UI sends `status: PLANNING`, `progress: 0` |
 | List | `GET /api/projects` | any authenticated user | Administrator: all. Others: projects where they are an **active** member |
 | Read | `GET /api/projects/{id}` | active member / administrator | `404` for non-members |
-| Update | `PUT /api/projects/{id}` | `OWNER` / `ADMIN` / administrator | Full replace. UI: Edit dialog (name, description, dates, priority; manager dropdown for administrators) and an inline status dropdown on the project page |
-| Delete | `DELETE /api/projects/{id}` | `OWNER` / administrator | Database cascades delete the project's members, milestones, tasks and everything under them |
+| Update | `PUT /api/projects/{id}` | `PROJECT:EDIT` (Project Manager, Team Leader, Administrator) | Full replace. UI: Edit dialog (name, description, dates, priority; manager dropdown for administrators) and an inline status dropdown on the project page |
+| Delete | `DELETE /api/projects/{id}` | `PROJECT:DELETE` (Project Manager, Administrator) | Database cascades delete the project's members, milestones, tasks and everything under them |
 
 Observations:
 
@@ -80,10 +81,10 @@ Observations:
 
 Two ways a row appears:
 
-1. **Direct add** — `POST /api/project-members` (`OWNER`/`ADMIN`). Becomes `ACTIVE` immediately. Used internally when a project is created (the creator → `OWNER`). Granting `OWNER` requires being an owner. Inactive/suspended users are refused.
+1. **Direct add** — `POST /api/project-members` (`MEMBER:CREATE`). Becomes `ACTIVE` immediately. Used internally when a project is created (the creator → `OWNER`). Adding as `OWNER` is refused; making a member the owner is a transfer (below). Inactive/suspended users are refused.
 2. **Invitation** — see below.
 
-Other operations: `PUT /api/project-members/{id}` (change role), `DELETE /api/project-members/{id}` (remove; blocked if it would remove the last active owner). In the UI, **removal** is on the Team page (an ✕ beside a project in a member's list). **Role changes have no UI.**
+Other operations: `PUT /api/project-members/{id}` (change role; `MEMBER:EDIT`; role `OWNER` = transfer ownership, `PROJECT:ASSIGN`, one step, previous owner becomes `ADMIN`), `DELETE /api/project-members/{id}` (remove; `MEMBER:DELETE`; blocked if it would remove the last active owner). In the UI, **removal** is on the Team page (an ✕ beside a project in a member's list). **Role changes have no UI.**
 
 Reads: `GET /api/project-members` and `GET /api/project-members/project/{id}` return **active** members only; `GET /api/project-members/{id}` requires access to that row's project; `GET /api/project-members/user/{userId}` is **scoped**: an administrator gets every row, anyone else only the user's *active* memberships in projects the caller also belongs to. `PUT /api/project-members/{id}` can change only the **role** — the row's project and user cannot be re-pointed (`400`).
 
@@ -106,11 +107,11 @@ There is no separate invitation table: a project is the team, and an invitation 
 
 ### 4.2 Sending an invitation — `POST /api/project-members/invite`
 
-Request: `{ "projectId": 1, "username": "newuser" }` → `201` with a `ProjectMemberResponse` (`status: PENDING`, `projectRole: MEMBER`).
+Request: `{ "projectId": 1, "username": "newuser", "projectRole": "MEMBER" }` (`projectRole` optional: `ADMIN`, `MEMBER` (default) or `VIEWER`) → `201` with a `ProjectMemberResponse` (`status: PENDING`). The Team page's invite form has a role picker (Team Member, Team Leader, Viewer).
 
 Rules, in order (`ProjectMemberService.inviteMember`):
 
-1. Caller must be `OWNER`/`ADMIN` of the project, or a system administrator (`403`).
+1. Caller must hold `MEMBER:CREATE` in the project (Project Manager, Team Leader, Administrator) — `403 "You do not have permission to invite or add people to this project"`. Inviting as `OWNER` is refused: ownership is transferred, not invited.
 2. The target is looked up by **username, case-insensitive, exact match** — partial names and emails do not match (`404 "No user found with that username"`).
 3. You cannot invite yourself (`400 "You cannot invite yourself"`).
 4. The target account must be `ACTIVE` (`400 "<username> has an inactive account and can't be added to a project"`) — this covers `INACTIVE`, `SUSPENDED` and `PENDING_VERIFICATION`.
@@ -135,7 +136,7 @@ Consequences:
 
 | Need | Endpoint | Who |
 |---|---|---|
-| Count | `GET /api/project-members/project/{id}/invitations/count` → `{ "count": n }` | `OWNER`/`ADMIN`/administrator |
+| Count | `GET /api/project-members/project/{id}/invitations/count` → `{ "count": n }` | `MEMBER:CREATE` holders |
 | List | `GET /api/project-members/project/{id}/invitations` → `ProjectMemberResponse[]` (status `PENDING`) | same |
 
 The count comes from a database count of `PENDING` rows (`ProjectMemberRepository.countByProjectIdAndStatus`), not from the (active-only) members list. The project page shows "**N pending invitation(s)**" under the member list **to managers only**. Nothing in the UI lists or cancels pending invitations — cancelling would need `DELETE /api/project-members/{id}` with the row id from the list endpoint. The seed data contains pending invitations (for example `dev.tomas` on `PRJ-2001`).

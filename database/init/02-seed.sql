@@ -29,9 +29,10 @@ INSERT INTO departments (name) VALUES
 ('Marketing'), ('Human Resources');
 
 -- ==================== users ====================
--- 24 users: 1 system Administrator (users.role_id — unrelated to any
--- project), and 23 ordinary users with no global role at all (role_id
--- NULL). Their project-level authority comes entirely from
+-- 24 users: 1 system Administrator and 23 ordinary users. Ordinary users are
+-- inserted with role_id NULL and given their system role at the END of this
+-- file, by the same rule migration V10 uses (an ACTIVE OWNER -> PROJECT_MANAGER,
+-- everyone else -> USER). Their authority inside a project comes from
 -- project_members.project_role below — the same person is 'pm.olivia' the
 -- OWNER of one project and just a VIEWER or MEMBER of another. Includes one
 -- INACTIVE and one SUSPENDED account for edge cases, plus one brand-new
@@ -459,3 +460,17 @@ SELECT t.created_by, 'SUBTASK_COMPLETED', t.project_id, t.id, 'Subtask "' || s.t
 FROM subtasks s
 JOIN tasks t ON t.id = s.task_id
 WHERE s.status = 'COMPLETED';
+
+-- ==================== system roles for the seeded users ====================
+-- Same rule as database/taskmanager/migrations/V10: anyone who owns a project is
+-- a PROJECT_MANAGER, everyone else is a USER. admin.system is the ADMINISTRATOR
+-- (set above). A person's authority inside a project comes from
+-- project_members.project_role, not from the system role.
+
+UPDATE users u
+SET role_id = (SELECT id FROM roles WHERE name = 'PROJECT_MANAGER')
+WHERE u.role_id IS NULL
+  AND EXISTS (SELECT 1 FROM project_members pm
+              WHERE pm.user_id = u.id AND pm.status = 'ACTIVE' AND pm.project_role = 'OWNER');
+
+UPDATE users SET role_id = (SELECT id FROM roles WHERE name = 'USER') WHERE role_id IS NULL;

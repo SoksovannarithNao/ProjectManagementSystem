@@ -1,6 +1,7 @@
 package backend.service;
 
 import backend.dto.ChangePasswordRequest;
+import backend.dto.EffectivePermissionsResponse;
 import backend.dto.MemberAttributesRequest;
 import backend.dto.PasswordPolicy;
 import backend.dto.RegisterRequest;
@@ -19,6 +20,8 @@ import backend.repository.PositionRepository;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.RoleRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -49,6 +52,8 @@ public class UserService {
     private final DepartmentRepository departmentRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ProjectAccessGuard projectAccessGuard;
+    private final PermissionService permissionService;
 
     public UserService(
             UserRepository userRepository,
@@ -56,13 +61,17 @@ public class UserService {
             PositionRepository positionRepository,
             DepartmentRepository departmentRepository,
             ProjectMemberRepository projectMemberRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            ProjectAccessGuard projectAccessGuard,
+            PermissionService permissionService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.positionRepository = positionRepository;
         this.departmentRepository = departmentRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.passwordEncoder = passwordEncoder;
+        this.projectAccessGuard = projectAccessGuard;
+        this.permissionService = permissionService;
     }
 
     // Scoped like every other directory in the app: a system ADMINISTRATOR
@@ -146,7 +155,7 @@ public class UserService {
         user.setPhoneNumber(request.getPhoneNumber());
         user.setPosition(resolvePosition(request.getPositionId()));
         user.setDepartment(resolveDepartment(request.getDepartmentId()));
-        user.setRole(resolveRole(request.getRoleId()));
+        user.setRole(resolveRoleForNewAccount(request.getRoleId()));
         if (request.getAccountStatus() != null) {
             user.setAccountStatus(request.getAccountStatus());
         }
@@ -165,7 +174,7 @@ public class UserService {
         user.setPhoneNumber(request.getPhoneNumber());
         user.setPosition(resolvePosition(request.getPositionId()));
         user.setDepartment(resolveDepartment(request.getDepartmentId()));
-        user.setRole(resolveRole(request.getRoleId()));
+        user.setRole(resolveRoleForUpdate(user, request.getRoleId()));
         if (request.getAccountStatus() != null) {
             if (!"ACTIVE".equals(request.getAccountStatus()) && "ACTIVE".equals(user.getAccountStatus())) {
                 assertNotSoleOwnerOfAnyProject(user.getId());
@@ -279,9 +288,10 @@ public class UserService {
         }
 
         if (!isSystemAdministrator(caller)) {
-            List<Long> callerAdminProjectIds = projectMemberRepository.findActiveAdminProjectIds(caller.getId());
-            List<Long> targetProjectIds = projectMemberRepository.findProjectIdsByUserId(target.getId());
-            boolean sharesAdministeredTeam = callerAdminProjectIds.stream().anyMatch(targetProjectIds::contains);
+            // "Team Admin" = may edit team members (MEMBER:EDIT) in at least one project
+            // the target is also an active member of.
+            boolean sharesAdministeredTeam = projectMemberRepository.findProjectIdsByUserId(target.getId()).stream()
+                    .anyMatch(projectId -> projectAccessGuard.can(caller, projectId, Resource.MEMBER, Action.EDIT));
             if (!sharesAdministeredTeam) {
                 throw new AccessDeniedException("You are not a Team Admin for this member");
             }
@@ -292,15 +302,71 @@ public class UserService {
         return new UserResponse(userRepository.save(target));
     }
 
-    // Optional — an admin-created/edited account may have no system-level
-    // role at all (the common case; see User.role), or be explicitly
-    // granted one (currently only ADMINISTRATOR exists).
-    private Role resolveRole(Long roleId) {
+    // Every account holds a system role (the user "is assigned an appropriate
+    // role"). An administrator creating an account without choosing one gets the
+    // same default as self-registration: USER.
+    private Role resolveRoleForNewAccount(Long roleId) {
+        return roleId == null ? defaultUserRole() : assignableRole(roleId);
+    }
+
+    // On update, a missing roleId leaves the account's role as it is.
+    private Role resolveRoleForUpdate(User user, Long roleId) {
         if (roleId == null) {
-            return null;
+            return user.getRole();
         }
-        return roleRepository.findById(roleId)
+        Role next = assignableRole(roleId);
+        assertNotRemovingLastAdministrator(user, next);
+        assertStillCanOwnProjects(user, next);
+        return next;
+    }
+
+    private Role assignableRole(Long roleId) {
+        Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new NotFoundException("Role not found"));
+        if (!role.isAssignableToUsers()) {
+            throw new IllegalArgumentException(
+                    role.getName() + " is a project-only role and cannot be given to an account");
+        }
+        return role;
+    }
+
+    // The system must always keep at least one Administrator, or nobody could
+    // manage users or roles again.
+    private void assertNotRemovingLastAdministrator(User user, Role next) {
+        boolean wasAdministrator = user.getRole() != null && Role.ADMINISTRATOR.equals(user.getRole().getName());
+        if (wasAdministrator && !Role.ADMINISTRATOR.equals(next.getName())
+                && userRepository.countByRoleName(Role.ADMINISTRATOR) <= 1) {
+            throw new IllegalArgumentException(
+                    "At least one Administrator is required. Make someone else an Administrator first");
+        }
+    }
+
+    // Only a Project Manager or an Administrator can own a project, so a person who
+    // owns one cannot be moved to USER until ownership is transferred (D-04).
+    private void assertStillCanOwnProjects(User user, Role next) {
+        if (Role.ADMINISTRATOR.equals(next.getName()) || Role.PROJECT_MANAGER.equals(next.getName())) {
+            return;
+        }
+        List<Long> owned = projectMemberRepository.findProjectIdsWhereSoleActiveOwner(user.getId());
+        if (!owned.isEmpty()) {
+            throw new IllegalArgumentException(
+                    user.getFullName() + " owns " + owned.size() + " project(s). Transfer ownership first: only a Project Manager or an Administrator can own a project");
+        }
+    }
+
+    // PUT /api/users/{id}/role (USER:ASSIGN, enforced on the controller).
+    public UserResponse assignRole(Long userId, Long roleId) {
+        User user = getUserEntityById(userId);
+        Role next = assignableRole(roleId);
+        assertNotRemovingLastAdministrator(user, next);
+        assertStillCanOwnProjects(user, next);
+        user.setRole(next);
+        return new UserResponse(userRepository.save(user));
+    }
+
+    @Transactional(readOnly = true)
+    public EffectivePermissionsResponse getOwnPermissions(String username) {
+        return permissionService.effectiveFor(getUserEntityByUsername(username));
     }
 
     private Position resolvePosition(Long positionId) {
@@ -374,12 +440,10 @@ public class UserService {
     // Self-registration: unlike createUser (admin-only, full field set),
     // this only collects username/email/password. fullName defaults to the
     // username — the user fills in the rest later via Profile. Every
-    // self-registered account gets the global USER role (see User.role) —
-    // that role carries no permission bypass of any kind, it's purely an
-    // account-level label; a self-registered account is still just a plain
-    // user and gains project-level authority only by creating or being
-    // added to a project (see ProjectService/ProjectMemberService), never
-    // from a global role. ADMINISTRATOR is never assigned here — only by an
+    // self-registered account gets the system role USER: it can work on the
+    // projects it is added to but cannot create a project (PROJECT:CREATE
+    // belongs to Project Manager and Administrator). An administrator promotes
+    // it later with PUT /api/users/{id}/role. ADMINISTRATOR is never assigned here — only by an
     // existing admin promoting an account later. PENDING_VERIFICATION
     // (CustomUserDetailsService already treats anything but ACTIVE as
     // disabled, so this account can't log in until OtpService.verify flips
@@ -406,14 +470,14 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    // The USER role seeded in database/init/01-init.sql (see V7 migration
-    // for the delta on existing databases). Failing loudly here rather than
-    // leaving role_id NULL if it's somehow missing, since a missing seed row
-    // means the database wasn't migrated correctly.
+    // The USER role seeded in database/init/01-init.sql (migration V10 for
+    // existing databases). Failing loudly here rather than leaving role_id NULL
+    // if it's somehow missing, since a missing seed row means the database
+    // wasn't migrated correctly.
     private Role defaultUserRole() {
-        return roleRepository.findByName("USER")
+        return roleRepository.findByName(Role.USER)
                 .orElseThrow(() -> new IllegalStateException(
-                        "Default USER role is missing — check database seed data / run pending migrations"));
+                        "Default USER role is missing — check database seed data / run pending migrations (V10)"));
     }
 
     public void activateUser(String username) {

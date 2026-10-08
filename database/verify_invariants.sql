@@ -3,7 +3,7 @@
 -- Standalone sanity-check script: every query below is expected to return
 -- ZERO ROWS on a healthy database. Re-run this after any schema or seed
 -- change (`psql -f database/verify_invariants.sql`) — a non-empty result
--- means one of the business rules documented in database/README.md is
+-- means one of the business rules documented in docs/database.md is
 -- being violated by the current data.
 
 -- 1. Tasks missing required dates (Role_Requirment.md: every task needs a
@@ -63,3 +63,22 @@ WHERE progress IS DISTINCT FROM fn_compute_project_progress(id);
 SELECT id, progress, fn_compute_milestone_progress(id) AS computed
 FROM milestones
 WHERE progress IS DISTINCT FROM fn_compute_milestone_progress(id);
+
+-- 8. A project must have exactly ONE active owner (ADR-0015; enforced by the
+--    deferred trigger trg_project_members_single_owner).
+SELECT p.id, p.project_code,
+       (SELECT COUNT(*) FROM project_members m
+        WHERE m.project_id = p.id AND m.project_role = 'OWNER' AND m.status = 'ACTIVE') AS owners
+FROM projects p
+WHERE (SELECT COUNT(*) FROM project_members m
+       WHERE m.project_id = p.id AND m.project_role = 'OWNER' AND m.status = 'ACTIVE') <> 1;
+
+-- 9. Whoever owns a project must be able to own projects (Project Manager or
+--    Administrator) - D-04.
+SELECT p.id, p.project_code, u.username, r.name AS system_role
+FROM project_members m
+JOIN projects p ON p.id = m.project_id
+JOIN users u ON u.id = m.user_id
+LEFT JOIN roles r ON r.id = u.role_id
+WHERE m.project_role = 'OWNER' AND m.status = 'ACTIVE'
+  AND r.name IS DISTINCT FROM 'PROJECT_MANAGER' AND r.name IS DISTINCT FROM 'ADMINISTRATOR';

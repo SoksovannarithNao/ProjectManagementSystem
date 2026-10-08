@@ -31,9 +31,9 @@ const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 export function NewProjectModal({ project, onClose, onSaved }) {
   const isEdit = Boolean(project)
   const notify = useToast()
-  const { role } = useAuth()
-  const isSystemAdmin = role === 'ADMINISTRATOR'
-  const canReassignManager = isEdit && isSystemAdmin
+  const { isAdministrator } = useAuth()
+  // Naming someone else as the project's manager is an Administrator-only action.
+  const canReassignManager = isEdit && isAdministrator
   // Real org-wide user directory (GET /api/users) — a system ADMINISTRATOR
   // sees everyone there (UserService.getAllUsers), so this is the correct,
   // already-existing source for "who can be named manager", not a new
@@ -106,7 +106,7 @@ export function NewProjectModal({ project, onClose, onSaved }) {
     return (
       <>
         <div
-          className="animate-fade-in fixed inset-0 z-[60] flex justify-end bg-[rgba(20,20,22,.4)] backdrop-blur-[2px]"
+          className="animate-fade-in fixed inset-0 z-[60] flex justify-end bg-scrim"
           onClick={requestDrawerClose}
         >
           <aside
@@ -114,7 +114,7 @@ export function NewProjectModal({ project, onClose, onSaved }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="border-divider flex items-center justify-between border-b px-[22px] py-[18px]">
-              <span className="text-faint text-[11.5px] font-[650] tracking-[0.05em] uppercase">New Project</span>
+              <span className="text-ink text-[15px] font-[650]">New Project</span>
               <button className="icon-btn" onClick={requestDrawerClose} aria-label="Close panel">
                 <X size={18} />
               </button>
@@ -122,27 +122,27 @@ export function NewProjectModal({ project, onClose, onSaved }) {
 
             <form id="new-project-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-[22px] pt-5 pb-6">
               <label className="mb-5 flex flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">Name</span>
+                <span className="text-muted text-[12px] font-semibold">Name</span>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                  className="field"
                   autoFocus
                   required
                 />
-                <span className="text-faint text-[11.5px]">A project code (e.g. PRJ-2004) is generated automatically.</span>
+                <span className="text-faint text-[12px]">A project code (e.g. PRJ-2004) is generated automatically.</span>
               </label>
 
               <div className="bg-subtle border-border mb-[22px] grid grid-cols-2 gap-4 rounded-md border p-4 max-sm:grid-cols-1">
                 <div className="col-span-2 flex flex-col gap-1.5 max-sm:col-span-1">
-                  <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+                  <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                     <Flag size={14} /> Priority
                   </span>
                   <select
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
-                    className="bg-card border-border focus:border-lavender h-9 rounded-md border px-2.5 text-[12.5px] outline-none"
+                    className="bg-card border-border focus:border-focus h-9 rounded-md border px-2.5 text-[12px] outline-none"
                   >
                     {PRIORITY_OPTIONS.map((p) => (
                       <option key={p} value={p}>
@@ -153,27 +153,27 @@ export function NewProjectModal({ project, onClose, onSaved }) {
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+                  <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                     <CalendarDays size={14} /> Start date
                   </span>
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="bg-card border-border focus:border-lavender h-9 rounded-md border px-2.5 text-[12.5px] outline-none"
+                    className="bg-card border-border focus:border-focus h-9 rounded-md border px-2.5 text-[12px] outline-none"
                     required
                   />
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+                  <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                     <CalendarDays size={14} /> End date
                   </span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="bg-card border-border focus:border-lavender h-9 rounded-md border px-2.5 text-[12.5px] outline-none"
+                    className="bg-card border-border focus:border-focus h-9 rounded-md border px-2.5 text-[12px] outline-none"
                     required
                   />
                 </div>
@@ -186,11 +186,11 @@ export function NewProjectModal({ project, onClose, onSaved }) {
                   onChange={(e) => setDescription(e.target.value)}
                   rows={4}
                   placeholder="Add a description…"
-                  className="bg-subtle border-border focus:border-lavender w-full rounded-md border px-3 py-2 text-[13px] leading-relaxed outline-none"
+                  className="bg-subtle border-border focus:border-focus w-full rounded-md border px-3 py-2 text-[13px] leading-relaxed outline-none"
                 />
               </div>
 
-              {error && <p className="text-danger mt-4 text-[12.5px] font-semibold">{error}</p>}
+              {error && <p className="text-danger-ink mt-4 text-[12px] font-semibold">{error}</p>}
             </form>
 
             <div className="border-divider flex items-center justify-end gap-2 border-t px-[18px] py-3.5">
@@ -222,66 +222,66 @@ export function NewProjectModal({ project, onClose, onSaved }) {
       {({ requestClose }) => (
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1.5">
-          <span className="text-muted text-[12.5px] font-semibold">Name</span>
+          <span className="text-muted text-[12px] font-semibold">Name</span>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+            className="field"
             autoFocus
             required
           />
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-muted text-[12.5px] font-semibold">Project code</span>
+          <span className="text-muted text-[12px] font-semibold">Project code</span>
           <input
             type="text"
             value={project.projectCode}
-            className="bg-subtle border-border text-muted h-10 rounded-md border px-3 text-[13.5px] outline-none"
+            className="field text-muted"
             readOnly
           />
         </label>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-muted text-[12.5px] font-semibold">Description</span>
+          <span className="text-muted text-[12px] font-semibold">Description</span>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
-            className="bg-subtle border-border focus:border-lavender rounded-md border px-3 py-2 text-[13.5px] outline-none"
+            className="bg-subtle border-border focus:border-focus rounded-md border px-3 py-2 text-[13px] outline-none"
           />
         </label>
 
         <div className="flex gap-3">
           <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Start date</span>
+            <span className="text-muted text-[12px] font-semibold">Start date</span>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+              className="field"
               required
             />
           </label>
           <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">End date</span>
+            <span className="text-muted text-[12px] font-semibold">End date</span>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+              className="field"
               required
             />
           </label>
         </div>
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-muted text-[12.5px] font-semibold">Priority</span>
+          <span className="text-muted text-[12px] font-semibold">Priority</span>
           <select
             value={priority}
             onChange={(e) => setPriority(e.target.value)}
-            className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+            className="field"
           >
             {PRIORITY_OPTIONS.map((p) => (
               <option key={p} value={p}>
@@ -293,13 +293,15 @@ export function NewProjectModal({ project, onClose, onSaved }) {
 
         {canReassignManager && (
           <label className="flex flex-col gap-1.5">
-            <span className="text-muted text-[12.5px] font-semibold">Project manager</span>
+            <span className="text-muted text-[12px] font-semibold">Project manager</span>
             <select
               value={managerId}
               onChange={(e) => setManagerId(e.target.value)}
-              className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+              className="field"
             >
-              {members.map((m) => (
+              {members
+                .filter((m) => m.id === project?.manager?.id || m.role === 'PROJECT_MANAGER' || m.role === 'ADMINISTRATOR')
+                .map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
                 </option>
@@ -308,7 +310,7 @@ export function NewProjectModal({ project, onClose, onSaved }) {
           </label>
         )}
 
-        {error && <p className="text-danger text-[12.5px] font-semibold">{error}</p>}
+        {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
 
         <div className="mt-1 flex justify-end gap-2">
           <button type="button" className="btn btn-secondary" onClick={requestClose}>

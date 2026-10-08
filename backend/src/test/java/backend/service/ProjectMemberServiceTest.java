@@ -6,10 +6,13 @@ import backend.dto.ProjectMemberRequest;
 import backend.dto.TeamInviteRequest;
 import backend.entity.Project;
 import backend.entity.ProjectMember;
+import backend.entity.Role;
 import backend.entity.User;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -61,8 +64,10 @@ class ProjectMemberServiceTest {
 
     @BeforeEach
     void setUp() {
+        // the real ownership helper over the mocked repositories, so a transfer is tested end to end
         service = new ProjectMemberService(
-                projectMemberRepository, projectRepository, userRepository, projectAccessGuard, notificationService);
+                projectMemberRepository, projectRepository, userRepository, projectAccessGuard, notificationService,
+                new ProjectOwnership(projectMemberRepository, projectRepository));
         caller = user(1L, "pm.olivia", "ACTIVE");
         Project project = new Project();
         ReflectionTestUtils.setField(project, "id", 10L);
@@ -121,11 +126,49 @@ class ProjectMemberServiceTest {
 
     @Test
     void invite_stillRequiresPermissionToManageTheProject() {
-        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCanManage(caller, 10L);
+        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCan(caller, 10L, Resource.MEMBER, Action.CREATE);
 
         assertThatThrownBy(() -> service.inviteMember(invite("dev.chen"), "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class);
         verify(userRepository, never()).findByUsernameIgnoreCase(anyString());
+    }
+
+    @Test
+    void invite_appliesTheChosenProjectRole() {
+        User target = user(2L, "dev.chen", "ACTIVE");
+        when(userRepository.findByUsernameIgnoreCase("dev.chen")).thenReturn(Optional.of(target));
+        when(projectMemberRepository.findByProjectIdAndUserId(10L, 2L)).thenReturn(Optional.empty());
+        when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+        TeamInviteRequest request = invite("dev.chen");
+        request.setProjectRole("VIEWER");
+
+        service.inviteMember(request, "pm.olivia");
+
+        ArgumentCaptor<ProjectMember> saved = ArgumentCaptor.forClass(ProjectMember.class);
+        verify(projectMemberRepository).save(saved.capture());
+        assertThat(saved.getValue().getProjectRole()).isEqualTo("VIEWER");
+        verify(projectAccessGuard, never()).assertCan(any(), any(), eq(Resource.PROJECT), eq(Action.ASSIGN));
+    }
+
+    @Test
+    void invite_asOwner_isRefused_ownershipIsTransferredNotInvited() {
+        User target = user(2L, "dev.chen", "ACTIVE");
+        when(userRepository.findByUsernameIgnoreCase("dev.chen")).thenReturn(Optional.of(target));
+        TeamInviteRequest request = invite("dev.chen");
+        request.setProjectRole("OWNER");
+
+        assertThatThrownBy(() -> service.inviteMember(request, "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exactly one owner");
+        verify(projectMemberRepository, never()).save(any());
+    }
+
+    @Test
+    void directAdd_asOwner_isRefused() {
+        assertThatThrownBy(() -> service.createProjectMember(memberRequest(10L, 2L, "OWNER"), "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exactly one owner");
+        verify(projectMemberRepository, never()).save(any());
     }
 
     @ParameterizedTest
@@ -153,13 +196,13 @@ class ProjectMemberServiceTest {
         PendingInvitationCountResponse response = service.countPendingInvitations(10L, "pm.olivia");
 
         assertThat(response.count()).isEqualTo(3L);
-        verify(projectAccessGuard).assertCanManage(caller, 10L);
+        verify(projectAccessGuard).assertCan(caller, 10L, Resource.MEMBER, Action.CREATE);
         verify(projectMemberRepository, never()).findByProjectIdAndStatus(any(), eq("ACTIVE"));
     }
 
     @Test
     void pendingCount_isTeamAdminOnly() {
-        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCanManage(caller, 10L);
+        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCan(caller, 10L, Resource.MEMBER, Action.CREATE);
 
         assertThatThrownBy(() -> service.countPendingInvitations(10L, "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class);
@@ -177,7 +220,7 @@ class ProjectMemberServiceTest {
         List<InvitableUserResponse> result = service.searchInvitableUsers(10L, "  NeW ", 10, "pm.olivia");
 
         assertThat(result).extracting(InvitableUserResponse::username).containsExactly("newuser");
-        verify(projectAccessGuard).assertCanManage(caller, 10L);
+        verify(projectAccessGuard).assertCan(caller, 10L, Resource.MEMBER, Action.CREATE);
         // never loads the full directory to filter in memory
         verify(userRepository, never()).findAllWithRoles();
     }
@@ -197,7 +240,7 @@ class ProjectMemberServiceTest {
 
     @Test
     void search_isTeamAdminOnly() {
-        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCanManage(caller, 10L);
+        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCan(caller, 10L, Resource.MEMBER, Action.CREATE);
 
         assertThatThrownBy(() -> service.searchInvitableUsers(10L, "a", 10, "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class);
@@ -313,5 +356,81 @@ class ProjectMemberServiceTest {
         service.updateProjectMember(7L, memberRequest(10L, 2L, "VIEWER"), "pm.olivia");
 
         assertThat(existing.getProjectRole()).isEqualTo("VIEWER");
+    }
+
+    // ---- exactly one Owner; ownership moves in one step (ADR-0015, B3.9) -------
+
+    private static User withSystemRole(User u, String roleName) {
+        Role role = new Role();
+        role.setName(roleName);
+        u.setRole(role);
+        return u;
+    }
+
+    @Test
+    void makingAMemberTheOwner_transfersOwnership_inOneStep() {
+        Project project = projectRepository.findById(10L).orElseThrow();
+        ProjectMember oldRow = row(5L, project, withSystemRole(caller, "PROJECT_MANAGER"), "ACTIVE");
+        oldRow.setProjectRole("OWNER");
+        User next = withSystemRole(user(2L, "pm.marcus", "ACTIVE"), "PROJECT_MANAGER");
+        ProjectMember nextRow = row(7L, project, next, "ACTIVE");
+        nextRow.setProjectRole("ADMIN");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(nextRow));
+        when(projectMemberRepository.findFirstByProjectIdAndProjectRoleAndStatus(10L, "OWNER", "ACTIVE"))
+                .thenReturn(Optional.of(oldRow));
+        when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "OWNER"), "pm.olivia");
+
+        assertThat(oldRow.getProjectRole()).as("the previous owner becomes Team Leader").isEqualTo("ADMIN");
+        assertThat(nextRow.getProjectRole()).isEqualTo("OWNER");
+        assertThat(project.getManager()).as("the project's manager follows the owner").isSameAs(next);
+    }
+
+    @Test
+    void ownership_cannotGoToSomeoneWhoCannotOwnProjects() {
+        Project project = projectRepository.findById(10L).orElseThrow();
+        User plainUser = withSystemRole(user(2L, "dev.chen", "ACTIVE"), "USER");
+        ProjectMember row = row(7L, project, plainUser, "ACTIVE");
+        row.setProjectRole("ADMIN");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(row));
+
+        assertThatThrownBy(() -> service.updateProjectMember(7L, memberRequest(10L, 2L, "OWNER"), "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot own a project");
+        verify(projectMemberRepository, never()).save(any());
+    }
+
+    @Test
+    void ownership_needsThePermissionToAssign() {
+        Project project = projectRepository.findById(10L).orElseThrow();
+        User next = withSystemRole(user(2L, "pm.marcus", "ACTIVE"), "PROJECT_MANAGER");
+        ProjectMember row = row(7L, project, next, "ACTIVE");
+        row.setProjectRole("ADMIN");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(row));
+        lenient().doThrow(new AccessDeniedException("no")).when(projectAccessGuard)
+                .assertCan(caller, 10L, Resource.PROJECT, Action.ASSIGN);
+
+        assertThatThrownBy(() -> service.updateProjectMember(7L, memberRequest(10L, 2L, "OWNER"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(projectMemberRepository, never()).save(any());
+    }
+
+    @Test
+    void theOwner_cannotBeDemotedOrRemovedDirectly() {
+        Project project = projectRepository.findById(10L).orElseThrow();
+        User owner = withSystemRole(user(2L, "pm.marcus", "ACTIVE"), "PROJECT_MANAGER");
+        ProjectMember ownerRow = row(7L, project, owner, "ACTIVE");
+        ownerRow.setProjectRole("OWNER");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(ownerRow));
+
+        assertThatThrownBy(() -> service.updateProjectMember(7L, memberRequest(10L, 2L, "MEMBER"), "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Transfer ownership");
+        assertThatThrownBy(() -> service.deleteProjectMember(7L, "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Transfer ownership");
+        verify(projectMemberRepository, never()).save(any());
+        verify(projectMemberRepository, never()).delete(any());
     }
 }

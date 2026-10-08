@@ -44,7 +44,7 @@ public class TaskRequest {
     @DecimalMax("100")
     private BigDecimal progress;
 
-    /** Not auto-set — see the Task Business Rules note in the README. */
+    /** Not auto-set — see the Task & Subtask rules in docs/backend.md and docs/tasks.md. */
     private OffsetDateTime completedAt;
 
     /** Optional — the user who created the task, if known. */

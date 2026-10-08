@@ -45,6 +45,12 @@ class UserServiceTest {
     @Mock
     private ProjectMemberRepository projectMemberRepository;
 
+    @Mock
+    private ProjectAccessGuard projectAccessGuard;
+
+    @Mock
+    private PermissionService permissionService;
+
     // A real encoder (not mocked) so the hashing behavior itself is verified,
     // not just that some method got called.
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -53,7 +59,7 @@ class UserServiceTest {
 
     // An arbitrary role fixture for generic "assign a role by id" tests
     // below — not exercising any role-specific authorization behavior, so
-    // any valid role name would do. USER is one of the two system roles
+    // any valid role name would do. USER is one of the system roles
     // that actually exist (see database/init/01-init.sql).
     private Role assignedRole;
 
@@ -61,7 +67,7 @@ class UserServiceTest {
     void setUp() {
         userService = new UserService(
                 userRepository, roleRepository, positionRepository, departmentRepository,
-                projectMemberRepository, passwordEncoder);
+                projectMemberRepository, passwordEncoder, projectAccessGuard, permissionService);
 
         assignedRole = new Role();
         assignedRole.setName("USER");

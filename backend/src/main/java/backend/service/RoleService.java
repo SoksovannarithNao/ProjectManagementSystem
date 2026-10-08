@@ -35,6 +35,9 @@ public class RoleService {
 
     public Role updateRole(Long id, RoleRequest request) {
         Role role = getRoleById(id);
+        if (role.isBuiltIn() && !role.getName().equals(request.getName())) {
+            throw new IllegalArgumentException("Built-in roles come from Role_Requirment.md and cannot be renamed");
+        }
         role.setName(request.getName());
         role.setDescription(request.getDescription());
         return roleRepository.save(role);
@@ -42,6 +45,9 @@ public class RoleService {
 
     public void deleteRole(Long id) {
         Role role = getRoleById(id);
+        if (role.isBuiltIn()) {
+            throw new IllegalArgumentException("Built-in roles cannot be deleted");
+        }
         roleRepository.delete(role);
     }
 }

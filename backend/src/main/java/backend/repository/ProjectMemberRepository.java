@@ -50,6 +50,8 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Lo
     // ProjectMemberService.assertNotRemovingLastOwner).
     long countByProjectIdAndProjectRoleAndStatus(Long projectId, String projectRole, String status);
 
+    Optional<ProjectMember> findFirstByProjectIdAndProjectRoleAndStatus(Long projectId, String projectRole, String status);
+
     // Projects where the given user is the ONLY ACTIVE OWNER — used by
     // UserService to refuse deactivating (or deleting) an account that
     // would leave one of these projects ownerless.

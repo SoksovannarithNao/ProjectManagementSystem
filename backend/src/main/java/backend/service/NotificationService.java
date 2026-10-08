@@ -105,7 +105,7 @@ public class NotificationService {
     // Called by ProjectMemberService.inviteMember right after a new/re-sent
     // invitation is saved. The invited user is the "Admin action -> correct
     // recipient" notification this app was actually missing — see
-    // backend/README.md's Notifications section for why the old ADMIN
+    // docs/backend.md's Notifications section for why the old ADMIN
     // notification requirement didn't work: no event ever created one.
     public void notifyTeamInvitation(ProjectMember member, User inviter) {
         User invitee = member.getUser();

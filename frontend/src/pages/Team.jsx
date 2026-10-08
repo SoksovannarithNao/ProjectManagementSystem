@@ -10,7 +10,6 @@ import { useToast } from '../components/ui/Toast'
 import { AddMemberModal } from '../components/AddMemberModal'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
-import { canManageUsers } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
 import { getProjectMembers, inviteMember, deleteProjectMember } from '../api/projectMembers'
@@ -21,7 +20,7 @@ import { updateMemberPositionDepartment } from '../api/users'
 import { buildProjectMemberMap, buildTaskAssigneeMap, countByValue } from '../api/relations'
 
 export function Team() {
-  const { profile, role } = useAuth()
+  const { profile, canSys, isAdministrator, permissions } = useAuth()
   const notify = useToast()
   const { members, loading: membersLoading, refetch: refetchMembers } = useMembers()
   const { data: projects } = useApi(getProjects)
@@ -38,8 +37,11 @@ export function Team() {
   const [savingAttributes, setSavingAttributes] = useState(false)
   const [addingPosition, setAddingPosition] = useState(false)
   const [addingDepartment, setAddingDepartment] = useState(false)
-  const canInvite = canManageUsers(role)
-  const isAdmin = role === 'ADMINISTRATOR'
+  // Creating accounts is a system permission (USER:CREATE): Administrator only by default.
+  const canInvite = canSys('USER', 'CREATE')
+  const isAdmin = isAdministrator
+  // Role the person will hold in the project after accepting (project role).
+  const [inviteRole, setInviteRole] = useState('MEMBER')
 
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
   const taskAssigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
@@ -54,25 +56,14 @@ export function Team() {
   // offering a control that can only fail).
   const isSelectedInvitable = selected?.accountStatus === 'ACTIVE'
 
-  // Projects the current user actually administers (an active OWNER/ADMIN
-  // membership, or a system ADMINISTRATOR) — mirrors
-  // ProjectAccessGuard.canManage on the backend, so "Invite"/"Remove" only
-  // offer teams the caller can really act on. null means "every project"
-  // (system ADMINISTRATOR).
+  // Projects where the current user may manage the team (MEMBER:CREATE in
+  // role_permissions, or any project for an Administrator), so "Invite" and
+  // "Remove" only offer teams the caller can really act on. null means "every
+  // project" (Administrator).
   const administeredProjectIds = useMemo(() => {
-    if (isAdmin || profile == null) return null
-    const ids = new Set()
-    for (const pm of projectMembers ?? []) {
-      if (
-        pm.user?.id === profile.id &&
-        pm.status === 'ACTIVE' &&
-        (pm.projectRole === 'OWNER' || pm.projectRole === 'ADMIN')
-      ) {
-        ids.add(pm.project?.id)
-      }
-    }
-    return ids
-  }, [isAdmin, profile, projectMembers])
+    if (isAdmin) return null
+    return new Set(permissions.projects.filter((p) => p.grants.includes('MEMBER:CREATE')).map((p) => p.projectId))
+  }, [isAdmin, permissions])
 
   const memberProjects = useMemo(() => {
     if (activeId == null) return []
@@ -113,6 +104,7 @@ export function Team() {
       await inviteMember({
         projectId: Number(effectiveAddProjectId),
         username: selected.username,
+        projectRole: inviteRole,
       })
       setAddProjectId('')
       notify(`Invitation sent to ${selected.name}`, { tone: 'success' })
@@ -187,7 +179,9 @@ export function Team() {
               className="text-ink w-full border-none bg-transparent text-[13px] outline-none"
             />
           </div>
-          <div className="flex flex-col gap-0.5">
+          {/* The name list scrolls inside the card at every size, so 25+ members never stretch the page
+              and the selected member's details stay in view. */}
+          <div className="flex max-h-[min(600px,calc(100svh-15rem))] min-h-[220px] flex-col gap-0.5 overflow-y-auto overscroll-contain pr-1 max-[900px]:max-h-[320px]">
             {membersLoading &&
               Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-3 p-2.5">
@@ -209,8 +203,8 @@ export function Team() {
                 >
                   <Avatar initials={m.initials} color={m.color} photoUrl={m.photoUrl} size={38} />
                   <span className="flex min-w-0 flex-col">
-                    <span className="text-ink truncate text-[13.5px] font-[650]">{m.name}</span>
-                    <span className="text-faint truncate text-[11.5px]">@{m.username}</span>
+                    <span className="text-ink truncate text-[13px] font-[650]">{m.name}</span>
+                    <span className="text-faint truncate text-[12px]">@{m.username}</span>
                   </span>
                 </button>
               ))}
@@ -227,7 +221,7 @@ export function Team() {
               <div>
                 <h2 className="text-[19px] font-bold tracking-[-0.01em]">{selected.name}</h2>
                 <p className="text-muted my-1 text-[13px]">@{selected.username}</p>
-                <span className="text-faint inline-flex items-center gap-1.5 text-[12.5px]">
+                <span className="text-faint inline-flex items-center gap-1.5 text-[12px]">
                   <Mail size={13} /> {selected.email}
                 </span>
               </div>
@@ -238,14 +232,14 @@ export function Team() {
                 <ListChecks size={16} />
                 <div>
                   <span className="text-ink block text-lg font-bold">{taskCountByUser.get(selected.id) ?? 0}</span>
-                  <span className="text-faint mt-0.5 block text-[11.5px]">Assigned Tasks</span>
+                  <span className="text-faint mt-0.5 block text-[12px]">Assigned Tasks</span>
                 </div>
               </div>
               <div className="bg-subtle border-border text-muted flex flex-1 items-center gap-3 rounded-md border px-4 py-3.5">
                 <FolderKanban size={16} />
                 <div>
                   <span className="text-ink block text-lg font-bold">{projectCountByUser.get(selected.id) ?? 0}</span>
-                  <span className="text-faint mt-0.5 block text-[11.5px]">Projects</span>
+                  <span className="text-faint mt-0.5 block text-[12px]">Projects</span>
                 </div>
               </div>
             </div>
@@ -253,14 +247,14 @@ export function Team() {
             <div className="mb-[22px]">
               <h4 className="mb-3 text-[13px] font-[650]">Team Information</h4>
               {canManageSelectedMember && !isSelf ? (
-                <div className="flex gap-3">
+                <div className="flex gap-3 max-[520px]:flex-col">
                   <LookupSelect
                     label="Position"
                     items={positions}
                     value={selected.positionId ?? null}
                     disabled={savingAttributes}
                     onChange={(positionId) => handleSaveAttributes({ positionId })}
-                    onAddNew={() => setAddingPosition(true)}
+                    onAddNew={canSys('LOOKUP', 'CREATE') ? () => setAddingPosition(true) : undefined}
                   />
                   <LookupSelect
                     label="Department"
@@ -268,20 +262,20 @@ export function Team() {
                     value={selected.departmentId ?? null}
                     disabled={savingAttributes}
                     onChange={(departmentId) => handleSaveAttributes({ departmentId })}
-                    onAddNew={() => setAddingDepartment(true)}
+                    onAddNew={canSys('LOOKUP', 'CREATE') ? () => setAddingDepartment(true) : undefined}
                   />
                 </div>
               ) : (
-                <div className="flex gap-3">
+                <div className="flex gap-3 max-[520px]:flex-col">
                   <div className="bg-subtle border-border flex-1 rounded-md border px-4 py-3">
-                    <span className="text-faint block text-[11.5px] font-semibold">Position</span>
-                    <span className="text-ink text-[13.5px] font-semibold">
+                    <span className="text-faint block text-[12px] font-semibold">Position</span>
+                    <span className="text-ink text-[13px] font-semibold">
                       {selected.positionName || 'Not set'}
                     </span>
                   </div>
                   <div className="bg-subtle border-border flex-1 rounded-md border px-4 py-3">
-                    <span className="text-faint block text-[11.5px] font-semibold">Department</span>
-                    <span className="text-ink text-[13.5px] font-semibold">
+                    <span className="text-faint block text-[12px] font-semibold">Department</span>
+                    <span className="text-ink text-[13px] font-semibold">
                       {selected.departmentName || 'Not set'}
                     </span>
                   </div>
@@ -292,7 +286,7 @@ export function Team() {
             <div className="mb-[22px]">
               <h4 className="mb-3 text-[13px] font-[650]">Projects</h4>
               {memberProjects.length === 0 && (
-                <p className="text-faint text-[12.5px]">No active projects.</p>
+                <p className="text-faint text-[12px]">No active projects.</p>
               )}
               <div className="flex flex-col gap-0.5">
                 {memberProjects.map((p) => (
@@ -306,7 +300,7 @@ export function Team() {
                       {(isAdmin || administeredProjectIds?.has(p.id)) && (
                         <button
                           type="button"
-                          className="icon-btn h-7 w-7 hover:text-danger"
+                          className="icon-btn hit-area h-7 w-7 hover:text-danger-ink"
                           aria-label={`Remove from ${p.name}`}
                           onClick={() => handleRemoveFromProject(p.id)}
                         >
@@ -319,7 +313,7 @@ export function Team() {
               </div>
 
               {!isSelf && !isSelectedInvitable && (isAdmin || administeredProjectIds?.size > 0) && (
-                <p className="text-faint mt-3 text-[12.5px]">
+                <p className="text-faint mt-3 text-[12px]">
                   This account is {selected.accountStatus?.toLowerCase() ?? 'not active'} and can&apos;t be invited to a project.
                 </p>
               )}
@@ -328,14 +322,25 @@ export function Team() {
                 <div className="mt-3 flex items-center gap-2">
                   <select
                     value={effectiveAddProjectId}
+                    aria-label="Project to invite to"
                     onChange={(e) => setAddProjectId(e.target.value)}
-                    className="bg-subtle border-border h-9 flex-1 rounded-md border px-2.5 text-[12.5px] outline-none"
+                    className="field field-sm flex-1"
                   >
                     {availableProjects.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
                       </option>
                     ))}
+                  </select>
+                  <select
+                    value={inviteRole}
+                    aria-label="Role in the project"
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="field field-sm w-auto shrink-0"
+                  >
+                    <option value="MEMBER">Team Member</option>
+                    <option value="ADMIN">Team Leader</option>
+                    <option value="VIEWER">Viewer</option>
                   </select>
                   <button
                     type="button"

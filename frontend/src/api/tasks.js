@@ -52,27 +52,31 @@ export function toggleTaskCompletion(task) {
   )
 }
 
-// One click = one step forward in the workflow: To Do -> Doing -> Done,
+// One click = one step forward in the workflow: To Do -> Doing -> (Review) -> Done,
 // never jumping straight from To Do to Done. COMPLETED/CANCELLED are
 // terminal for this quick-advance control — a finished task should not be
 // silently reopened by an accidental click. Reopening is still possible,
 // just not by this control: use the explicit status dropdown in
 // TaskDetailPanel, a deliberate action rather than a stray click.
-function nextWorkflowStatus(status) {
+//
+// Completing a task is an approval (TASK:APPROVE). Someone who may approve takes
+// Doing -> Done; everyone else takes Doing -> In Review ("submit for review")
+// and then waits for an approver, so their control stops there.
+function nextWorkflowStatus(status, canApprove) {
   if (status === 'TO_DO') return 'IN_PROGRESS'
-  if (status === 'IN_PROGRESS' || status === 'IN_REVIEW') return 'COMPLETED'
+  if (status === 'IN_PROGRESS') return canApprove ? 'COMPLETED' : 'IN_REVIEW'
+  if (status === 'IN_REVIEW') return canApprove ? 'COMPLETED' : status
   return status
 }
 
 // Whether advanceTaskStatus would actually change this task's status —
-// false for COMPLETED/CANCELLED, which are terminal for the quick-advance
-// control (see nextWorkflowStatus above).
-export function canAdvanceStatus(status) {
-  return nextWorkflowStatus(status) !== status
+// false for COMPLETED/CANCELLED, and for In Review when the user cannot approve.
+export function canAdvanceStatus(status, canApprove = true) {
+  return nextWorkflowStatus(status, canApprove) !== status
 }
 
-export function advanceTaskStatus(task) {
-  const next = nextWorkflowStatus(task.status)
+export function advanceTaskStatus(task, canApprove = true) {
+  const next = nextWorkflowStatus(task.status, canApprove)
   return updateTask(
     task.id,
     taskResponseToRequest(task, {

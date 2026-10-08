@@ -9,6 +9,10 @@
   --color-charcoal: #242426;
   --color-dark-gray: #343438;
   --color-medium-gray: #66676b;
+  /* Text/icon colour that sits on a charcoal or danger fill. Charcoal flips
+    to a light fill in dark mode, so these flip to dark text with it. */
+  --color-on-charcoal: #ffffff;
+  --color-on-danger: #ffffff;
 
   /* Backgrounds — canvas is the page background; container is the
     project/board surface (Kanban columns, project groupings); subtle is
@@ -26,8 +30,10 @@
 
   /* Text */
   --color-ink: #17191c;
-  --color-muted: #6b7280;
-  --color-faint: #a1a2a6;
+  --color-muted: #565b64;
+  /* Faint is still readable text (4.5:1+ on white and canvas). It is the
+    lowest text tier, not a decoration colour. */
+  --color-faint: #64686f;
 
   /* Accent */
   --color-lavender: #aeb9d2;
@@ -37,8 +43,21 @@
   /* Status */
   --color-success: #3ead7a;
   --color-warning: #d99000;
-  --color-danger: #c87979;
+  --color-danger: #b94a46;
   --color-info: #4f8edb;
+
+  /* Status colours used as TEXT. The base hues above are for fills, dots and
+    chart series; these darker steps clear 4.5:1 on the matching soft tint. */
+  --color-success-ink: #1f7a50;
+  --color-warning-ink: #8a5a00;
+  --color-danger-ink: #a32f2b;
+  --color-info-ink: #2a62a8;
+
+  /* Keyboard focus ring */
+  --color-focus: #2f5fd0;
+
+  /* Dim layer behind modals, drawers and the mobile nav */
+  --color-scrim: rgba(20, 20, 22, 0.4);
 
   --color-success-soft: #e1f3ea;
   --color-warning-soft: #f9eed9;
@@ -131,9 +150,11 @@
 
 /*
  * Dark theme — same custom properties from @theme above, different values.
- * Charcoal/dark-gray/lavender/purple/status hues are left alone (they
- * already read fine on both a light and dark canvas); only backgrounds,
- * borders, and text tokens actually invert.
+ * Backgrounds, borders and text invert. Charcoal inverts too: it is the
+ * primary-action / active-location fill, and a literal #242426 would sit on
+ * a #232326 card as an invisible block, so it becomes a light fill with
+ * --color-on-charcoal flipping to dark text. Status hues are lifted so they
+ * still read on the dark canvas. Lavender and purple stay as they are.
  *
  * [data-theme="dark"] applies when the user explicitly picks Dark in
  * Settings; the prefers-color-scheme block applies when they picked System
@@ -150,10 +171,21 @@
   --color-divider: #333336;
   --color-ink: #f2f2f3;
   --color-muted: #a7a8ac;
-  --color-faint: #77787c;
+  --color-faint: #92939a;
+  --color-charcoal: #ececef;
+  --color-dark-gray: #ffffff;
+  --color-on-charcoal: #17191c;
+  --color-blue-gray: #3a3d48;
+  --color-danger: #e07a74;
+  --color-on-danger: #17191c;
+  --color-success-ink: #6fd1a0;
+  --color-warning-ink: #f0b84a;
+  --color-danger-ink: #f0958f;
+  --color-info-ink: #86b6ee;
+  --color-focus: #8fb0ff;
   --color-success-soft: rgba(62, 173, 122, 0.16);
   --color-warning-soft: rgba(217, 144, 0, 0.16);
-  --color-danger-soft: rgba(200, 121, 121, 0.18);
+  --color-danger-soft: rgba(224, 122, 116, 0.18);
   --color-info-soft: rgba(79, 142, 219, 0.18);
 }
 
@@ -167,10 +199,21 @@
     --color-divider: #333336;
     --color-ink: #f2f2f3;
     --color-muted: #a7a8ac;
-    --color-faint: #77787c;
+    --color-faint: #92939a;
+    --color-charcoal: #ececef;
+    --color-dark-gray: #ffffff;
+    --color-on-charcoal: #17191c;
+    --color-blue-gray: #3a3d48;
+    --color-danger: #e07a74;
+    --color-on-danger: #17191c;
+    --color-success-ink: #6fd1a0;
+    --color-warning-ink: #f0b84a;
+    --color-danger-ink: #f0958f;
+    --color-info-ink: #86b6ee;
+    --color-focus: #8fb0ff;
     --color-success-soft: rgba(62, 173, 122, 0.16);
     --color-warning-soft: rgba(217, 144, 0, 0.16);
-    --color-danger-soft: rgba(200, 121, 121, 0.18);
+    --color-danger-soft: rgba(224, 122, 116, 0.18);
     --color-info-soft: rgba(79, 142, 219, 0.18);
   }
 }
@@ -268,18 +311,14 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-faint;
   }
-
-  @media (max-width: 640px) {
-    body {
-      font-size: 13.5px;
-    }
-  }
 }
 
 /* Shared primitives reused across most pages */
 @layer components {
+  /* Elevation is declared once: a hairline border at rest. Shadow appears
+   * only on hover (.card--hoverable) and on popovers/modals. */
   .card {
-    @apply bg-card border-border rounded-card shadow-card transition duration-[var(--duration-med)] ease-[var(--ease-standard)] border;
+    @apply bg-card border-border rounded-card transition duration-[var(--duration-med)] ease-[var(--ease-standard)] border;
   }
 
   .card--hoverable:hover {
@@ -299,7 +338,7 @@
   }
 
   .btn-primary {
-    @apply bg-charcoal hover:bg-dark-gray text-white;
+    @apply bg-charcoal hover:bg-dark-gray text-on-charcoal;
   }
 
   .btn-secondary {
@@ -308,6 +347,34 @@
 
   .btn-ghost {
     @apply text-muted hover:bg-canvas bg-transparent;
+  }
+
+  /* Text inputs and selects. Default 40px; -sm 36px for dense filters; -lg 44px
+   * for the auth screens. Focus colour comes from the global focus rules. */
+  .field {
+    @apply bg-subtle border-border focus:border-focus h-10 min-w-0 rounded-md border px-3 text-[13px] outline-none;
+  }
+
+  .field-sm {
+    @apply h-9 text-[12px];
+  }
+
+  .field-lg {
+    @apply h-11 px-3.5;
+  }
+
+  /* Grows the tappable area to ~44px without moving anything. For small
+   * controls (28px icon buttons, inline text actions) on touch screens. */
+  .hit-area,
+  .dash-dropdown {
+    position: relative;
+  }
+
+  .hit-area::after,
+  .dash-dropdown::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
   }
 
   .icon-btn {
@@ -319,15 +386,15 @@
   }
 
   .chart-tooltip {
-    @apply bg-charcoal shadow-pop rounded-sm px-3 py-2 text-[11.5px] text-white;
+    @apply bg-charcoal shadow-pop rounded-sm px-3 py-2 text-[12px] text-on-charcoal;
   }
 
   .chart-tooltip__label {
-    @apply mb-1 font-[650] text-white;
+    @apply text-on-charcoal mb-1 font-[650];
   }
 
   .chart-tooltip__row {
-    @apply flex items-center gap-1.5 text-zinc-300;
+    @apply text-on-charcoal flex items-center gap-1.5 opacity-80;
   }
 
   .chart-tooltip__dot {
@@ -355,5 +422,30 @@
 
   .empty-state {
     @apply text-faint flex flex-col items-center gap-2 px-4 py-8 text-center [&_svg]:opacity-60;
+  }
+}
+
+/*
+ * Keyboard focus + reduced motion.
+ *
+ * Deliberately NOT inside an @layer: unlayered rules beat Tailwind's
+ * utilities layer, so the ring still shows on controls that carry an
+ * `outline-none` class (every input and a number of buttons do). Mouse
+ * clicks on buttons do not trigger :focus-visible; keyboard focus and text
+ * fields always do.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

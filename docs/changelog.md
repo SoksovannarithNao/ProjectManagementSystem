@@ -6,6 +6,123 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-08 (roles v10) — Two-level roles implemented: system roles and project roles (uncommitted)
+
+Implements [ADR-0015](adr/0015-two-level-roles-system-and-project.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). The earlier four-role model (`TEAM_LEADER` and `TEAM_MEMBER` as system roles) is replaced.
+
+**Database — migration `V10__two_level_roles.sql`** (idempotent; applied to the live database after a `pg_dump`, tested first on a fresh volume and on a copy of the live data)
+- System roles `ADMINISTRATOR`, `PROJECT_MANAGER`, `USER`; project roles `OWNER`, `ADMIN`, `MEMBER`, `VIEWER`. `TEAM_LEADER` / `TEAM_MEMBER` removed (their accounts became `USER`); owners made Project Managers.
+- Matrix rewritten (163 rows): a Team Member no longer creates tasks or deletes subtasks; Owner and Team Leader generate reports for their project; Project Manager keeps project creation and cross-project reports; a Team Leader may delete everything except the project (D-01).
+- **Exactly one owner per project**: the V8 "at least one owner" trigger is replaced by the deferred `trg_project_members_single_owner`, which is skipped when the project is being deleted — **fixes I-19** (a project with a single owner could not be deleted).
+- `init/01-init.sql` and `02-seed.sql` mirror the end state; new `init/04-flyway-baseline.sql` writes a Flyway baseline row at version 10 so a fresh volume does not replay `V9`; two new checks in `verify_invariants.sql`. Fixed `03-app-role.sh` having been saved with CRLF line endings (a fresh container could not run it).
+
+**Backend**
+- New `ProjectOwnership`: the one place that makes someone the owner (creating a project, an administrator naming another manager, a transfer). The new owner must be an active member who is a Project Manager or Administrator; the previous owner becomes `ADMIN`.
+- `ProjectMemberService`: nobody is invited or added as `OWNER`; setting a member's role to `OWNER` transfers ownership; the owner cannot be demoted or removed directly. `UserService`: new accounts are `USER`; a person who owns a project cannot be moved to `USER`. `SubtaskService`: a Team Member edits only subtasks of tasks (or subtasks) assigned to them; deleting a subtask needs `SUBTASK:DELETE`.
+
+**Frontend:** the add-member dialog defaults to User; the invite picker no longer offers Project Manager; Reports (link and route) are available through the system role *or* the role in any project (a Team Leader sees them); the Roles & Permissions page shows business labels (Owner = Project Manager of the project, Admin = Team Leader, Member = Team Member) and the project-level Reports grant; the manager picker lists only people who can own projects.
+
+**Tests:** backend 113 → **130** (`ProjectOwnershipTest`, matrix test now reads `V10`, ownership/transfer/refusal cases, subtask limits, role-assignment guard); Playwright 40 → **43** (ownership transfer and single-owner delete, Team Member limits, Team Leader opens Reports). All pass except the six known `project-team.spec.js` cases.
+
+**Docs:** `authentication-authorization.md`, `database.md`, `backend.md`, `api-reference.md`, `users-and-projects.md`, `setup.md`, `testing.md`, ADR-0014/0015, checklist, issues (I-19 fixed; I-21, I-22 added), roadmap, and the brief's §B13.1 updated to the implemented model.
+
+**Data repair:** my earlier test clean-up had left orphaned rows (activity-log entries, notifications, tasks of deleted test projects); they were removed and every foreign key re-scanned clean.
+
+**Not done yet:** the approval workflow, creating extra system roles, own position/department, the `TO_DO` → `TODO` rename, and the missing required features ([workflow-conformance.md](workflow-conformance.md)).
+
+---
+
+## 2026-10-08 (test) — Live workflow conformance test; no code changed (uncommitted)
+
+The running application was tested against [project-workflow.md](../project-workflow.md) and the approved specification: 79 API checks, a UI sweep of 10 screens and a source check. Result: of 44 application flows **12 pass, 22 are partial, 10 are missing**. Full table and the ranked differences: [workflow-conformance.md](workflow-conformance.md). Also found: unknown API paths return `500` instead of `404`; the UI says "Done"/"Review" where the specification says Completed/In Review. One clean-up mistake of mine (orphaned test rows) was repaired; two older orphaned test notifications still break `GET /api/notifications` for two seed users and await permission to delete.
+
+---
+
+## 2026-10-08 (specification) — Requirements resolved on paper; no code changed (uncommitted)
+
+The assignment and the project workflow disagreed with each other in 18 places and left many rules undefined. They were resolved **before any further code**, and the project owner approved 18 decisions (D-01 … D-18).
+
+**Added (documentation only)**
+- [assignment-brief.md](../assignment-brief.md) **Part B — Resolved Specification**: contradiction log, definitions (statuses, overdue / active / pending / delayed, progress, subtask vs checklist, milestone, dependency, priority, search/filter/sort), feature classification (REQUIRED / OPTIONAL / UNDEFINED), non-functional requirements, the two-level role model and the permission matrix, approval workflow, data model, API requirements, the seven reports and five KPIs, notification and logging rules, acceptance criteria, known gaps and decisions. Part A (the assignment as received) is unchanged.
+- [project-workflow.md](../project-workflow.md) rewritten: roles and statuses standardised, optional flows labelled, and nine supporting flows (A1–A9: registration, change password/logout, session management, task dependencies, project timeline, task approval, audit log, Gantt, documents).
+- [ADR-0015](adr/0015-two-level-roles-system-and-project.md): the **target** role model — system roles `ADMINISTRATOR` / `PROJECT_MANAGER` / `USER`, project roles `OWNER` / `ADMIN` / `MEMBER` / `VIEWER`, one owner per project, Team Leader and Team Member as labels for `ADMIN` and `MEMBER`.
+
+**Changed (documentation)**
+- ADR-0014 is marked as the implemented model whose role set is to be replaced; [authentication-authorization.md](authentication-authorization.md) now opens with a "target vs. current" table; the checklist, issues (I-20), roadmap (§3a) and the requirement links in PRODUCT, overview and the docs README point to the new documents. Roles, permissions and approval moved from *Done* back to *Partially done* in the checklist because the application does not yet match the approved model.
+
+**Decisions of note:** a Team Leader may delete everything except the project (D-01); a system role never widens a project role (D-02); only Project Managers and Administrators may own projects (D-03/D-04); every task needs approval (D-05); Team Members do not create tasks; checklist items count toward task progress (D-07); users edit their own position and department (D-16); administrators can create extra system roles (D-14).
+
+**Not done:** no code, migration or test was changed. The application still follows ADR-0014; the work list is [roadmap.md](roadmap.md) §3a and brief §B13.1.
+
+---
+
+## 2026-10-08 (latest) — Four roles, seven permissions and a real permission matrix (uncommitted)
+
+Brings the application in line with `Role_Requirment.md`: Administrator, Project Manager, Team Leader and Team Member, the permissions View / Create / Edit / Delete / Assign / Approve / Generate Reports, and a Role & Permission and a User & Role screen. Decision record: [ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md) (partly supersedes ADR-0002).
+
+**Added**
+- **A data-driven permission matrix.** `role_permissions` now holds *(role, permission, resource, scope)* rows (164 of them) and **both the API and the UI read it**; before, the table existed but nothing used it and the rules were hard-coded twice (Java and JavaScript). `PermissionService` keeps an in-memory snapshot (refreshed after every edit); `ProjectAccessGuard` answers through it; the project-scoped model, the `404` for non-members and the ownership rules (comment author, assignee-only status, last owner) are kept.
+- **Roles:** `PROJECT_MANAGER`, `TEAM_LEADER`, `TEAM_MEMBER` as system roles and as project roles (`OWNER`→Project Manager, `ADMIN`→Team Leader, `MEMBER`→Team Member), plus the project-only `VIEWER`. New accounts are Team Members.
+- **Approval gate (`APPROVE`):** only Project Managers, Team Leaders and Administrators can set a task `COMPLETED`; Team Members submit work for review (`IN_REVIEW`, "Submit for review" / "Awaiting approval" in the UI).
+- **Create a project (`PROJECT:CREATE`)** is limited to Project Managers and Administrators (checklist risk R-1 resolved).
+- **Generate Reports (`REPORT:GENERATE_REPORTS`)** (Project Manager, Team Leader, Administrator) gates the Reports page, its route and its sidebar link. There are still no server-side report endpoints, so this is a UI-level gate only.
+- **API (4 endpoints, 87 → 91):** `GET /api/users/me/permissions`, `PUT /api/users/{id}/role`, `GET /api/permissions/matrix`, `PUT /api/roles/{id}/permissions`. `POST /api/project-members/invite` accepts an optional `projectRole`.
+- **UI:** *Administration → Users* (give each account a role) and *Administration → Roles & Permissions* (the role × resource × action grid, editable with Save / Discard; the Administrator role is read-only); a role picker in the invite form; `RequirePermission` route guard. Controls a user cannot use are **hidden, not disabled** across Tasks, Kanban, Calendar, Dashboard, Project detail, the task panel, Team and the position/department "+ Add New".
+- **Specific `403` messages** (for example *"Only a Project Manager or an Administrator can create a project"*).
+- **Guardrails:** the Administrator role is locked; a project role cannot lose `PROJECT:VIEW`; built-in roles cannot be renamed or deleted; the last Administrator cannot be demoted; a project-only role cannot be given to an account.
+
+**Changed**
+- `USER` role removed; the JWT `role` claim now carries one of the four names. `@PreAuthorize("hasRole('ADMINISTRATOR')")` replaced by `@permissions.require(authentication, 'RESOURCE', 'ACTION')`.
+- `frontend/src/api/permissions.js` no longer contains any role names or rules; it only turns the server's permission list into `can` / `canSys` / `canAny`.
+- Invite dialog and *Add member* use the four roles; *Add member* defaults to Team Member and offers no project-only role.
+
+**Database**
+- **Migration `V9__requirement_roles_and_permissions.sql`** (idempotent): `roles.scope / project_role / built_in`, `role_permissions.resource / scope`, the 164-row matrix, backfill of every account's role (owners → Project Manager, project admins → Team Leader, everyone else → Team Member), `USER` removed, grants for `taskmanager_app`. `01-init.sql` and `02-seed.sql` mirror the end state for fresh volumes.
+- **Flyway now runs with Docker Compose:** a one-shot `migrate` service (baseline 8, then `V9`) runs before the backend (`depends_on: service_completed_successfully`), so existing volumes — which never re-run `database/init/` — are upgraded. Applied to the live database on 2026-10-08 after a `pg_dump` backup.
+- `03-app-role.sh` and the CI grant list now match (17 read-write tables plus `SELECT` on `permissions`), closing the drift noted in X-05.
+
+**Fixed**
+- "+ Add New" position/department is hidden from people who cannot create them (was X-01).
+- Built-in roles can no longer be renamed or deleted through the roles API (was I-10).
+
+**Found, not fixed**
+- **I-19:** a project whose only active owner is one person cannot be deleted — the V8 owner-integrity trigger blocks the cascade. Present before this change; documented in [issues.md](issues.md).
+
+**Tests:** backend 67 → 113 (`PermissionServiceTest` checks every role × resource × action of the V9 matrix; guard, matrix-editing, role-assignment and invite-role tests). Playwright 33 → 40 (`roles-permissions.spec.js`: API and UI per role). Live checks per role after the migration passed (see [authentication-authorization.md](authentication-authorization.md#52-project-scope-matrix)).
+
+**Docs:** [ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md); [authentication-authorization.md](authentication-authorization.md) rewritten for the new model; `database.md`, `api-reference.md` (91 endpoints), `backend.md`, `frontend.md`, `setup.md`, `security.md`, `architecture.md`, `tasks.md`, `testing.md`, `issues.md`, `users-and-projects.md` and the checklist updated.
+
+---
+
+## 2026-10-08 (later) — Folder READMEs merged into `docs/`, requirements checklist (uncommitted)
+
+**Changed (documentation structure)**
+- **Removed** `api/README.md`, `backend/README.md`, `frontend/README.md` and `database/README.md`. `docs/` is now the only place for project documentation; the team no longer has to update a README and `api/openapi.yaml` alongside the code, only the matching `docs/` page.
+- **Added** [backend.md](backend.md) (stack, run, structure, endpoint groups, security reasoning, logging, invitations, task rules, notifications, status, next steps) and [frontend.md](frontend.md) (stack, scripts, structure, routes, behaviours, time tracking, design tokens, end-to-end tests).
+- **Extended** [database.md](database.md) with the content only the database README had: running, connecting and inspecting (§11), deliberate design decisions including progress, overdue and report rules (§12), authorization and the unused permission tables (§13), API/backend coverage (§14), and the Flyway layout, migration rules and CLI command (§8.1, §8.2). Corrected `work_logs` (now implemented) and the grant list (16 tables).
+- **Extended** [api-reference.md](api-reference.md) with "Behaviour worth knowing" and "Known quirks" (from `api/README.md`) and a new §18 on the legacy `openapi.yaml`; counts corrected to 87 endpoints and 18 controllers.
+- **Updated** [README.md](README.md): new entries in the contents, a "Where the old folder READMEs went" map, and the rule "change behaviour → update `docs/`".
+- **Re-linked** every reference to the removed READMEs: the root `README.md` (41 links), `docs/` pages and decision records, comments in six Java files, `database/init/01-init.sql`, `03-app-role.sh`, `.env.example` and `api/openapi.yaml`. The historical migration files `V1`–`V8` were deliberately not edited (a migration's checksum must not change) and still mention the old README in comments.
+- Corrected statements that had gone stale: tests (60 → 67 backend, 30 → 33 Playwright), "work logs not implemented", entity count (15 → 16).
+- `api/openapi.yaml` header now says it is partly out of date and **no longer maintained**; [api-reference.md](api-reference.md) is the reference. Review of 2026-10-08: 57 of 87 endpoints documented, 30 missing, 23 mentions of removed roles, 6 drifted schemas, no `operationId`s.
+
+**Added (requirements audit)**
+- [checklist/](checklist/done.md): `done.md` (25), `partially_done.md` (33), `not_done.md` (11), `not_fully_satisfy.md` (20 items and 7 risks) and `unclear.md`, from an audit of the code against `Role_Requirment.md` (completion about 60%). "User Functions" was resolved (the permission matrix exists); debugging and the final presentation were taken out of scope.
+
+---
+
+## 2026-10-08 — Time tracking, accessibility and mobile pass (uncommitted)
+
+**Added**
+- **Time tracking:** `WorkLog` entity, `/api/work-logs` (list by task, create, delete), `TaskResponse.actualHours`, and a *Time tracking* section in the task panel with estimated-vs-logged summary, a persistent start/stop timer, a manual entry form and an entry list; `1h 30m / 13h` chips on task rows and board cards. The estimate field now accepts hours, minutes or 8-hour days. `WorkLogServiceTest` (7) and Playwright `time-tracking.spec.js` (3). See [tasks.md](tasks.md#time-tracking-estimated-vs-actual).
+- Design documents: [PRODUCT.md](PRODUCT.md) and [DESIGN.md](DESIGN.md).
+
+**Changed (frontend)** — dark-mode charcoal inversion and `on-charcoal` tokens, darker text and status colours for contrast, a global focus ring, `prefers-reduced-motion`, a shared `.field` input class, a `.hit-area` tap-target helper, a two-row dashboard (hero and duplicate Kanban preview removed; the list is now "Due & Overdue"), Reports axis labels, Team list scrolls inside its card, Calendar phone dots, 26px minimum avatar. Details and the remaining items are in [DESIGN.md](DESIGN.md#known-drift).
+
+**Database** — `database/init/03-app-role.sh` now grants the application role `work_logs`. A database created before this change needs the same grant applied once (`GRANT SELECT, INSERT, UPDATE, DELETE ON work_logs TO taskmanager_app;`), otherwise `GET /api/tasks` fails with `permission denied for table work_logs`.
+
+---
+
 ## 2026-10-06 (later) — Security and permission fixes (uncommitted)
 
 **Fixed (security)**

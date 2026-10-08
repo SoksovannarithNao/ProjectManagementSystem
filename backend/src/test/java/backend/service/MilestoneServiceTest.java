@@ -8,6 +8,8 @@ import backend.repository.MilestoneRepository;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -80,7 +82,7 @@ class MilestoneServiceTest {
 
     @Test
     void manager_cannotMoveAMilestoneIntoAProjectTheyDoNotManage() {
-        lenient().doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCanManage(caller, 20L);
+        lenient().doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCan(caller, 20L, Resource.MILESTONE, Action.EDIT);
 
         assertThatThrownBy(() -> service.updateMilestone(3L, request(20L, "Beta"), "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class);
@@ -96,8 +98,8 @@ class MilestoneServiceTest {
 
         service.updateMilestone(3L, request(10L, "Beta renamed"), "pm.olivia");
 
-        verify(projectAccessGuard).assertCanManage(caller, 10L);
-        verify(projectAccessGuard, never()).assertCanManage(caller, 20L);
+        verify(projectAccessGuard).assertCan(caller, 10L, Resource.MILESTONE, Action.EDIT);
+        verify(projectAccessGuard, never()).assertCan(caller, 20L, Resource.MILESTONE, Action.EDIT);
         assertThat(milestone.getTitle()).isEqualTo("Beta renamed");
     }
 }

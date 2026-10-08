@@ -11,6 +11,8 @@ import backend.repository.ProjectMemberRepository;
 import backend.repository.TaskDependencyRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -100,7 +102,7 @@ public class TaskDependencyService {
                 .orElseThrow(() -> new NotFoundException("Task not found"));
         Task dependsOnTask = taskRepository.findById(request.getDependsOnTaskId())
                 .orElseThrow(() -> new NotFoundException("Depends-on task not found"));
-        projectAccessGuard.assertCanManage(requireUser(username), task.getProject().getId());
+        projectAccessGuard.assertCan(requireUser(username), task.getProject().getId(), Resource.TASK, Action.ASSIGN);
 
         TaskDependency dependency = new TaskDependency();
         dependency.setTask(task);
@@ -111,7 +113,7 @@ public class TaskDependencyService {
 
     public void deleteTaskDependency(TaskDependencyId id, String username) {
         TaskDependency dependency = getTaskDependencyEntityById(id);
-        projectAccessGuard.assertCanManage(requireUser(username), dependency.getTask().getProject().getId());
+        projectAccessGuard.assertCan(requireUser(username), dependency.getTask().getProject().getId(), Resource.TASK, Action.ASSIGN);
         taskDependencyRepository.delete(dependency);
     }
 }

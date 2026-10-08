@@ -10,7 +10,7 @@ The requirements talk about "teams" and "adding team members" to a project, and 
 
 ## Decision
 
-- There is **no `teams` table**. A **project is the team**; `project_members` rows are the team's membership (comment in `02-seed.sql` and `database/README.md`).
+- There is **no `teams` table**. A **project is the team**; `project_members` rows are the team's membership (comment in `02-seed.sql` and `../database.md`).
 - An **invitation is a `project_members` row that has not been accepted yet**, distinguished by `status`: `PENDING` → `ACTIVE` (accepted) or `DECLINED`; plus `invited_by` and `responded_at`.
 - `UNIQUE (project_id, user_id)`: a person has at most one row per project, so declining and being re-invited **reuses the row**.
 - A `PENDING` or `DECLINED` row grants **no access** — every visibility check filters `status = 'ACTIVE'`; the assignee trigger does the same.
@@ -19,7 +19,7 @@ The requirements talk about "teams" and "adding team members" to a project, and 
 
 ## Alternatives considered
 
-- **Separate `teams` and `team_members` tables** — avoided: the data model already scopes everything by project, so a second grouping would duplicate it (stated in `database/README.md`: "a project IS a team").
+- **Separate `teams` and `team_members` tables** — avoided: the data model already scopes everything by project, so a second grouping would duplicate it (stated in `../database.md`: "a project IS a team").
 - **A separate `invitations` table** — avoided: a pending invitation is just a membership in a different state; one table keeps the unique rule and the visibility filter in one place *(inferred from the design)*.
 - **Direct add only (no consent)** — the direct-add endpoint still exists for owners/admins and for project creation; invitations were added on top (`V4`).
 

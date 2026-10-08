@@ -12,6 +12,9 @@ import backend.repository.TaskAssigneeRepository;
 import backend.repository.TaskDependencyRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import backend.repository.WorkLogRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,6 +63,8 @@ class TaskServiceTest {
     private ActivityLogService activityLogService;
     @Mock
     private ProjectAccessGuard projectAccessGuard;
+    @Mock
+    private WorkLogRepository workLogRepository;
 
     private TaskService service;
 
@@ -72,7 +77,7 @@ class TaskServiceTest {
     void setUp() {
         service = new TaskService(taskRepository, projectRepository, projectMemberRepository, milestoneRepository,
                 userRepository, taskAssigneeRepository, subtaskRepository, taskDependencyRepository,
-                notificationService, activityLogService, projectAccessGuard);
+                notificationService, activityLogService, projectAccessGuard, workLogRepository);
 
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 1L);
@@ -121,8 +126,8 @@ class TaskServiceTest {
 
     @Test
     void manager_cannotMoveATaskIntoAProjectTheyDoNotManage() {
-        when(projectAccessGuard.canManage(caller, 10L)).thenReturn(true);
-        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCanManage(caller, 20L);
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCan(caller, 20L, Resource.TASK, Action.EDIT);
 
         assertThatThrownBy(() -> service.updateTask(5L, request(20L, "Original title", "TO_DO"), "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class);
@@ -133,21 +138,21 @@ class TaskServiceTest {
 
     @Test
     void manager_canMoveATaskIntoAProjectTheyAlsoManage() {
-        when(projectAccessGuard.canManage(caller, 10L)).thenReturn(true);
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
 
         service.updateTask(5L, request(20L, "Original title", "TO_DO"), "pm.olivia");
 
-        verify(projectAccessGuard).assertCanManage(caller, 20L);
+        verify(projectAccessGuard).assertCan(caller, 20L, Resource.TASK, Action.EDIT);
         assertThat(task.getProject().getId()).isEqualTo(20L);
     }
 
     @Test
     void manager_editingWithinTheSameProject_needsNoCheckOnAnyOtherProject() {
-        when(projectAccessGuard.canManage(caller, 10L)).thenReturn(true);
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
 
         service.updateTask(5L, request(10L, "Renamed", "TO_DO"), "pm.olivia");
 
-        verify(projectAccessGuard, never()).assertCanManage(caller, 20L);
+        verify(projectAccessGuard, never()).assertCan(caller, 20L, Resource.TASK, Action.EDIT);
         assertThat(task.getTitle()).isEqualTo("Renamed");
     }
 
@@ -155,8 +160,8 @@ class TaskServiceTest {
 
     @Test
     void assignedViewer_cannotEditTheirTask() {
-        when(projectAccessGuard.canManage(caller, 10L)).thenReturn(false);
-        when(projectAccessGuard.canEditContent(caller, 10L)).thenReturn(false);
+        doThrow(new AccessDeniedException("You do not have permission to edit task status in this project"))
+                .when(projectAccessGuard).assertCan(caller, 10L, Resource.TASK_STATUS, Action.EDIT);
 
         assertThatThrownBy(() -> service.updateTask(5L, request(10L, "Original title", "IN_PROGRESS"), "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class)
@@ -168,8 +173,6 @@ class TaskServiceTest {
 
     @Test
     void assignedMember_canChangeOnlyStatusAndProgress() {
-        when(projectAccessGuard.canManage(caller, 10L)).thenReturn(false);
-        when(projectAccessGuard.canEditContent(caller, 10L)).thenReturn(true);
         when(taskAssigneeRepository.existsByTaskIdAndUserId(5L, 1L)).thenReturn(true);
         when(taskAssigneeRepository.findByTaskId(5L)).thenReturn(java.util.List.of());
 
@@ -182,13 +185,57 @@ class TaskServiceTest {
 
     @Test
     void memberWhoIsNotAssigned_isRejected() {
-        when(projectAccessGuard.canManage(caller, 10L)).thenReturn(false);
-        when(projectAccessGuard.canEditContent(caller, 10L)).thenReturn(true);
         when(taskAssigneeRepository.existsByTaskIdAndUserId(5L, 1L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.updateTask(5L, request(10L, "Original title", "IN_PROGRESS"), "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("not assigned");
+        verify(taskRepository, never()).save(any());
+    }
+
+    // ---- completing a task is an approval ---------------------------------
+
+    @Test
+    void memberWithoutApprove_cannotMarkATaskCompleted() {
+        doThrow(new AccessDeniedException("Only a Project Manager or Team Leader can approve a task as completed"))
+                .when(projectAccessGuard).assertCan(caller, 10L, Resource.TASK, Action.APPROVE);
+
+        assertThatThrownBy(() -> service.updateTask(5L, request(10L, "Original title", "COMPLETED"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("approve");
+
+        verify(taskRepository, never()).save(any());
+        assertThat(task.getStatus()).isEqualTo("TO_DO");
+    }
+
+    @Test
+    void approver_canMarkATaskCompleted() {
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+
+        service.updateTask(5L, request(10L, "Original title", "COMPLETED"), "pm.olivia");
+
+        verify(projectAccessGuard).assertCan(caller, 10L, Resource.TASK, Action.APPROVE);
+        assertThat(task.getStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void memberCanStillSubmitATaskForReview() {
+        when(taskAssigneeRepository.existsByTaskIdAndUserId(5L, 1L)).thenReturn(true);
+        when(taskAssigneeRepository.findByTaskId(5L)).thenReturn(java.util.List.of());
+
+        service.updateTask(5L, request(10L, "Original title", "IN_REVIEW"), "pm.olivia");
+
+        verify(projectAccessGuard, never()).assertCan(caller, 10L, Resource.TASK, Action.APPROVE);
+        assertThat(task.getStatus()).isEqualTo("IN_REVIEW");
+    }
+
+    @Test
+    void creatingATask_needsTaskCreate() {
+        doThrow(new AccessDeniedException("You do not have permission to create tasks in this project"))
+                .when(projectAccessGuard).assertCan(caller, 10L, Resource.TASK, Action.CREATE);
+
+        assertThatThrownBy(() -> service.createTask(request(10L, "New", "TO_DO"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class);
         verify(taskRepository, never()).save(any());
     }
 }

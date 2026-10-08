@@ -9,6 +9,8 @@ import backend.exception.NotFoundException;
 import backend.repository.CommentRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,7 +49,7 @@ public class CommentService {
         User caller = requireUser(username);
         Task task = requireTask(request.getTaskId());
         // Commenting is a content write — a VIEWER can read the discussion but not add to it.
-        projectAccessGuard.assertCanEditContent(caller, task.getProject().getId());
+        projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.COMMENT, Action.CREATE);
 
         Comment comment = new Comment();
         comment.setTask(task);
@@ -78,7 +80,7 @@ public class CommentService {
         Comment comment = requireComment(id);
 
         boolean isAuthor = comment.getUser().getId().equals(caller.getId());
-        boolean isModerator = projectAccessGuard.canManage(caller, comment.getTask().getProject().getId());
+        boolean isModerator = projectAccessGuard.can(caller, comment.getTask().getProject().getId(), Resource.COMMENT, Action.DELETE);
         if (!isAuthor && !isModerator) {
             throw new AccessDeniedException("You do not have permission to delete this comment");
         }

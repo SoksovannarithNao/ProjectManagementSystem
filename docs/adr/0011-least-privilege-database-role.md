@@ -34,4 +34,4 @@ No `SUPERUSER`, `CREATEDB` or `CREATEROLE`. The backend's defaults and the compo
 
 ## Evidence
 
-`database/init/03-app-role.sh`, `docker-compose.yml`, `.env.example`, `database/README.md` (Least-privilege application role), `.github/workflows/ci.yml`.
+`database/init/03-app-role.sh`, `docker-compose.yml`, `.env.example`, `../database.md` (Least-privilege application role), `.github/workflows/ci.yml`.

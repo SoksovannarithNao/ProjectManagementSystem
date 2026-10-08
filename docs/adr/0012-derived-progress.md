@@ -20,7 +20,7 @@
 
 ## Why (as stated in the project)
 
-The init-script comments call it "writable but not authoritative"; the goal is that progress "can never go stale" and the UI/API need no extra work to keep it consistent (`database/README.md`, *Progress, overdue detection, and reports*).
+The init-script comments call it "writable but not authoritative"; the goal is that progress "can never go stale" and the UI/API need no extra work to keep it consistent (`../database.md`, *Progress, overdue detection, and reports*).
 
 ## Alternatives considered
 

@@ -11,6 +11,8 @@ import backend.repository.SubtaskRepository;
 import backend.repository.TaskDependencyRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,6 +52,8 @@ class ViewerWriteAccessTest {
     private CommentRepository commentRepository;
     @Mock
     private ProjectAccessGuard projectAccessGuard;
+    @Mock
+    private backend.repository.TaskAssigneeRepository taskAssigneeRepository;
 
     private SubtaskService subtaskService;
     private CommentService commentService;
@@ -62,7 +66,7 @@ class ViewerWriteAccessTest {
     void setUp() {
         subtaskService = new SubtaskService(
                 subtaskRepository, taskRepository, taskDependencyRepository, userRepository,
-                activityLogService, projectAccessGuard);
+                activityLogService, projectAccessGuard, taskAssigneeRepository);
         commentService = new CommentService(commentRepository, taskRepository, userRepository, projectAccessGuard);
 
         viewer = new User();
@@ -84,7 +88,9 @@ class ViewerWriteAccessTest {
         subtask.setTitle("Existing");
 
         // The guard denies content writes (the viewer) but would allow reads.
-        lenient().doThrow(new AccessDeniedException("read-only")).when(projectAccessGuard).assertCanEditContent(viewer, 10L);
+        lenient().doThrow(new AccessDeniedException("read-only")).when(projectAccessGuard)
+                .assertCan(org.mockito.ArgumentMatchers.eq(viewer), org.mockito.ArgumentMatchers.eq(10L),
+                        org.mockito.ArgumentMatchers.any(Resource.class), org.mockito.ArgumentMatchers.any(Action.class));
     }
 
     private SubtaskRequest subtaskRequest() {
@@ -144,5 +150,41 @@ class ViewerWriteAccessTest {
 
         assertThat(commentService.getCommentsByTaskId(64L, "qa.zoe")).isEmpty();
         verify(projectAccessGuard).assertAccess(viewer, 10L);
+    }
+
+    // ---- a Team Member is limited to the subtasks of tasks assigned to them ----
+
+    private User teamMember() {
+        User member = new User();
+        ReflectionTestUtils.setField(member, "id", 2L);
+        member.setUsername("dev.chen");
+        lenient().when(userRepository.findByUsername("dev.chen")).thenReturn(Optional.of(member));
+        return member;
+    }
+
+    @Test
+    void teamMember_cannotEditASubtaskOfATaskNotAssignedToThem() {
+        User member = teamMember();
+        when(subtaskRepository.findById(8L)).thenReturn(Optional.of(subtask));
+        // may edit subtasks in general (SUBTASK:EDIT), but cannot edit tasks and is not an assignee
+        when(projectAccessGuard.can(member, 10L, Resource.TASK, Action.EDIT)).thenReturn(false);
+        when(taskAssigneeRepository.existsByTaskIdAndUserId(64L, 2L)).thenReturn(false);
+
+        assertThatThrownBy(() -> subtaskService.updateSubtask(8L, subtaskRequest(), "dev.chen"))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("assigned to you");
+        verify(subtaskRepository, never()).save(any());
+    }
+
+    @Test
+    void deletingASubtask_needsTheDeletePermission_notJustEdit() {
+        User member = teamMember();
+        when(subtaskRepository.findById(8L)).thenReturn(Optional.of(subtask));
+        org.mockito.Mockito.doThrow(new AccessDeniedException("no delete")).when(projectAccessGuard)
+                .assertCan(member, 10L, Resource.SUBTASK, Action.DELETE);
+
+        assertThatThrownBy(() -> subtaskService.deleteSubtask(8L, "dev.chen"))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(subtaskRepository, never()).delete(any());
     }
 }

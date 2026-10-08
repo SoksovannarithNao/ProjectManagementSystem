@@ -12,6 +12,8 @@ import backend.exception.NotFoundException;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,18 +31,32 @@ public class ProjectMemberService {
     private final UserRepository userRepository;
     private final ProjectAccessGuard projectAccessGuard;
     private final NotificationService notificationService;
+    private final ProjectOwnership projectOwnership;
 
     public ProjectMemberService(
             ProjectMemberRepository projectMemberRepository,
             ProjectRepository projectRepository,
             UserRepository userRepository,
             ProjectAccessGuard projectAccessGuard,
-            NotificationService notificationService) {
+            NotificationService notificationService,
+            ProjectOwnership projectOwnership) {
         this.projectMemberRepository = projectMemberRepository;
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
         this.notificationService = notificationService;
+        this.projectOwnership = projectOwnership;
+    }
+
+    private static final String ONE_OWNER_MESSAGE =
+            "A project has exactly one owner. Add the person as a Team Leader or Team Member, then transfer ownership to them";
+
+    // Nobody is invited or added AS the owner: ownership is transferred to an
+    // existing member (updateProjectMember).
+    private static void assertNotOwnerRole(String projectRole) {
+        if ("OWNER".equals(projectRole)) {
+            throw new IllegalArgumentException(ONE_OWNER_MESSAGE);
+        }
     }
 
     // Scoped the same way as TaskService.getAllTasks — otherwise this
@@ -119,7 +135,7 @@ public class ProjectMemberService {
     // Team-Admin-only: invitations sent for a project, awaiting a response.
     public List<ProjectMemberResponse> getPendingInvitations(Long projectId, String username) {
         Project project = requireProject(projectId);
-        projectAccessGuard.assertCanManage(requireUser(username), project.getId());
+        projectAccessGuard.assertCan(requireUser(username), project.getId(), Resource.MEMBER, Action.CREATE);
         return projectMemberRepository.findByProjectIdAndStatus(projectId, "PENDING")
                 .stream()
                 .map(ProjectMemberResponse::new)
@@ -132,7 +148,7 @@ public class ProjectMemberService {
     @Transactional(readOnly = true)
     public PendingInvitationCountResponse countPendingInvitations(Long projectId, String username) {
         Project project = requireProject(projectId);
-        projectAccessGuard.assertCanManage(requireUser(username), project.getId());
+        projectAccessGuard.assertCan(requireUser(username), project.getId(), Resource.MEMBER, Action.CREATE);
         return new PendingInvitationCountResponse(
                 projectMemberRepository.countByProjectIdAndStatus(project.getId(), "PENDING"));
     }
@@ -149,7 +165,7 @@ public class ProjectMemberService {
     public List<InvitableUserResponse> searchInvitableUsers(Long projectId, String query, int limit, String username) {
         User caller = requireUser(username);
         Project project = requireProject(projectId);
-        projectAccessGuard.assertCanManage(caller, project.getId());
+        projectAccessGuard.assertCan(caller, project.getId(), Resource.MEMBER, Action.CREATE);
 
         int size = Math.min(Math.max(limit, 1), INVITABLE_MAX_RESULTS);
         return userRepository
@@ -184,7 +200,7 @@ public class ProjectMemberService {
     public ProjectMemberResponse inviteMember(TeamInviteRequest request, String callerUsername) {
         User caller = requireUser(callerUsername);
         Project project = requireProject(request.getProjectId());
-        projectAccessGuard.assertCanManage(caller, project.getId());
+        projectAccessGuard.assertCan(caller, project.getId(), Resource.MEMBER, Action.CREATE);
 
         User target = userRepository.findByUsernameIgnoreCase(request.getUsername())
                 .orElseThrow(() -> new NotFoundException("No user found with that username"));
@@ -192,6 +208,9 @@ public class ProjectMemberService {
             throw new IllegalArgumentException("You cannot invite yourself");
         }
         assertEligibleForTeam(target);
+
+        String invitedRole = request.getProjectRole() != null ? request.getProjectRole() : "MEMBER";
+        assertNotOwnerRole(invitedRole);
 
         Optional<ProjectMember> existing = projectMemberRepository.findByProjectIdAndUserId(project.getId(), target.getId());
         ProjectMember member;
@@ -204,13 +223,14 @@ public class ProjectMemberService {
                 throw new IllegalArgumentException("An invitation is already pending for " + target.getUsername());
             }
             member.setStatus("PENDING");
+            member.setProjectRole(invitedRole);
             member.setInvitedBy(caller);
             member.setRespondedAt(null);
         } else {
             member = new ProjectMember();
             member.setProject(project);
             member.setUser(target);
-            member.setProjectRole("MEMBER");
+            member.setProjectRole(invitedRole);
             member.setStatus("PENDING");
             member.setInvitedBy(caller);
         }
@@ -255,10 +275,8 @@ public class ProjectMemberService {
     // anyone else to OWNER.
     public ProjectMemberResponse createProjectMember(ProjectMemberRequest request, String username) {
         User caller = requireUser(username);
-        projectAccessGuard.assertCanManage(caller, request.getProjectId());
-        if ("OWNER".equals(request.getProjectRole())) {
-            projectAccessGuard.assertIsOwner(caller, request.getProjectId());
-        }
+        projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.MEMBER, Action.CREATE);
+        assertNotOwnerRole(request.getProjectRole());
         ProjectMember projectMember = new ProjectMember();
         applyRequest(projectMember, request);
         assertEligibleForTeam(projectMember.getUser());
@@ -268,7 +286,7 @@ public class ProjectMemberService {
     public ProjectMemberResponse updateProjectMember(Long id, ProjectMemberRequest request, String username) {
         User caller = requireUser(username);
         ProjectMember projectMember = getProjectMemberEntityById(id);
-        projectAccessGuard.assertCanManage(caller, projectMember.getProject().getId());
+        projectAccessGuard.assertCan(caller, projectMember.getProject().getId(), Resource.MEMBER, Action.EDIT);
         // A membership row can have its ROLE changed, but not be re-pointed
         // at a different project or user — that would let a manager of one
         // project write into another, or hand someone else's membership to a
@@ -278,8 +296,14 @@ public class ProjectMemberService {
             throw new IllegalArgumentException(
                     "A membership's project and user cannot be changed — remove it and add a new one");
         }
-        if ("OWNER".equals(request.getProjectRole())) {
-            projectAccessGuard.assertIsOwner(caller, projectMember.getProject().getId());
+        boolean isOwner = "OWNER".equals(projectMember.getProjectRole()) && "ACTIVE".equals(projectMember.getStatus());
+        if ("OWNER".equals(request.getProjectRole()) && !isOwner) {
+            // Making someone the owner IS the transfer of ownership: the previous
+            // owner becomes Team Leader in the same step. Needs PROJECT:ASSIGN
+            // (the owner or an administrator); the new owner must be an active
+            // member who can own projects (Project Manager or Administrator).
+            projectAccessGuard.assertCan(caller, projectMember.getProject().getId(), Resource.PROJECT, Action.ASSIGN);
+            return new ProjectMemberResponse(projectOwnership.transfer(projectMember.getProject(), projectMember));
         }
         String effectiveNewRole = request.getProjectRole() != null ? request.getProjectRole() : projectMember.getProjectRole();
         assertNotRemovingLastOwner(projectMember, effectiveNewRole);
@@ -289,31 +313,24 @@ public class ProjectMemberService {
 
     public void deleteProjectMember(Long id, String username) {
         ProjectMember projectMember = getProjectMemberEntityById(id);
-        projectAccessGuard.assertCanManage(requireUser(username), projectMember.getProject().getId());
+        projectAccessGuard.assertCan(requireUser(username), projectMember.getProject().getId(), Resource.MEMBER, Action.DELETE);
         assertNotRemovingLastOwner(projectMember, null);
         projectMemberRepository.delete(projectMember);
     }
 
-    // A project must never end up with zero ACTIVE owners — once that
-    // happens, nobody could ever be promoted back to OWNER (granting OWNER
-    // requires already being one; see assertIsOwner), permanently orphaning
-    // the project. Applies unconditionally, even to a system ADMINISTRATOR
-    // caller — this is a data invariant, not a permission gate (mirrored at
-    // the database level by trg_project_members_owner_integrity). To
-    // transfer ownership: first promote the new OWNER (there are briefly two
-    // active owners), then demote/remove the old one — at that point this
-    // check sees the new owner already in place and allows it.
+    // A project always has exactly one ACTIVE owner. The owner's membership can
+    // therefore not be demoted or removed directly: ownership is TRANSFERRED to
+    // another member first (updateProjectMember with role OWNER), which demotes
+    // the previous owner in the same step. Applies unconditionally, even to a
+    // system ADMINISTRATOR - it is a data invariant, not a permission gate
+    // (backed by trg_project_members_single_owner in the database).
     private void assertNotRemovingLastOwner(ProjectMember member, String newRole) {
         boolean wasActiveOwner = "OWNER".equals(member.getProjectRole()) && "ACTIVE".equals(member.getStatus());
         if (!wasActiveOwner || "OWNER".equals(newRole)) {
             return;
         }
-        long remainingOwners = projectMemberRepository.countByProjectIdAndProjectRoleAndStatus(
-                member.getProject().getId(), "OWNER", "ACTIVE");
-        if (remainingOwners <= 1) {
-            throw new IllegalArgumentException(
-                    "This is the project's only owner — promote another member to OWNER before changing or removing this membership");
-        }
+        throw new IllegalArgumentException(
+                "This is the project's owner. Transfer ownership to another member before changing or removing this membership");
     }
 
     private void applyRequest(ProjectMember projectMember, ProjectMemberRequest request) {

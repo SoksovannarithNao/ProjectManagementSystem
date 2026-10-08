@@ -72,7 +72,7 @@ Check that everything is healthy:
 docker compose ps
 ```
 
-You want `postgres`, `mailpit` and `backend` to say **healthy**, and `frontend` to say **Up**. If the backend is still `starting`, wait 20–30 seconds and run it again.
+You want `postgres`, `mailpit` and `backend` to say **healthy**, and `frontend` to say **Up**. A fourth container, `migrate`, is a one-shot job: it applies any pending database migration and then exits (`Exited (0)` is correct; it is not listed by `docker compose ps` unless you add `-a`). The backend starts only after it has succeeded. Check what it did with `docker compose logs migrate`. If the backend is still `starting`, wait 20–30 seconds and run it again.
 
 Then open:
 
@@ -104,6 +104,12 @@ Stop everything with `docker compose stop` (keeps your data) or `docker compose 
 
 ```bash
 docker compose up -d postgres mailpit
+```
+
+If your database volume is older than the latest migration, apply it once (the `migrate` service is not started by `up -d postgres mailpit`):
+
+```bash
+docker compose run --rm migrate
 ```
 
 If you previously ran Path A, stop the app containers first so the ports are free:
@@ -187,7 +193,7 @@ The frontend has **no** environment variables: it calls relative `/api/...` path
 
 ## Database setup
 
-There is nothing to run by hand. On the **first start with an empty data volume**, PostgreSQL executes `database/init/` in filename order: `01-init.sql` (schema, triggers, views), `02-seed.sql` (demo data), `03-app-role.sh` (creates `taskmanager_app`). The Flyway project in `database/taskmanager/` is **not** used to build the database. To change the schema locally, edit `01-init.sql` and [reset the database](#resetting-the-database). Details: [database.md](database.md).
+There is nothing to run by hand. On the **first start with an empty data volume**, PostgreSQL executes `database/init/` in filename order: `01-init.sql` (schema, triggers, views), `02-seed.sql` (demo data), `03-app-role.sh` (creates `taskmanager_app`). A fresh volume therefore already has the latest schema. An **existing** volume does not re-run those scripts, so the one-shot `migrate` service (Flyway, `database/taskmanager/migrations/`, baseline version 8) brings it up to date every time you run `docker compose up -d`: it applied `V9__requirement_roles_and_permissions.sql` (the first role matrix) and `V10__two_level_roles.sql` (system roles `ADMINISTRATOR` / `PROJECT_MANAGER` / `USER`, project roles `OWNER` / `ADMIN` / `MEMBER` / `VIEWER`) to the volumes that predate them, and does nothing when the database is current. A fresh volume also gets `04-flyway-baseline.sql`, which records that it is already at version 10. To change the schema: add a new `V<n>__*.sql` migration **and** mirror the end state in `01-init.sql`, so fresh and existing databases end up identical. Details: [database.md](database.md#8-migrations-vs-the-init-script).
 
 ## Build commands
 
@@ -218,10 +224,10 @@ On the first start, the database is filled with realistic sample data: 24 users,
 
 | Username | Who they are | Good for testing |
 |---|---|---|
-| `admin.system` | System administrator | Sees everything; can create users |
-| `pm.olivia` | Owner of several projects | Project-owner features (add members, edit, delete) |
-| `lead.owen` | Admin on a couple of projects | Project-admin permissions |
-| `dev.chen` | Member of a couple of projects, has assigned tasks | Member permissions; the **My Tasks** filter |
+| `admin.system` | Administrator | Sees everything; manages users, roles and the permission matrix (Administration in the sidebar) |
+| `pm.olivia` | `PROJECT_MANAGER`; Owner of several projects | Creating projects, Reports, approving tasks, inviting people with a role |
+| `lead.owen` | `USER` at system level; Team Leader (`ADMIN`) on a couple of projects | Plans and approves inside a project, opens Reports for it; cannot create projects or delete a project |
+| `dev.chen` | `USER`; Team Member (`MEMBER`) of a couple of projects, has assigned tasks | Member permissions: moves work to *In Review* but cannot complete it, no Reports; the **My Tasks** filter |
 | `qa.zoe` | Member of one project, viewer of another | Read-only (viewer) behaviour |
 | `newuser` | In no project at all | Inviting someone to a project |
 | `contractor.felix` | **Inactive** account | Confirming inactive users can't be invited |
@@ -314,14 +320,14 @@ docker exec -it taskmanager-postgres psql -U postgres -d taskmanager   # open a 
 .
 ├── backend/      Spring Boot API  (controller → service → repository → entity; dto/ for request/response shapes)
 ├── frontend/     React app        (src/pages = screens, src/components = shared pieces, src/api = calls to the backend, e2e/ = browser tests)
-├── database/     init/ = schema + sample data + app DB role; taskmanager/ = Flyway migrations (not yet run at startup)
+├── database/     init/ = schema + sample data + app DB role; taskmanager/ = Flyway migrations (applied by the `migrate` Compose service)
 ├── api/          openapi.yaml — the REST API contract
 ├── docs/         You are here
 ├── docker-compose.yml   The whole stack
 └── .env.example         Settings template — copy to .env
 ```
 
-More detail: [backend/README.md](../backend/README.md), [frontend/README.md](../frontend/README.md), [database/README.md](../database/README.md), and the overview in the root [README.md](../README.md).
+More detail: [backend.md](backend.md), [frontend.md](frontend.md), [database.md](database.md), and the overview in the root [README.md](../README.md).
 
 ## 9. Working on a change
 

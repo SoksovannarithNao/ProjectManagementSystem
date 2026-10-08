@@ -5,6 +5,7 @@ import { ProjectCard } from '../components/ProjectCard'
 import { NewProjectModal } from '../components/NewProjectModal'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
+import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
@@ -12,6 +13,7 @@ import { getTasks } from '../api/tasks'
 import { buildProjectMemberMap, buildProjectTaskStats, toProjectCard } from '../api/relations'
 
 export function Projects() {
+  const { canSys } = useAuth()
   const { data: projects, loading, refetch } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
   const { data: tasks } = useApi(getTasks)
@@ -49,9 +51,11 @@ export function Projects() {
         onSearchChange={setSearch}
         searchPlaceholder="Search projects"
         actions={
-          <button className="btn btn-primary" onClick={() => setShowNewProject(true)}>
-            <Plus size={16} /> New Project
-          </button>
+          canSys('PROJECT', 'CREATE') && (
+            <button className="btn btn-primary" onClick={() => setShowNewProject(true)}>
+              <Plus size={16} /> New Project
+            </button>
+          )
         }
       />
 
@@ -68,7 +72,11 @@ export function Projects() {
         <EmptyState
           icon={FolderKanban}
           title="No projects yet"
-          subtitle="Create your first project to get started."
+          subtitle={
+            canSys('PROJECT', 'CREATE')
+              ? 'Create your first project to get started.'
+              : 'You are not on a project yet. A Project Manager can add you to one.'
+          }
         />
       )}
 
