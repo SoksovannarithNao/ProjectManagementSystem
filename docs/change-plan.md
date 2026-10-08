@@ -19,7 +19,7 @@ Sources: the approved specification ([assignment-brief.md](../assignment-brief.m
 | **2. Approval workflow** | 1 feature | medium |
 | **3. Missing required features** | 5 sub-batches, 16 items | large |
 | **4. Optional features** | 6 | optional |
-| **5. Housekeeping** | 4 | small |
+| **5. Housekeeping** | 3 (1 done) | small |
 
 ## 2. How every batch is delivered
 
@@ -108,11 +108,11 @@ Not acceptance criteria. Build only if wanted; if shown they are labelled "Optio
 
 Kanban drag-to-move (same status rules as §15) · report export to PDF/Excel · Gantt chart prototype · document management · audit log (B10) · @mentions (undefined in both sources).
 
-## 7. Batch 5 — Housekeeping (4)
+## 7. Batch 5 — Housekeeping (3 left)
 
 | # | Item |
 |---|---|
-| 5.1 | Delete the leftover pending `newuser` invitation (membership 105 on PRJ-2001) so the 6 skipped/failed `project-team.spec.js` tests pass — needs your go-ahead, it is not test data of the assistant's |
+| 5.1 | ~~Delete the leftover pending `newuser` invitation~~ — **done 2026-10-08**: the invitation was already gone; the one remaining failure in `project-team.spec.js` was a stale selector (`text-danger` → the message text), fixed. The suite is 43/43 |
 | 5.2 | I-21: tasks 2, 3 and 5 of PRJ-2001 are assigned to `lead.owen`, who has no PRJ-2001 membership in the live database (seed has one) |
 | 5.3 | `api/openapi.yaml` is stale (documents 57 of 91 endpoints, old roles); regenerate it from the code or retire it |
 | 5.4 | Run the Playwright suite in CI (it needs the Docker stack) |

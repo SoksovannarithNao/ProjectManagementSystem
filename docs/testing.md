@@ -1,6 +1,6 @@
 # Testing
 
-What is tested today, how to run it, what the tests prove, and where the gaps are. Counts were verified by running the suites on **2026-10-08**, after the two-level role migration `V10`: backend **130/130 passing**, Playwright **37 of 43 passing** (the other six are all in `project-team.spec.js` and fail or are skipped because of one leftover pending invitation, see section 4), frontend lint clean.
+What is tested today, how to run it, what the tests prove, and where the gaps are. Counts were verified by running the suites on **2026-10-08**, after the two-level role migration `V10`: backend **130/130 passing**, Playwright **43/43 passing**, frontend lint clean.
 
 ## 1. Overview
 
@@ -48,7 +48,7 @@ More detail and troubleshooting: [setup.md](setup.md#6-running-the-tests).
 | `service/ProjectOwnershipTest` | 5 | The single-owner rule: only a Project Manager or Administrator can own a project; assigning the creator adds an active owner and sets the manager; a transfer demotes the previous owner to Team Leader; a transfer to the current owner changes nothing; a plain `USER` or a pending member is refused |
 | `service/ProjectAccessGuardTest` | 9 | `assertAccess` keeps the `404` for non-members; `assertCan` / `assertSystemCan` pass when the permission is held and otherwise throw `AccessDeniedException` with a specific message (who can create a project; what to do instead of completing a task; the generic "<verb> <thing> in this project"); a pending invitation gives no active role; `isAdmin` delegates to the role check |
 | `service/RolePermissionServiceTest` | 8 | Matrix editing guardrails: the Administrator role is locked; an unknown role is `404`; unknown scope/resource/permission rejected; a project-only role cannot hold system permissions and a system-only role cannot hold project ones; a project role cannot lose `PROJECT:VIEW`; duplicates are stored once; a save replaces the grants and reloads enforcement |
-| `service/UserRoleServiceTest` | 9 | Role assignment: self-registration gives Team Member (who cannot create projects); an Administrator can give an account another system role; the project-only `VIEWER` is refused; the last Administrator cannot be demoted, but one can when another exists; unknown role or user → `404`; an account's own permissions come from `PermissionService` |
+| `service/UserRoleServiceTest` | 9 | Role assignment: self-registration gives `USER` (who cannot create projects); an Administrator can give an account another system role; the project-only `VIEWER` is refused; the last Administrator cannot be demoted, but one can when another exists; unknown role or user → `404`; an account's own permissions come from `PermissionService` |
 | `service/WorkLogServiceTest` | 7 | Time tracking: hours recorded for the caller; blank description stored as null; a future date rejected; a read-only Viewer refused; the author can delete their entry, a Project Manager can delete someone else's, another member cannot |
 | `config/ActiveAccountJwtValidatorTest` | 5 | A token is accepted only while its account is `ACTIVE`; `SUSPENDED`, `INACTIVE`, `PENDING_VERIFICATION` and deleted accounts are rejected with `invalid_token` |
 
@@ -69,7 +69,7 @@ All run against the real backend and database with the seeded accounts (password
 
 Conventions: `project-team.spec.js` and `permissions.spec.js` run serially and delete **only what they created** (the invitations they sent; their own tasks and milestones; the suspended test account is restored in a `finally`). They never touch seed rows — an earlier version of the picker test deleted the seeded `dev.tomas` invitation, now fixed (issue F-19). Each run still leaves a few detached `activity_logs` rows for the tasks it created and deleted (no endpoint can remove them); they are unreachable from any screen. Counts are asserted relative to a baseline because the seed data already has a `PENDING` invitation on `PRJ-2001` (`dev.tomas`). Tests rely on the seed data being intact (see [setup.md](setup.md#resetting-the-database)).
 
-**Known leftover (2026-10-08):** the live database holds a `PENDING` invitation of `newuser` to `PRJ-2001` (membership 105, invited by the administrator, created at 05:40 UTC before the roles work). The suggestion tests in `project-team.spec.js` assume `newuser` is invitable, so `suggestions search the whole org…` fails and the serial tests after it are skipped. It is leftover data from an earlier test run, not a product defect; delete that one invitation (`DELETE /api/project-members/105` as the administrator) and the six tests pass.
+**Fixed 2026-10-08:** `project-team.spec.js` had six tests that failed or were skipped. The leftover pending `newuser` invitation they assumed away had been removed by an earlier run, and the one remaining failure was a stale selector: the test looked for the CSS class `text-danger`, which the design pass renamed to `text-danger-ink`; it now looks for the message text ("…has an inactive account…"). The suite is **43/43**.
 
 ## 5. Database tests
 

@@ -9,7 +9,7 @@ The running application tested against [project-workflow.md](../project-workflow
 | API | A script played each flow against the live backend as Administrator, Project Manager, Team Leader, Team Member and Viewer (`admin.system`, `pm.olivia`, `lead.owen`, `dev.chen`, `dev.raj`), using a throw-away project, tasks, milestone and a registered test account | 71 checks + 8 for registration and passwords |
 | UI | Playwright visited every screen as the Project Manager and read what each shows; the uncertain results were confirmed from screenshots | 10 screens |
 | Source | Search of the code for schedulers and inactivity logout | 3 searches |
-| Existing suites | backend 113/113; Playwright 34 of 40 (the 6 known `project-team.spec.js` failures, see [testing.md](testing.md)) | — |
+| Existing suites | backend 113/113; Playwright 34 of 40 at the time (the 6 `project-team.spec.js` cases, since fixed, see [testing.md](testing.md)) | — |
 
 API result: **45 passed, 5 failed (all are gaps against the new specification), 17 "missing" (endpoint does not exist), 3 informational.** A sixth "failure" (registration verification) was a mistake in the test script (wrong field name); it was re-run correctly and passed.
 
@@ -107,6 +107,6 @@ After `V10` and the matching code (two-level roles, one owner, Team Member limit
 | A1 Registration | PARTIAL | **PASS** | the new account's role is `USER` |
 | 8 Project team management | PARTIAL | PARTIAL | the second Owner is now refused (`400`), a single-owner project can be deleted; still no UI to change a member's role or transfer ownership |
 
-**New totals (44 flows): PASS 16 · PARTIAL 18 · MISSING 10.** API script: 77 checks, 53 passed, 17 "missing" endpoints, 3 informational and 4 not passing: sign-in by email, a user's own position/department, the assignment notification text (all real gaps), and one check whose expectation was out of date (inviting an Owner is now refused with `400`, not `403`). Backend tests **130/130**; Playwright **37 of 43** (the six known `project-team.spec.js` cases). Test projects and the test account are removed; the owner deleting a single-owner project through the API works.
+**New totals (44 flows): PASS 16 · PARTIAL 18 · MISSING 10.** API script: 77 checks, 53 passed, 17 "missing" endpoints, 3 informational and 4 not passing: sign-in by email, a user's own position/department, the assignment notification text (all real gaps), and one check whose expectation was out of date (inviting an Owner is now refused with `400`, not `403`). Backend tests **130/130**; Playwright **43/43** (after fixing the six `project-team.spec.js` cases: a leftover invitation that an earlier run had already removed, and a stale CSS selector in one test). Test projects and the test account are removed; the owner deleting a single-owner project through the API works.
 
 One finding from the verification itself: `verify_invariants.sql` query 3 returns three rows on the live database (tasks of PRJ-2001 assigned to `lead.owen`, who has no PRJ-2001 membership). It is already present in a backup from before any of today's work and is logged as I-21.

@@ -22,7 +22,7 @@ Implements [ADR-0015](adr/0015-two-level-roles-system-and-project.md) and the ap
 
 **Frontend:** the add-member dialog defaults to User; the invite picker no longer offers Project Manager; Reports (link and route) are available through the system role *or* the role in any project (a Team Leader sees them); the Roles & Permissions page shows business labels (Owner = Project Manager of the project, Admin = Team Leader, Member = Team Member) and the project-level Reports grant; the manager picker lists only people who can own projects.
 
-**Tests:** backend 113 → **130** (`ProjectOwnershipTest`, matrix test now reads `V10`, ownership/transfer/refusal cases, subtask limits, role-assignment guard); Playwright 40 → **43** (ownership transfer and single-owner delete, Team Member limits, Team Leader opens Reports). All pass except the six known `project-team.spec.js` cases.
+**Tests:** backend 113 → **130** (`ProjectOwnershipTest`, matrix test now reads `V10`, ownership/transfer/refusal cases, subtask limits, role-assignment guard); Playwright 40 → **43** (ownership transfer and single-owner delete, Team Member limits, Team Leader opens Reports). All 43 pass: the six `project-team.spec.js` cases that failed or were skipped are fixed (one stale CSS selector in a test; the leftover `newuser` invitation they assumed was already gone).
 
 **Docs:** `authentication-authorization.md`, `database.md`, `backend.md`, `api-reference.md`, `users-and-projects.md`, `setup.md`, `testing.md`, ADR-0014/0015, checklist, issues (I-19 fixed; I-21, I-22 added), roadmap, and the brief's §B13.1 updated to the implemented model.
 
