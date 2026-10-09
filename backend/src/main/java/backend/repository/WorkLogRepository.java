@@ -21,6 +21,17 @@ public interface WorkLogRepository extends JpaRepository<WorkLog, Long> {
     @Query("select coalesce(sum(w.hoursWorked), 0) from WorkLog w where w.task.id = :taskId")
     BigDecimal sumHoursByTaskId(@Param("taskId") Long taskId);
 
+    // Hours each person logged on tasks of the given projects (the Workload
+    // view's "actual hours"), in one grouped query.
+    @Query("select w.user.id as userId, sum(w.hoursWorked) as hours "
+            + "from WorkLog w where w.task.project.id in :projectIds group by w.user.id")
+    List<UserHours> sumHoursByUserForProjects(@Param("projectIds") java.util.Collection<Long> projectIds);
+
+    interface UserHours {
+        Long getUserId();
+        BigDecimal getHours();
+    }
+
     interface TaskHours {
         Long getTaskId();
         BigDecimal getHours();

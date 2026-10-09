@@ -29,7 +29,7 @@ services:
   # Flyway history yet (built by init/01-init.sql before this service existed),
   # so Flyway adopts that state and applies V9 onward. A database created from
   # the current init scripts carries its own baseline row (init/04-flyway-baseline.sql,
-  # version 10), so nothing already folded into 01-init.sql is replayed.
+  # version 13), so nothing already folded into 01-init.sql is replayed.
   # It uses the postgres superuser because migrations change the schema; the
   # backend itself still connects as the least-privileged taskmanager_app.
   migrate:

@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,6 +34,17 @@ public class GlobalExceptionHandler {
         log.warn("Not found: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "Not Found", ex.getMessage()));
+    }
+
+    // A request for a path no controller maps (e.g. a mistyped /api/... URL):
+    // Spring reports it as "no static resource" - without this it fell
+    // through to the generic 500 handler below and logged a stack trace for
+    // every typo.
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException ex) {
+        log.debug("No resource: {}", ex.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "Not Found", "Resource not found"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -157,14 +170,23 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Bad Request", "Malformed request body"));
     }
 
-    // A profile photo upload (see UserController./me/photo) over the
-    // spring.servlet.multipart.max-file-size limit — without this it fell
-    // through to the generic 500 handler below instead of a 400.
+    // An upload (a profile photo, an attachment) over the
+    // spring.servlet.multipart limit — without this it fell through to the
+    // generic 500 handler below instead of a 400. The per-feature limits
+    // (5 MB photos, 10 MB attachments) are checked in their own services.
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException ex) {
         log.warn("Upload too large: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Bad Request", "File is too large (max 5MB)"));
+                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Bad Request", "File is too large"));
+    }
+
+    // A multipart request without the expected `file` part.
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ErrorResponse> handleMissingPart(MissingServletRequestPartException ex) {
+        log.warn("Missing request part: {}", ex.getRequestPartName());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Bad Request", "No file was uploaded"));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

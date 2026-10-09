@@ -42,6 +42,8 @@ class MilestoneServiceTest {
     private UserRepository userRepository;
     @Mock
     private ProjectAccessGuard projectAccessGuard;
+    @Mock
+    private ActivityLogService activityLogService;
 
     private MilestoneService service;
     private User caller;
@@ -50,7 +52,8 @@ class MilestoneServiceTest {
     @BeforeEach
     void setUp() {
         service = new MilestoneService(
-                milestoneRepository, projectRepository, projectMemberRepository, userRepository, projectAccessGuard);
+                milestoneRepository, projectRepository, projectMemberRepository, userRepository, projectAccessGuard,
+                activityLogService);
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 1L);
         caller.setUsername("pm.olivia");
@@ -60,7 +63,7 @@ class MilestoneServiceTest {
         ReflectionTestUtils.setField(milestone, "id", 3L);
         milestone.setProject(project(10L));
         milestone.setTitle("Beta");
-        when(milestoneRepository.findById(3L)).thenReturn(Optional.of(milestone));
+        lenient().when(milestoneRepository.findById(3L)).thenReturn(Optional.of(milestone));
     }
 
     private Project project(Long id) {
@@ -101,5 +104,35 @@ class MilestoneServiceTest {
         verify(projectAccessGuard).assertCan(caller, 10L, Resource.MILESTONE, Action.EDIT);
         verify(projectAccessGuard, never()).assertCan(caller, 20L, Resource.MILESTONE, Action.EDIT);
         assertThat(milestone.getTitle()).isEqualTo("Beta renamed");
+    }
+
+    // ---- the project feed ---------------------------------------------------
+
+    @Test
+    void creatingAMilestone_isLoggedAsAProjectEvent() {
+        when(milestoneRepository.save(any(Milestone.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+
+        service.createMilestone(request(10L, "Launch"), "pm.olivia");
+
+        verify(activityLogService).recordProjectEvent(
+                org.mockito.ArgumentMatchers.eq(caller), org.mockito.ArgumentMatchers.eq(milestone.getProject()),
+                org.mockito.ArgumentMatchers.eq("MILESTONE_CREATED"), org.mockito.ArgumentMatchers.contains("Launch"));
+    }
+
+    @Test
+    void completingAMilestone_isLogged_butEditingItIsNot() {
+        when(milestoneRepository.save(any(Milestone.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+
+        service.updateMilestone(3L, request(10L, "Beta"), "pm.olivia");
+        verify(activityLogService, never()).recordProjectEvent(any(), any(), any(), any());
+
+        MilestoneRequest done = request(10L, "Beta");
+        done.setStatus("COMPLETED");
+        service.updateMilestone(3L, done, "pm.olivia");
+        verify(activityLogService).recordProjectEvent(
+                org.mockito.ArgumentMatchers.eq(caller), org.mockito.ArgumentMatchers.eq(milestone.getProject()),
+                org.mockito.ArgumentMatchers.eq("MILESTONE_COMPLETED"), org.mockito.ArgumentMatchers.contains("Beta"));
     }
 }

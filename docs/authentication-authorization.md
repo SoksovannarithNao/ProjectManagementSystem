@@ -27,9 +27,9 @@ sequenceDiagram
 
 Details:
 
-- **Credential is the username only.** The request field is `username`; logging in with an email address is **not** supported (`CustomUserDetailsService.loadUserByUsername` looks up by username). `Role_Requirment.md` asks for "Username or Email" — this is a gap (see [issues.md](issues.md)).
+- **Credential is the username or the e-mail address** (since 2026-10-09). The request field is still called `username`; `AuthService.login` first calls `UserService.resolveLoginIdentifier`, which maps an e-mail address (anything containing `@`, compared case-insensitively) to the account's username, then authenticates as before. A username can never contain `@` (registration forbids it), so the two cannot be confused. The token's subject is always the username. An unknown e-mail falls through to the normal `401 "Invalid username or password"`.
 - **Any failure returns the same message** — `401 Unauthorized`, `"Invalid username or password"` — whether the user does not exist, the password is wrong, or the account is not `ACTIVE`. This does not reveal which accounts exist.
-- **Rate limiting.** `LoginRateLimiter` keeps failure timestamps in memory, keyed `remoteAddr + ":" + username`. After **5** failures within **15 minutes** the next attempt returns `429 Too Many Requests` (`"Too many failed login attempts. Try again later."`). A successful login clears the counter. State is lost on restart and not shared between instances.
+- **Rate limiting.** `LoginRateLimiter` keeps failure timestamps in memory, keyed `remoteAddr + ":" + <what was typed>`. After **5** failures within **15 minutes** the next attempt returns `429 Too Many Requests` (`"Too many failed login attempts. Try again later."`). A successful login clears the counter. State is lost on restart and not shared between instances.
 - **Token.** `JwtService` issues an HS512-signed JWT with `sub` = username, `iat`, `exp`, and — only when the user has a global role — a `role` claim. Lifetime is `app.jwt.expiration-ms` (`JWT_EXPIRATION_MS`, default `3600000` = 1 hour). The signing key is `app.jwt.secret` (`JWT_SECRET`); `JwtSecretGuard` logs a warning at startup if it is still the built-in development value.
 - **Per request.** Spring's OAuth2 resource server validates the signature and expiry. `SecurityConfig` maps the `role` claim to a `ROLE_<name>` authority (so `@PreAuthorize("hasRole('ADMINISTRATOR')")` works). Services then identify the caller by `authentication.getName()` (the `sub` claim).
 - **Public endpoints:** `GET /api/health`, `POST /api/auth/login`, `/register`, `/verify-otp`, `/resend-otp`, and `GET /api/photos/**`. Everything else requires a valid token.
@@ -131,7 +131,7 @@ The `roles` table holds all seven (`scope` = `SYSTEM` or `PROJECT`; `roles.proje
 | `ROLE:*` — see and edit roles and the matrix | ✅ | ❌ | ❌ |
 | `LOOKUP:CREATE` — new positions and departments | ✅ | ❌ | ❌ |
 
-A Team Leader or Owner also reaches **Reports** through the project-scope grant `REPORT:GENERATE_REPORTS` (section 5.2); the Reports page and link appear for anyone who holds it at either level.
+A Team Leader or Owner also reaches **Reports** through the project-scope grant `REPORT:GENERATE_REPORTS` (section 5.2); the Reports page and link appear for anyone who holds it at either level, and every `/api/reports/*` endpoint checks it on the server (an Administrator reports on all projects, anyone else on the projects where they hold it).
 
 New accounts (self-registration, or an administrator creating one without choosing a role) are `USER`. An Administrator gives or changes a system role in **Administration → Users** (`PUT /api/users/{id}/role`); `ADMINISTRATOR` is never given at registration. **A person who owns a project cannot be moved to `USER`** until ownership is transferred (only a Project Manager or Administrator can own a project).
 
@@ -189,7 +189,7 @@ A **`PENDING`** or **`DECLINED`** membership grants nothing: every visibility ch
 
 ### 5.2 Project-scope matrix
 
-These are the `role_permissions` rows with `scope = PROJECT` seeded by `V10` (the Administrator holds all 84 grants; "—" = not granted). `V10` is also the source of the unit test `PermissionServiceTest`, which checks every role × resource × action × scope.
+These are the `role_permissions` rows with `scope = PROJECT` seeded by `V10` and `V13` (the matrix is 198 rows) (the Administrator holds all 98 grants; "—" = not granted). `V10` is also the source of the unit test `PermissionServiceTest`, which checks every role × resource × action × scope.
 
 | Resource | Owner (`OWNER`) | Team Leader (`ADMIN`) | Team Member (`MEMBER`) | Viewer |
 |---|---|---|---|---|
@@ -201,15 +201,21 @@ These are the `role_permissions` rows with `scope = PROJECT` seeded by `V10` (th
 | `SUBTASK` | View, Create, Edit, Delete | View, Create, Edit, Delete | View, Create, Edit (limited, below) | View |
 | `COMMENT` | View, Create, Delete (moderate) | View, Create, Delete | View, Create | View |
 | `WORK_LOG` | View, Create, Delete (any entry) | View, Create, Delete | View, Create | View |
+| `ATTACHMENT` (files on a task or the project) | View, Create, Delete (any file) | View, Create, Delete | View, Create | View |
+| `CHECKLIST_ITEM` | View, Create, Edit, Delete | View, Create, Edit, Delete | View, Create, Edit (limited, below) | View |
 | `REPORT` (`GENERATE_REPORTS`) | ✅ for this project | ✅ for this project | — | — |
 
-A Team Leader may delete work items and remove members (never the Owner) but **cannot delete the project, transfer ownership or grant `OWNER`**. A Team Member **does not create tasks**.
+A Team Leader may delete work items and remove members (never the Owner) but **cannot delete the project, transfer ownership or grant `OWNER`**. Setting a member's project role follows B3.7 / B3.9: nobody changes their own; the Owner and an Administrator set any role; a Team Leader only moves a Team Member between *Team Member* and *Viewer* (`ProjectMemberService.assertMayChangeRole`). Team Tasks and Team Workload need `TASK:ASSIGN` in the project (`TeamViewsService`). A Team Member **does not create tasks**.
 
 Rules the table cannot express (they depend on *who did it*, so they stay in code):
 
 | Rule | Where |
 |---|---|
 | Edit a comment — author only (nobody else, not even an administrator) | `CommentService` |
+| Change a member's project role — never your own; a Team Leader only Team Member ⇄ Viewer and never the Owner or another leader (`403`) | `ProjectMemberService.assertMayChangeRole` |
+| See Team Tasks and Team Workload — `TASK:ASSIGN` in the project (`403` for a Team Member) | `TeamViewsService` |
+| Delete an attachment — the uploader, or whoever holds `ATTACHMENT:DELETE` | `AttachmentService` |
+| A Team Member ticks or renames a **checklist item** only on a task assigned to them (`403 "You can only change the checklist of tasks assigned to you"`); delete — the person who added it, or `CHECKLIST_ITEM:DELETE` | `ChecklistItemService` |
 | Delete a comment or a work-log entry — the author, or whoever holds `COMMENT:DELETE` / `WORK_LOG:DELETE` | `CommentService`, `WorkLogService` |
 | Change status/progress of a task without `TASK:EDIT` — only if you are a current assignee | `TaskService.updateTask` |
 | A Team Member edits a **subtask** only if the task is assigned to them or the subtask is assigned to them (`403 "You can only change subtasks of tasks assigned to you"`); deleting a subtask needs `SUBTASK:DELETE` | `SubtaskService` |
@@ -226,13 +232,21 @@ A `VIEWER` is **read-only**: it cannot create, edit or delete tasks, subtasks, c
 
 `PUT /api/tasks/{id}` (`TaskService.updateTask`):
 
-1. **Completing** — if the request moves the task to `COMPLETED` (and it was not already), the caller needs `TASK:APPROVE` in that project (`403 "Only a Project Manager or Team Leader can approve a task as completed. Move it to In Review so it can be approved"`), and the task must have no open subtasks (`400 "Complete all subtasks before marking this task as done."`).
+1. **Completing** — if the request moves the task to `COMPLETED` (and it was not already), the caller needs `TASK:APPROVE` in that project (`403 "Only a Project Manager or Team Leader can approve a task as completed. Move it to In Review so it can be approved"`), must also be allowed to decide *this* task (below), and the task must have no open subtasks (`400 "Complete all subtasks before marking this task as done."`). The completion is recorded as the caller's approval. Moving a task into `IN_REVIEW` opens an approval request; moving it out of review withdraws the open one.
 2. With `TASK:EDIT` → every field is applied. **If the request changes `projectId`, the caller must also be allowed to edit tasks in the *target* project** (`403` otherwise).
 3. Without it, the caller needs `TASK_STATUS:EDIT` **and** must be a current assignee (`403 "You are not assigned to this task"`); then **only `status` and `progress`** are applied — every other field, including `projectId`, is silently ignored.
 
 The database dependency/subtask/date triggers apply regardless of role.
 
-**Approval flow in the UI:** the quick-advance control and the status dropdown take a Team Member from *To Do → In Progress → In Review*; an approver then takes it to *Completed* ("Mark as Done"). The Completed option is hidden from people who cannot approve.
+**Approval rules** (`TaskApprovalService.whyNotAllowedToDecide`, assignment-brief.md B3.8 and D-05). Whoever completes or decides a task needs `TASK:APPROVE` in its project (Administrator; Project Manager through the Owner or Team Leader role) and, besides:
+
+| Rule | Exception |
+|---|---|
+| When the task names an approver, only that person decides | the project `OWNER` and an `ADMINISTRATOR` |
+| Nobody decides their own work: the person who asked for the review, or anyone assigned to the task | the project `OWNER` and an `ADMINISTRATOR` |
+| Designating the approver needs `TASK:ASSIGN`; the person named must be an active member who holds `TASK:APPROVE` | — |
+
+**Approval flow in the UI:** a Team Member (or anyone who may edit the task) presses *Submit for review* in the task panel, or takes the task *In Progress → In Review* with the quick-advance circle. An approver then decides in the panel (*Approve*, *Request changes*, *Reject*, each with a comment) or from the *Awaiting your approval* list on the Tasks page. The Completed option and "Mark as Completed" are hidden from people who may not decide that task, including an approver who works on it themselves (they submit it for review instead).
 
 ## 6. System-level user management
 
@@ -244,6 +258,7 @@ The database dependency/subtask/date triggers apply regardless of role.
 | Look up one user by id or username | **scoped** — an administrator, the user themself, or someone who shares an active project with them; anyone else gets `404` | `UserService.assertCanView` |
 | Edit own profile, password, photo, preferences | the user themself (target comes from the token, not the URL) | `/api/users/me*` |
 | See the caller's own permissions | the user themself | `GET /api/users/me/permissions` |
+| Set your own position/department | any signed-in user, choosing from the managed lists (new list entries need `LOOKUP:CREATE`) | `UserService.updateOwnProfile` (`PUT /api/users/me`) |
 | Set another user's position/department | `ADMINISTRATOR`, or someone with `MEMBER:EDIT` in a project the target is also an active member of; **never yourself** | `UserService.updateMemberPositionDepartment` |
 | Create positions / departments | `LOOKUP:CREATE` (Administrator) | `PositionController`, `DepartmentController` |
 | See / edit roles and the matrix | `ROLE:VIEW` / `ROLE:EDIT` (Administrator) | `RoleController`, `PermissionController`; UI: *Administration → Roles & Permissions* |

@@ -30,7 +30,7 @@ ADR-0014 gave the four requirement roles (Administrator, Project Manager, Team L
 
 ## Consequences
 
-- **Done in `V10`:** the `TEAM_LEADER` and `TEAM_MEMBER` system roles are retired (their accounts became `USER`), new registrations are `USER`, every project has exactly one `OWNER` (a deferred trigger plus `ProjectOwnership`), `MEMBER` no longer creates tasks or deletes subtasks, and report access comes through the project roles. **Not done yet:** the approval records and the review workflow, creating additional system roles (D-14), and users editing their own position/department (D-16).
+- **Done in `V10`:** the `TEAM_LEADER` and `TEAM_MEMBER` system roles are retired (their accounts became `USER`), new registrations are `USER`, every project has exactly one `OWNER` (a deferred trigger plus `ProjectOwnership`), `MEMBER` no longer creates tasks or deletes subtasks, and report access comes through the project roles. **Not done yet:** creating additional system roles (D-14). Users editing their own position/department (D-16, batch 1) and the approval records and review workflow (batch 2, `V12`) were done later, on 2026-10-09.
 - `USER` and the old `TEAM_MEMBER` system role are the same idea; `TEAM_LEADER` as a system role goes away, so a person leads a project by being `ADMIN` in it.
 - The documentation now describes one model. Where the application still differs from the specification, §B13.1 of the brief lists it.
 - Open items: calendar views was the last open decision and is now settled; the 18 decisions D-01…D-18 in the brief are recorded there.

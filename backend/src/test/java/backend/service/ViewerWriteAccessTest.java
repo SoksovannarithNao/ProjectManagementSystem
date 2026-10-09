@@ -67,7 +67,7 @@ class ViewerWriteAccessTest {
         subtaskService = new SubtaskService(
                 subtaskRepository, taskRepository, taskDependencyRepository, userRepository,
                 activityLogService, projectAccessGuard, taskAssigneeRepository);
-        commentService = new CommentService(commentRepository, taskRepository, userRepository, projectAccessGuard);
+        commentService = new CommentService(commentRepository, taskRepository, userRepository, projectAccessGuard, activityLogService);
 
         viewer = new User();
         ReflectionTestUtils.setField(viewer, "id", 1L);

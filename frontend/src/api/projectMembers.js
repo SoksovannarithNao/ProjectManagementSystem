@@ -45,3 +45,12 @@ export function acceptInvitation(projectId) {
 export function declineInvitation(projectId) {
   return apiFetch(`/project-members/project/${projectId}/decline`, { method: 'POST' })
 }
+
+// Changes a member's project role (OWNER makes it an ownership transfer: the
+// current owner becomes a Team Leader in the same step).
+export function updateProjectMemberRole(member, projectRole) {
+  return apiFetch(`/project-members/${member.id}`, {
+    method: 'PUT',
+    body: { projectId: member.project.id, userId: member.user.id, projectRole },
+  })
+}

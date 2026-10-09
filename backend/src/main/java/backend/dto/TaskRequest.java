@@ -28,7 +28,7 @@ public class TaskRequest {
     @Pattern(regexp = "LOW|MEDIUM|HIGH|URGENT")
     private String priority;
 
-    @Pattern(regexp = "TO_DO|IN_PROGRESS|IN_REVIEW|COMPLETED|CANCELLED")
+    @Pattern(regexp = "TODO|IN_PROGRESS|IN_REVIEW|COMPLETED|CANCELLED")
     private String status;
 
     @NotNull

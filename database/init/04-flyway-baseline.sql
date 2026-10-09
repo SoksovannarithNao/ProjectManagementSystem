@@ -1,11 +1,11 @@
 -- Flyway baseline for a database built from these init scripts.
 --
--- 01-init.sql already holds the END STATE of every migration up to V10, so a
+-- 01-init.sql already holds the END STATE of every migration up to V13, so a
 -- fresh volume must not replay them: V9 would re-create the retired roles. This
--- records the baseline Flyway itself would write (`baselineVersion = 10`), so the
--- `migrate` service in docker-compose.yml applies only migrations newer than V10.
+-- records the baseline Flyway itself would write (`baselineVersion = 13`), so the
+-- `migrate` service in docker-compose.yml applies only migrations newer than V13.
 -- A volume created before this file existed keeps its own history (baseline 8)
--- and is upgraded by V9 and V10 as usual.
+-- and is upgraded by V9 to V13 as usual.
 --
 -- Keep the version in step with the newest migration folded into 01-init.sql.
 
@@ -26,5 +26,5 @@ CREATE TABLE IF NOT EXISTS flyway_schema_history (
 CREATE INDEX IF NOT EXISTS flyway_schema_history_s_idx ON flyway_schema_history (success);
 
 INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success)
-SELECT 1, '10', '<< Flyway Baseline >>', 'BASELINE', '<< Flyway Baseline >>', NULL, current_user, 0, TRUE
+SELECT 1, '13', '<< Flyway Baseline >>', 'BASELINE', '<< Flyway Baseline >>', NULL, current_user, 0, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM flyway_schema_history);

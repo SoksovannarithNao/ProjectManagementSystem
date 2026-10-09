@@ -17,7 +17,7 @@ public class TaskController {
 
     // Mirrors the @Pattern on TaskRequest.status — kept in sync with it.
     private static final Set<String> VALID_STATUSES =
-            Set.of("TO_DO", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "CANCELLED");
+            Set.of("TODO", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "CANCELLED");
 
     private final TaskService taskService;
 

@@ -6,6 +6,116 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-09 (batch 3c) — Change-plan batch 3c: the five KPIs and the seven named reports (uncommitted)
+
+Implements sub-batch 3c of [change-plan.md](change-plan.md) ([assignment-brief.md](../assignment-brief.md) B8, D-12; workflow flows 31 and 32). No schema change. Deployed and verified live.
+
+**Added**
+- **Server-side reports, gated by `REPORT:GENERATE_REPORTS`:** `GET /api/reports/kpis`, `/project`, `/tasks`, `/project-status`, `/task-completion`, `/overdue`, `/team-performance`, `/workload`. Until now only the Reports page was hidden from people without the permission; the data endpoints were not. An Administrator reports on every project; anyone else on the projects where they hold the permission (Owner, Team Leader, and the Project Manager as Owner); everyone else gets `403`; a project outside that set is `404` for a stranger.
+- **The five KPIs** (approved formulas, D-12): project completion rate, task completion rate, overdue rate, average task completion time (days) and on-time completion rate, each with the counts it was calculated from. A rate whose denominator is empty is `null` and shown as "—"; percentages have one decimal.
+- **The seven reports**, each with its filters: Project Report (details, owner, dates, progress, milestones, team, task counts, upcoming deadlines), Task Report (project, assignee, status, priority, due range), Project Status Report (Planning / In Progress / On Hold / Completed / Cancelled / **Delayed**, owner, date range), Task Completion Report (required date range, grouped by project, member or month), Overdue Task Report (project, assignee, priority, days overdue), Team Performance Report (assigned, completed, To Do, In Progress, In Review, overdue, completion rate) and Workload Report (the 3b classification).
+- **Reports page:** a tab for the *Overview* (the previous charts), the *KPIs* and each report, with an explicit *Generate* step and the scope and time the report was made.
+
+**Changed**
+- `TeamViewsService` exposes `buildWorkload(...)` so the Workload Report and the Team Workload view use the same code.
+
+**Not built:** PDF / Excel export (optional, batch 4).
+
+**Tests:** backend 265 → **290** (`ReportServiceTest`: access rules, the KPI formulas and their empty cases, each report's content and filters); Playwright 86 → **99** (`reports.spec.js`: the KPI numbers against a project with known tasks, 403 for a Team Member on every endpoint, 404 for a stranger, each report's filters and validation, the tabs and generating a report in the browser).
+
+**Docs:** `change-plan.md`, `workflow-conformance.md` (§11), `issues.md`, `assignment-brief.md`, `api-reference.md`, `authentication-authorization.md`, `backend.md`, `frontend.md`, `security.md`, `testing.md`, `roadmap.md`, checklist.
+
+---
+
+## 2026-10-09 (batch 3b) — Change-plan batch 3b: manager views (uncommitted)
+
+Implements sub-batch 3b of [change-plan.md](change-plan.md) (assignment-brief.md Part A, B1.3, B3.7, B3.9, D-06, D-13; workflow flows 5, 22, 30, A5). No schema change. Deployed and verified live.
+
+**Added**
+- **Dashboard statistics** from the server: `GET /api/dashboard/stats` (projects by status, Delayed, average completion, tasks by status, overdue, the five most-delayed projects) and `GET /api/activity-logs/recent`. The dashboard shows a statistics strip, a *Delayed projects* card, *Recent activity*, and — for people who may assign tasks — a *Team workload* card.
+- **Delayed projects**: `ProjectResponse.delayed` and `daysDelayed`, calculated by the new `util/Derived` (end date passed and not Completed / Cancelled), never stored; a *Delayed* badge on project cards and the project page and a *Delayed* filter on the Projects page.
+- **Team Tasks** (`GET /api/projects/{id}/team-tasks`, page `/projects/:id/team`): each active member with their tasks, counts and average progress, plus unassigned tasks; reassign or unassign from the list. For people with `TASK:ASSIGN` in the project (Owner, Team Leader, Administrator).
+- **Team Workload** (`GET /api/projects/{id}/workload`, `GET /api/workload`, page `/projects/:id/workload`): assigned, active and overdue tasks, estimated and actual hours, and *Overloaded / Underloaded / Balanced* against the team average (D-13, `util/WorkloadClassifier`). Owners and Team Leaders appear only once work is assigned to them.
+- **Project timeline** (page `/projects/:id/timeline`, every member): project, milestones and tasks on one time axis with a today marker; a task opens the usual panel.
+- **Project roles in the UI**: a role picker on each member of the project page and a confirmed *Owner (transfer ownership)* option (the API already did both).
+
+**Changed**
+- `PUT /api/project-members/{id}` now enforces the rules of B3.7 / B3.9: nobody changes their own project role (the Owner stepping down still gets "Transfer ownership first"), and a Team Leader can only make a Team Member a Team Member or a Viewer and cannot touch the role of the Owner or another Team Leader.
+- Three existing end-to-end specs picked "the first project card"; they now open *Website Redesign* explicitly (a test that creates a project could otherwise be listed first).
+
+**Tests:** backend 226 → **265** (`DashboardServiceTest`, `TeamViewsServiceTest`, `WorkloadClassifierTest`, `DerivedTest`, the recent-activity feed, five role-rule cases); Playwright 76 → **86** (`manager-views.spec.js`: Delayed, dashboard figures, who may open Team Tasks / Workload, grouping, overloaded / underloaded, role rules, and five UI flows including reassigning a task, the timeline and an ownership transfer).
+
+**Docs:** `change-plan.md`, `workflow-conformance.md` (§10), `issues.md`, `assignment-brief.md` (B1.3, B1.4, D-13, G-19), `api-reference.md`, `authentication-authorization.md`, `backend.md`, `frontend.md`, `users-and-projects.md`, `testing.md`, `roadmap.md`, checklist.
+
+---
+
+## 2026-10-09 (batch 3a) — Change-plan batch 3a: attachments, checklists, comment replies, project activity (uncommitted)
+
+Implements sub-batch 3a of [change-plan.md](change-plan.md) ([assignment-brief.md](../assignment-brief.md) B1.5/B1.6, B3.4, B10, D-07, D-17). Deployed after a `pg_dump`; `V13` tried and re-run on a restored copy, and a fresh database built from `01-init.sql` + `02-seed.sql` matched the migrated copy.
+
+**Added**
+- **File attachments** on tasks and projects: `POST /api/attachments` (multipart, `file` + `taskId` or `projectId`), `GET /api/attachments/task/{id}`, `/project/{id}`, `GET /api/attachments/{id}/download`, `DELETE /api/attachments/{id}`. **10 MB per file, 25 files per task or project, an allow-list of types** (images, PDF, text, CSV, JSON, Office / OpenDocument, ZIP), content checked against the type, file names cleaned, bytes stored in the database (`attachment_contents`), downloads always `Content-Disposition: attachment` with `nosniff` and a sandboxing CSP, available only to members. The uploader may always delete their own file; the Owner and Team Leader may delete any.
+- **Checklists:** `GET /api/checklist-items/task/{id}`, `POST`, `PUT /{id}`, `DELETE /{id}`. A task's progress now counts checklist items together with its subtasks (D-07), kept by the trigger `trg_checklist_items_sync_parent_task`; a completed task whose subtasks are all done stays 100. `TaskResponse` gains `totalChecklistItems` and `completedChecklistItems`.
+- **Comment replies in the UI** (threaded under the comment, "Replying to…" on the composer) and a server check that a reply's parent belongs to the same task.
+- **Project activity feed:** `GET /api/activity-logs/project/{id}?limit=` (newest first, 50 by default, at most 200) and an *Activity* card on the project page. New events: project created / updated (naming what changed) / completed, milestone created / completed, comment and reply added, file uploaded. `ActivityLogResponse` gains `taskId` and `taskTitle`.
+- **Permissions:** two resources, `ATTACHMENT` (Owner / Team Leader: view, create, delete; Team Member: view, create; Viewer: view) and `CHECKLIST_ITEM` (Owner / Team Leader: view, create, edit, delete; Team Member: view, create, edit on tasks assigned to them; Viewer: view). The Roles & Permissions page shows them; the matrix grows from 163 to 198 rows.
+
+**Fixed**
+- **nginx refused request bodies over 1 MB** (its default), so profile photos up to the documented 5 MB failed in the Docker deployment. The API location now allows 12 MB; the 5 MB photo limit is checked in `UserService.uploadOwnProfilePhoto` (the multipart ceiling is now 10 MB), and the "file too large" message no longer claims 5 MB for every upload.
+
+**Database — migration `V13__attachments_checklists.sql`** (idempotent): resources `ATTACHMENT` and `CHECKLIST_ITEM` in the `role_permissions` check and their grants; `attachments.file_url` made optional and the new table `attachment_contents`; `checklist_items.created_by`; `fn_compute_task_progress_from_subtasks(task, status)` counting checklist items (the old one-argument function is dropped) and the `checklist_items` trigger; grants for the application role. `01-init.sql`, `03-app-role.sh`, CI, the Flyway baseline (now 13) follow.
+
+**Tests:** backend 175 → **226** (`FileTypeGuardTest`, `AttachmentServiceTest`, `ChecklistItemServiceTest`, `CommentServiceTest`, `ActivityLogServiceTest`, project / milestone feed events, the photo limit, the matrix test now reads `V10` and `V13`); Playwright 66 → **76** (`collaboration.spec.js`: upload / list / download headers / delete rules, type, content and size checks, checklist rules and progress, replies, the project feed and outsider access, the Viewer, three UI flows).
+
+**Docs:** `change-plan.md`, `workflow-conformance.md` (§9), `issues.md`, `assignment-brief.md`, `api-reference.md`, `authentication-authorization.md`, `backend.md`, `database.md`, `frontend.md`, `security.md`, `tasks.md`, `testing.md`, `roadmap.md`, `overview.md`, `PRODUCT.md`, checklist, README.
+
+---
+
+## 2026-10-09 (batch 2) — Change-plan batch 2: the task approval workflow (uncommitted)
+
+Implements Batch 2 of [change-plan.md](change-plan.md) ([assignment-brief.md](../assignment-brief.md) B3.8, project-workflow A6, D-05). Deployed after a `pg_dump`, with `V12` first tried (and re-run) on a restored copy of the live database; verified live.
+
+**Added**
+- **Approval records and a designated approver.** A task in review has an open request; an approver decides **Approved** (the task is completed, progress 100), **Changes requested** (back to In Progress) or **Rejected** (In Progress or Cancelled, the approver's choice). Changes and rejection need a comment. A task may name its approver (needs `ASSIGN`); then only that person, the project Owner or an Administrator decides. Nobody decides their own work (asked for the review, or assigned to the task) except the Owner and Administrators.
+- **API:** `POST /api/tasks/{id}/approval/submit`, `POST /api/tasks/{id}/approval/decision`, `GET /api/tasks/{id}/approvals`, `PUT /api/tasks/{id}/approver`, `GET /api/approvals/pending`; `TaskResponse` gains `approver`, `approvalStatus`, `approvalRequestedBy`, `approvalRequestedAt`.
+- **Activity and notifications for every request and decision:** actions `TASK_APPROVAL_REQUESTED`, `TASK_APPROVED`, `TASK_CHANGES_REQUESTED`, `TASK_REJECTED`, `TASK_APPROVER_SET`; notification types `APPROVAL_REQUESTED` (named approver, otherwise every active member who may approve) and `APPROVAL_DECIDED` (the requester). Notifications produced: 4 → 6 of 11 types.
+- **UI:** an *Approval* section in the task panel (submit for review, awaiting-approval banner, Approve / Request changes / Reject with a comment, approver picker, history), an *Awaiting approval* / *Changes requested* chip on Tasks and Kanban, and an *Awaiting your approval* inbox on the Tasks page.
+
+**Changed**
+- Completing a task through `PUT /api/tasks/{id}` still needs `TASK:APPROVE`, now also follows the who-may-decide rules and is recorded as the approval (an approver who completes a task directly counts as approving it). Moving a task into review through the edit opens a request; moving it out of review withdraws the open request (`WITHDRAWN`). Moving a task to another project clears its approver.
+- The quick-advance circle and the status dropdown only offer *Completed* to someone who may decide that task; an approver working on their own task submits it for review instead.
+
+**Database — migration `V12__task_approval_workflow.sql`** (idempotent): `tasks.approver_id`; table `task_approvals` (one open request per task, enforced by a partial unique index); the `activity_logs.action` and `notifications.type` constraints widened; the 6 tasks already `IN_REVIEW` get an open request; grants for the application role. `01-init.sql`, `02-seed.sql`, `03-app-role.sh`, CI, the Flyway baseline (now 12) and `verify_invariants.sql` (two new checks: an open request only on a task in review; every task in review has one) follow.
+
+**Tests:** backend 143 → **175** (`TaskApprovalServiceTest` 27; five new `TaskServiceTest` cases for the status hooks); Playwright 57 → **66** (`approvals.spec.js`: member submits → Team Leader requests changes → approves → project progress moves; rejection; own work; named approver; direct completion and withdrawal; open subtask; two UI flows).
+
+**Docs:** `change-plan.md`, `workflow-conformance.md` (§8), `issues.md`, `assignment-brief.md` (B3.8, B9, G-08, D-05), `api-reference.md`, `authentication-authorization.md`, `backend.md`, `database.md`, `frontend.md`, `notifications.md`, `tasks.md`, `testing.md`, `roadmap.md`, ADR-0015, checklist, overview, PRODUCT.
+
+**Also noticed:** `verify_invariants.sql` query 3 (I-21) now returns no rows on the live database.
+
+---
+
+## 2026-10-09 (batch 1) — Change-plan batch 1: seven quick fixes, `TODO` rename (uncommitted)
+
+Implements Batch 1 of [change-plan.md](change-plan.md). Deployed to the running stack after a `pg_dump`, with `V11` first tried (and re-run) on a copy of the live database; verified live.
+
+**Fixed / Changed**
+- **Unknown API paths answer `404 "Resource not found"`**, not `500` with a stack trace (`GlobalExceptionHandler.handleNoResource`) — closes I-22.
+- **Labels:** Kanban columns, Tasks groups, the Dashboard overview and the status filters say *To Do / In Progress / In Review / Completed*. The Tasks page now has one group per status (To Do, In Progress, In Review, Completed, Cancelled) instead of To do / Doing / Done.
+- **Assignment notification** now reads `<assigner> assigned you to "<task>" in "<project>" — due <date>` (task, project, due date, who assigned it).
+- **Sign in with username or e-mail** (`UserService.resolveLoginIdentifier`, `UserRepository.findByEmailIgnoreCase`); the form label is "Username or email" — closes X-02.
+- **Own position and department:** the Profile page offers the managed lists; `PUT /api/users/me` accepts `positionId` / `departmentId` (`null` clears, an unknown id is `404`). The Team-page endpoint refuses self-targeting with a message pointing to Profile. (D-16)
+- **Project filters** (status, priority, project manager) and **sorting** (name, start, end, priority, progress); **task filters** (status, assignee, due date) and sorting (latest, progress, status added); search widened (manager, status, dates, assignee). Done in the browser over the permission-scoped lists; server-side parameters remain open (brief G-16).
+- **Stored status `TO_DO` → `TODO`** (D-15): entities, request patterns, `01-init.sql`, `02-seed.sql`, frontend, tests and docs; the label stays "To Do" (`TextFormat.humanizeEnum` and the frontend `humanizeEnum` special-case it; `NotificationService` now uses the shared helper).
+
+**Database — migration `V11__rename_status_to_do_to_todo.sql`** (idempotent): drops the two `CHECK` constraints that list `TO_DO`, sets the new defaults, rewrites 26 tasks and 77 subtasks with the user triggers switched off (so `updated_at` and progress are untouched), re-adds the constraints and re-creates `v_team_workload`. `init/04-flyway-baseline.sql` now writes version 11. An earlier draft used `SET LOCAL session_replication_role`; the trial run showed Flyway did not honour it (rows got a new `updated_at`), so it was replaced by `ALTER TABLE … DISABLE/ENABLE TRIGGER USER` before anything touched the live database.
+
+**Tests:** backend 130 → **143** (unknown path → 404; e-mail resolves to username; own position/department; assignment-notification text; `TextFormat`); Playwright 43 → **57** (`batch1.spec.js`). A `data-testid="task-row"` was added to the Tasks page rows.
+
+**Docs:** `change-plan.md`, `workflow-conformance.md` (§7), `issues.md` (I-22, X-02 fixed; I-20 updated; F-24 … F-26), `assignment-brief.md` (B1.2, B1.9, B13.1: G-07, G-11, G-16, G-17; D-15, D-16), `api-reference.md`, `authentication-authorization.md`, `backend.md`, `database.md`, `frontend.md`, `notifications.md`, `tasks.md`, `testing.md`, `users-and-projects.md`, `roadmap.md`, ADR-0013/0015, checklist, README.
+
+---
+
 ## 2026-10-08 (roles v10) — Two-level roles implemented: system roles and project roles (uncommitted)
 
 Implements [ADR-0015](adr/0015-two-level-roles-system-and-project.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). The earlier four-role model (`TEAM_LEADER` and `TEAM_MEMBER` as system roles) is replaced.

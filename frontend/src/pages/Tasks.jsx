@@ -21,6 +21,8 @@ import {
   ListChecks,
   AlertTriangle,
   Lock,
+  ClipboardCheck,
+  ListTodo,
 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { AvatarGroup } from '../components/ui/Avatar'
@@ -41,7 +43,10 @@ import { getSubtasksByTask, updateSubtask } from '../api/subtasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
 import { buildTaskAssigneeMap } from '../api/relations'
-import { humanizeEnum, formatDate, taskDisplayTitle, blockedReason } from '../api/format'
+import { humanizeEnum, formatDate, taskDisplayTitle, blockedReason, timeAgo } from '../api/format'
+import { getPendingApprovals } from '../api/approvals'
+import { canApproveTask } from '../api/permissions'
+import { ApprovalChip } from '../components/ApprovalChip'
 
 // Distinct colors per section, using the same soft-background + colored-
 // foreground pairing as Badge.jsx (already proven legible elsewhere in the
@@ -49,30 +54,71 @@ import { humanizeEnum, formatDate, taskDisplayTitle, blockedReason } from '../ap
 // page background turned out to be too low-contrast on their own, since
 // this app's status hues are deliberately muted/pastel.
 const STATUS_GROUPS = [
-  { key: 'todo', title: 'To do', match: (status) => status === 'TO_DO', color: 'text-warning-ink', soft: 'bg-warning-soft' },
-  { key: 'doing', title: 'Doing', match: (status) => status === 'IN_PROGRESS' || status === 'IN_REVIEW', color: 'text-info-ink', soft: 'bg-info-soft' },
-  { key: 'done', title: 'Done', match: (status) => status === 'COMPLETED' || status === 'CANCELLED', color: 'text-success-ink', soft: 'bg-success-soft' },
+  { key: 'todo', title: 'To Do', match: (status) => status === 'TODO', color: 'text-muted', soft: 'bg-subtle' },
+  { key: 'inprogress', title: 'In Progress', match: (status) => status === 'IN_PROGRESS', color: 'text-info-ink', soft: 'bg-info-soft' },
+  { key: 'inreview', title: 'In Review', match: (status) => status === 'IN_REVIEW', color: 'text-warning-ink', soft: 'bg-warning-soft' },
+  { key: 'completed', title: 'Completed', match: (status) => status === 'COMPLETED', color: 'text-success-ink', soft: 'bg-success-soft' },
+  { key: 'cancelled', title: 'Cancelled', match: (status) => status === 'CANCELLED', color: 'text-danger-ink', soft: 'bg-danger-soft' },
 ]
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 const PRIORITY_RANK = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
+const STATUS_OPTIONS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
+const STATUS_RANK = { TODO: 0, IN_PROGRESS: 1, IN_REVIEW: 2, COMPLETED: 3, CANCELLED: 4 }
+const DUE_OPTIONS = [
+  { id: '', label: 'Any date' },
+  { id: 'overdue', label: 'Overdue' },
+  { id: 'today', label: 'Due today' },
+  { id: 'week', label: 'Due in the next 7 days' },
+  { id: 'none', label: 'No due date' },
+]
+const UNASSIGNED = 'unassigned'
 const SORT_OPTIONS = [
   { id: 'dueDate', label: 'Due date' },
+  { id: 'latest', label: 'Latest' },
   { id: 'priority', label: 'Priority' },
+  { id: 'progress', label: 'Progress (highest first)' },
+  { id: 'status', label: 'Status' },
   { id: 'title', label: 'Title (A–Z)' },
 ]
 const SORTERS = {
   dueDate: (a, b) => new Date(a.dueDate ?? '9999-12-31') - new Date(b.dueDate ?? '9999-12-31'),
+  latest: (a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0),
   priority: (a, b) => (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9),
+  progress: (a, b) => Number(b.progress ?? 0) - Number(a.progress ?? 0),
+  status: (a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9),
   title: (a, b) => (a.title ?? '').localeCompare(b.title ?? ''),
 }
 
+// Due dates are calendar dates (YYYY-MM-DD): compare as strings in local
+// time so a task due today is never "overdue" until tomorrow.
+function localIsoDate(offsetDays = 0) {
+  const d = new Date()
+  d.setDate(d.getDate() + offsetDays)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function matchesDueFilter(task, filter) {
+  if (!filter) return true
+  const due = task.dueDate
+  if (filter === 'none') return !due
+  if (!due) return false
+  const today = localIsoDate()
+  if (filter === 'today') return due === today
+  if (filter === 'week') return due >= today && due <= localIsoDate(7)
+  // Overdue: past its due date and still open (B1.3).
+  return due < today && task.status !== 'COMPLETED' && task.status !== 'CANCELLED'
+}
+
 export function Tasks() {
-  const { profile, can, canAny } = useAuth()
+  const { profile, can, canAny, permissions } = useAuth()
   const notify = useToast()
   const { data: tasks, loading, refetch } = useApi(getTasks)
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects, refetch: refetchProjects } = useApi(getProjects)
+  // Requests waiting for a decision from the signed-in user (empty for most people).
+  const { data: pendingApprovals, refetch: refetchPending } = useApi(getPendingApprovals)
   const [activeTaskId, setActiveTaskId] = useState(null)
   const [newTaskModal, setNewTaskModal] = useState(null)
   const [editingTask, setEditingTask] = useState(null)
@@ -80,6 +126,9 @@ export function Tasks() {
   const [deleting, setDeleting] = useState(false)
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState(() => new Set())
+  const [statusFilter, setStatusFilter] = useState(() => new Set())
+  const [assigneeFilter, setAssigneeFilter] = useState('')
+  const [dueFilter, setDueFilter] = useState('')
   const [projectFilter, setProjectFilter] = useState('')
   const [myTasksOnly, setMyTasksOnly] = useState(false)
   const [sortBy, setSortBy] = useState('dueDate')
@@ -108,25 +157,50 @@ export function Tasks() {
     const t = list.find((task) => task.id === activeTaskId)
     return t ? { ...t, assigneeIds: assigneeMap.get(t.id) ?? [] } : null
   }, [activeTaskId, list, assigneeMap])
-  const activeFilterCount = priorityFilter.size + (projectFilter ? 1 : 0) + (myTasksOnly ? 1 : 0)
+  const activeFilterCount =
+    priorityFilter.size +
+    statusFilter.size +
+    (projectFilter ? 1 : 0) +
+    (assigneeFilter ? 1 : 0) +
+    (dueFilter ? 1 : 0) +
+    (myTasksOnly ? 1 : 0)
+
+  // People who hold at least one assignment on a task the caller can see -
+  // built from the (permission-scoped) assignments, not the org directory.
+  const assigneeOptions = useMemo(() => {
+    const byId = new Map()
+    for (const ta of taskAssignees ?? []) {
+      if (ta.user?.id != null) byId.set(ta.user.id, ta.user.fullName || ta.user.username)
+    }
+    return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [taskAssignees])
 
   const filteredList = useMemo(() => {
     const q = search.trim().toLowerCase()
     return list.filter((t) => {
       if (q) {
-        const haystack = `${t.title ?? ''} ${t.description ?? ''} ${t.project?.name ?? ''}`.toLowerCase()
+        const assigneeNames = (assigneeMap.get(t.id) ?? [])
+          .map((id) => assigneeOptions.find((a) => a.id === id)?.name ?? '')
+          .join(' ')
+        const haystack = `${t.title ?? ''} ${t.description ?? ''} ${t.project?.name ?? ''} ${assigneeNames} ${humanizeEnum(t.priority)} ${humanizeEnum(t.status)} ${t.dueDate ?? ''}`.toLowerCase()
         if (!haystack.includes(q)) return false
       }
       if (priorityFilter.size > 0 && !priorityFilter.has(t.priority)) return false
+      if (statusFilter.size > 0 && !statusFilter.has(t.status)) return false
       if (projectFilter && String(t.project?.id) !== projectFilter) return false
+      if (assigneeFilter) {
+        const ids = assigneeMap.get(t.id) ?? []
+        if (assigneeFilter === UNASSIGNED ? ids.length > 0 : !ids.includes(Number(assigneeFilter))) return false
+      }
+      if (!matchesDueFilter(t, dueFilter)) return false
       // "My Tasks" = the caller is one of the task's actual assignees (the
       // task-assignees join table, whoever assigned them) — not its creator.
       if (myTasksOnly && !(assigneeMap.get(t.id) ?? []).includes(profile?.id)) return false
       return true
     })
-  }, [list, search, priorityFilter, projectFilter, myTasksOnly, assigneeMap, profile])
+  }, [list, search, assigneeOptions, priorityFilter, statusFilter, projectFilter, assigneeFilter, dueFilter, myTasksOnly, assigneeMap, profile])
 
-  // Project name -> To do/Doing/Done -> its tasks (sorted by the current
+  // Project name -> one group per status -> its tasks (sorted by the current
   // sort choice) -> each task's subtasks, fetched on demand when expanded
   // (see toggleExpand) — there's no bulk "all subtasks for these tasks"
   // endpoint, only GET /api/subtasks/task/{taskId}, same as TaskDetailPanel.
@@ -188,7 +262,7 @@ export function Tasks() {
         title: s.title,
         assigneeId: s.assigneeId,
         dueDate: s.dueDate,
-        status: s.status === 'COMPLETED' ? 'TO_DO' : 'COMPLETED',
+        status: s.status === 'COMPLETED' ? 'TODO' : 'COMPLETED',
       })
       await loadSubtasksFor(task.id)
       // completedSubtasks/totalSubtasks on the task row (and the quick-advance
@@ -201,7 +275,7 @@ export function Tasks() {
       // it out of To Do the way it would for an unblocked task. Surfaced
       // here rather than left silent so the still-To-Do status after
       // checking a box doesn't read as this feature being broken.
-      if (task.status === 'TO_DO' && task.blocked) {
+      if (task.status === 'TODO' && task.blocked) {
         notify(`${blockedReason(task)} — status stays To Do until then.`, { tone: 'info' })
       }
     } catch (err) {
@@ -239,6 +313,7 @@ export function Tasks() {
     // can change its own project's %, so the group header would show a
     // stale number until the next full page load without this.
     refetchProjects()
+    refetchPending()
     // TaskDetailPanel's own subtask edits (toggle/add/remove) don't touch
     // this page's separately-fetched/cached subtask preview — without this,
     // an already-expanded row kept showing the stale, pre-edit list after
@@ -246,6 +321,15 @@ export function Tasks() {
     if (activeTask && subtasksByTask.has(activeTask.id)) {
       loadSubtasksFor(activeTask.id)
     }
+  }
+
+  const toggleStatusFilter = (st) => {
+    setStatusFilter((prev) => {
+      const next = new Set(prev)
+      if (next.has(st)) next.delete(st)
+      else next.add(st)
+      return next
+    })
   }
 
   const togglePriorityFilter = (p) => {
@@ -259,20 +343,21 @@ export function Tasks() {
 
   const advanceTask = async (task, e) => {
     e.stopPropagation()
-    if (!canAdvanceStatus(task.status, can('TASK', 'APPROVE', task.project?.id))) return
+    const canApproveIt = canApproveTask(permissions, profile?.id, task, (assigneeMap.get(task.id) ?? []).includes(profile?.id))
+    if (!canAdvanceStatus(task.status, canApproveIt)) return
     // The one step this quick-advance control can attempt that's actually
-    // gated: Doing -> Done requires every subtask complete (see
+    // gated: In Progress -> Completed requires every subtask complete (see
     // TaskDetailPanel's identical check and, ultimately,
     // database/init/01-init.sql's check_task_not_completed_with_open_subtasks
     // trigger, which would reject this the same way if this check weren't
     // here first). Checked here so the button doesn't fire a doomed request.
     const movingToDoing = task.status === 'IN_PROGRESS' || task.status === 'IN_REVIEW'
     if (movingToDoing && task.totalSubtasks > 0 && task.completedSubtasks < task.totalSubtasks) {
-      notify('Complete all subtasks before marking this task as done.', { tone: 'error' })
+      notify('Complete all subtasks before marking this task as completed.', { tone: 'error' })
       return
     }
     try {
-      await advanceTaskStatus(task, can('TASK', 'APPROVE', task.project?.id))
+      await advanceTaskStatus(task, canApproveIt)
       refetchAll()
     } catch (err) {
       notify(err.message || 'Failed to update task', { tone: 'error' })
@@ -306,6 +391,7 @@ export function Tasks() {
         actions={
           <>
             <Dropdown
+              panelClassName="max-h-[70vh] overflow-y-auto"
               button={({ toggle }) => (
                 <button className="btn btn-secondary" onClick={toggle}>
                   <SlidersHorizontal size={15} /> Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
@@ -341,6 +427,58 @@ export function Tasks() {
                   </div>
                   <div>
                     <span className="text-faint mb-1.5 block text-[12px] font-[650] tracking-[0.04em] uppercase">
+                      Status
+                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      {STATUS_OPTIONS.map((st) => (
+                        <label
+                          key={st}
+                          className="hover:bg-subtle flex items-center gap-2 rounded-sm px-1.5 py-1 text-[13px]"
+                        >
+                          <input type="checkbox" checked={statusFilter.has(st)} onChange={() => toggleStatusFilter(st)} />
+                          {humanizeEnum(st)}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-faint mb-1.5 block text-[12px] font-[650] tracking-[0.04em] uppercase">
+                      Assignee
+                    </span>
+                    <select
+                      value={assigneeFilter}
+                      onChange={(e) => setAssigneeFilter(e.target.value)}
+                      className="field field-sm w-full"
+                      aria-label="Assignee"
+                    >
+                      <option value="">Anyone</option>
+                      <option value={UNASSIGNED}>Unassigned</option>
+                      {assigneeOptions.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <span className="text-faint mb-1.5 block text-[12px] font-[650] tracking-[0.04em] uppercase">
+                      Due date
+                    </span>
+                    <select
+                      value={dueFilter}
+                      onChange={(e) => setDueFilter(e.target.value)}
+                      className="field field-sm w-full"
+                      aria-label="Due date"
+                    >
+                      {DUE_OPTIONS.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <span className="text-faint mb-1.5 block text-[12px] font-[650] tracking-[0.04em] uppercase">
                       Project
                     </span>
                     <select
@@ -362,6 +500,9 @@ export function Tasks() {
                       className="text-muted hover:text-ink text-left text-[12px] font-semibold"
                       onClick={() => {
                         setPriorityFilter(new Set())
+                        setStatusFilter(new Set())
+                        setAssigneeFilter('')
+                        setDueFilter('')
                         setProjectFilter('')
                         setMyTasksOnly(false)
                         close()
@@ -431,6 +572,34 @@ export function Tasks() {
             </div>
           ))}
 
+        {(pendingApprovals ?? []).length > 0 && (
+          <div data-testid="pending-approvals" className="bg-warning-soft rounded-2xl p-3 sm:p-4">
+            <h3 className="text-warning-ink mb-2.5 flex items-center gap-2 px-1 text-[15px] font-[650]">
+              <ClipboardCheck size={17} /> Awaiting your approval · {pendingApprovals.length}
+            </h3>
+            <div className="flex flex-col gap-1.5">
+              {pendingApprovals.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setActiveTaskId(a.taskId)}
+                  className="bg-card border-border hover:shadow-card-hover flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md border px-3.5 py-2.5 text-left transition"
+                >
+                  <span className="min-w-0">
+                    <span className="text-ink block truncate text-[13px] font-semibold">
+                      {taskDisplayTitle(a.taskTitle, a.projectName)}
+                    </span>
+                    <span className="text-muted block truncate text-[12px]">{a.projectName}</span>
+                  </span>
+                  <span className="text-muted text-[12px]">
+                    Requested by {a.requestedBy?.fullName ?? 'someone'} · {timeAgo(a.requestedAt)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {projectGroups.map((group) => {
           const canAddToProject = group.project != null && can('TASK', 'CREATE', group.project.id)
           const projectProgress = group.project ? Math.round(Number(group.project.progress ?? 0)) : null
@@ -486,7 +655,7 @@ export function Tasks() {
                 const assigneeIds = assigneeMap.get(t.id) ?? []
                 const canEditThisTask = can('TASK', 'EDIT', t.project?.id)
                 const canDeleteThisTask = can('TASK', 'DELETE', t.project?.id)
-                const canApproveThisTask = can('TASK', 'APPROVE', t.project?.id)
+                const canApproveThisTask = canApproveTask(permissions, profile?.id, t, assigneeIds.includes(profile?.id))
                 const canEditSubtasks = can('SUBTASK', 'EDIT', t.project?.id)
                 // Quick-advance is only offered to someone who may change this
                 // task's status: an editor, or an assignee (TASK_STATUS:EDIT).
@@ -495,7 +664,7 @@ export function Tasks() {
                 const done = t.status === 'COMPLETED'
                 const cancelled = t.status === 'CANCELLED'
                 const doing = t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW'
-                // The button always stays clickable while in Doing — even
+                // The button always stays clickable while In Progress/In Review — even
                 // with incomplete subtasks — rather than going quietly
                 // disabled. Clicking it then is what surfaces the blocked
                 // reason (see advanceTask's notify call): an active message
@@ -506,13 +675,13 @@ export function Tasks() {
                 const advanceable = canChangeStatus && canAdvanceStatus(t.status, canApproveThisTask)
                 // A control the user cannot use is not a button at all: just the status icon.
                 const AdvanceTag = advanceable ? 'button' : 'span'
-                const advanceLabel = t.status === 'TO_DO'
-                  ? 'Move to Doing'
+                const advanceLabel = t.status === 'TODO'
+                  ? 'Move to In Progress'
                   : blockedBySubtasks
-                    ? 'Complete all subtasks before marking this task as done'
+                    ? 'Complete all subtasks before marking this task as completed'
                     : doing
                       ? canApproveThisTask
-                        ? 'Mark as Done'
+                        ? 'Mark as Completed'
                         : t.status === 'IN_REVIEW'
                           ? 'Awaiting approval'
                           : 'Submit for review'
@@ -525,6 +694,7 @@ export function Tasks() {
                 return (
                   <div key={t.id} className="flex flex-col gap-1">
                     <div
+                      data-testid="task-row"
                       onClick={() => setActiveTaskId(t.id)}
                       className="group bg-card border-border hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in flex cursor-pointer flex-wrap items-center gap-2.5 rounded-md border px-3.5 py-2.5 transition hover:-translate-y-px sm:flex-nowrap"
                       style={{ animationDelay: `${Math.min(i, 8) * 30}ms`, animationFillMode: 'backwards' }}
@@ -575,6 +745,7 @@ export function Tasks() {
                               <AlertTriangle size={12} /> Overdue
                             </span>
                           )}
+                          <ApprovalChip task={t} />
                           {t.blocked && (
                             <span
                               title={blockedReason(t)}
@@ -589,6 +760,12 @@ export function Tasks() {
                             </span>
                           )}
                           <TimeChip task={t} />
+                          {t.totalChecklistItems > 0 && (
+                            <span className="text-muted inline-flex items-center gap-1 text-[12px]">
+                              <ListTodo size={12} />
+                              {t.completedChecklistItems}/{t.totalChecklistItems} checklist
+                            </span>
+                          )}
                           {t.totalSubtasks > 0 && (
                             <span className="text-muted inline-flex items-center gap-1 text-[12px]">
                               <ListChecks size={12} />

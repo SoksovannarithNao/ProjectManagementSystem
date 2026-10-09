@@ -27,18 +27,21 @@ public class MilestoneService {
     private final ProjectMemberRepository projectMemberRepository;
     private final UserRepository userRepository;
     private final ProjectAccessGuard projectAccessGuard;
+    private final ActivityLogService activityLogService;
 
     public MilestoneService(
             MilestoneRepository milestoneRepository,
             ProjectRepository projectRepository,
             ProjectMemberRepository projectMemberRepository,
             UserRepository userRepository,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            ActivityLogService activityLogService) {
         this.milestoneRepository = milestoneRepository;
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
+        this.activityLogService = activityLogService;
     }
 
     // Previously an unscoped findAll() with no username parameter at all —
@@ -89,10 +92,14 @@ public class MilestoneService {
 
     // Requires OWNER/ADMIN (or system ADMINISTRATOR) of the target project.
     public MilestoneResponse createMilestone(MilestoneRequest request, String username) {
-        projectAccessGuard.assertCan(requireUser(username), request.getProjectId(), Resource.MILESTONE, Action.CREATE);
+        User caller = requireUser(username);
+        projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.MILESTONE, Action.CREATE);
         Milestone milestone = new Milestone();
         applyRequest(milestone, request);
-        return new MilestoneResponse(milestoneRepository.save(milestone));
+        Milestone saved = milestoneRepository.save(milestone);
+        activityLogService.recordProjectEvent(caller, saved.getProject(), "MILESTONE_CREATED",
+                "Milestone \"" + saved.getTitle() + "\" created");
+        return new MilestoneResponse(saved);
     }
 
     public MilestoneResponse updateMilestone(Long id, MilestoneRequest request, String username) {
@@ -105,8 +112,14 @@ public class MilestoneService {
         if (request.getProjectId() != null && !request.getProjectId().equals(currentProjectId)) {
             projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.MILESTONE, Action.EDIT);
         }
+        String previousStatus = milestone.getStatus();
         applyRequest(milestone, request);
-        return new MilestoneResponse(milestoneRepository.save(milestone));
+        Milestone saved = milestoneRepository.save(milestone);
+        if ("COMPLETED".equals(saved.getStatus()) && !"COMPLETED".equals(previousStatus)) {
+            activityLogService.recordProjectEvent(caller, saved.getProject(), "MILESTONE_COMPLETED",
+                    "Milestone \"" + saved.getTitle() + "\" completed");
+        }
+        return new MilestoneResponse(saved);
     }
 
     public void deleteMilestone(Long id, String username) {

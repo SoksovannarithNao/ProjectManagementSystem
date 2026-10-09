@@ -10,10 +10,10 @@ Severity: **High** = breaks a stated security or data-isolation requirement · *
 
 | Group | Count |
 |---|---|
-| Open defects and risks (section 2) | 13 (I-08, I-09, I-11 … I-18, I-20, I-21, I-22; I-01 … I-07 were fixed on 2026-10-06, I-10 and I-19 on 2026-10-08) |
-| Cross-layer inconsistencies (section 3) | 4 open (X-01, X-03, X-05 and X-07 fixed or addressed; X-06 partly) |
+| Open defects and risks (section 2) | 12 (I-08, I-09, I-11 … I-18, I-20, I-21; I-01 … I-07 were fixed on 2026-10-06, I-10 and I-19 on 2026-10-08, I-22 on 2026-10-09) |
+| Cross-layer inconsistencies (section 3) | 3 open (X-01, X-02, X-03, X-05 and X-07 fixed or addressed; X-06 partly) |
 | Documentation drift (section 4) | 9 (5 corrected on 2026-10-06) |
-| Fixed (section 5) | 23 recorded |
+| Fixed (section 5) | 31 recorded |
 | In progress (section 6) | none found |
 | Planned (section 7) | 12 |
 
@@ -29,22 +29,24 @@ IDs I-01 … I-07 are intentionally absent: those defects are fixed and recorded
 | I-09 | Medium | **Login rate limit may not work per client in Docker.** The key uses `getRemoteAddr()`; behind nginx with no forwarded-header handling it is probably the proxy's address for everyone, so one attacker could lock a username for all clients (the exact case the code comment says it avoids) | needs verification | `AuthController.login`, `LoginRateLimiter` |
 | I-11 | Medium | **Raw database messages reach clients** for `CHECK` and most unique-constraint violations (`new row for relation "projects" violates check constraint "projects_check"`, `duplicate key value violates unique constraint "idx_users_username_lower"`). Only the project code is translated (to a 409). The frontend validates dates first, so users rarely see it, but API callers do | verified live | `GlobalExceptionHandler.handleDataIntegrityViolation` |
 | I-12 | Medium | **Invitations are invisible if the invitee turned notifications off.** The notification is the only place the UI offers Accept/Decline, and every notification producer honours `task_notifications_enabled`. The `PENDING` row then waits indefinitely | by code reading | `NotificationService.notifyTeamInvitation`, `layout/TopBar.jsx` |
-| I-13 | Low | No UI to **list or cancel** pending invitations (only a count); no UI to **change a member's project role** (invitees always join as `MEMBER`) | by code reading | `ProjectDetail.jsx`, `Team.jsx` |
+| I-13 | Low | No UI to **list or cancel** pending invitations (only a count). (The UI to change a member's project role and transfer ownership was added on 2026-10-09, F-30) | by code reading | `ProjectDetail.jsx`, `Team.jsx` |
 | I-14 | Low | **Abandoned registrations** keep the username and email reserved forever; no expiry or cleanup | by code reading | `UserService.registerSelfServiceUser` |
-| I-15 | Low | Not validated anywhere: a reply's parent comment may belong to another task; a task dependency may join tasks in different projects | by code reading | `CommentService.createComment`, `TaskDependencyService`, schema |
-| I-16 | Low | `TASK_DELETED` activity entries are stored without a task link and are **not returned by any endpoint** (the only read is per task); other allowed actions (project, milestone, comment, file events) are never written; there is no project-wide feed | by code reading | `ActivityLogService.recordForDeletedTask` |
-| I-17 | Low | Notification behaviour: a status change notifies **the actor too**; the subtask auto-promotion changes status but creates **no notification**; unassigning notifies nobody | by code reading | `NotificationService`, `SubtaskService.startTaskIfStillToDo` |
+| I-15 | Low | Not validated: a task dependency may join tasks in different projects. (A reply's parent comment belonging to another task is now refused, 2026-10-09, F-28) | by code reading | `CommentService.createComment`, `TaskDependencyService`, schema |
+| I-16 | Low | ~~`TASK_DELETED` activity entries are stored without a task link and are not returned by any endpoint; project, milestone, comment and file events are never written; there is no project-wide feed~~ — **fixed 2026-10-09** (F-29): the project feed returns them and the events are written. Still true: the audit log (optional) does not exist | by code reading | `ActivityLogService.recordForDeletedTask` |
+| I-17 | Low | Notification behaviour (approval notifications never go to the actor): a status change notifies **the actor too**; the subtask auto-promotion changes status but creates **no notification**; unassigning notifies nobody | by code reading | `NotificationService`, `SubtaskService.startTaskIfStillToDo` |
 | I-18 | Low | Project data rules: a project can be marked `COMPLETED` with unfinished tasks; no project completion date is stored; `kpi_snapshots (snapshot_date, project_id)` is unique but NULLs are distinct, so org-wide snapshots are not de-duplicated; project-code generation can race (the loser gets a `409` and must retry) | by code reading | `ProjectService`, `01-init.sql` |
-| I-20 | Medium | **The application still differs from the approved specification in a few places** ([ADR-0015](adr/0015-two-level-roles-system-and-project.md), [assignment-brief.md](../assignment-brief.md) §B13.1). The two-level role model, one owner per project and the Team Member limits are done (`V10`); still open: the approval workflow (request / approve / changes requested / reject, designated approver, notifications), creating extra system roles (D-14), users editing their own position/department (D-16), the stored status `TO_DO` vs `TODO` (D-15). Missing required features: checklists, attachments, KPIs, Team Tasks, project timeline, Delayed calculation, named reports, auto-logout, login by email, reminders, project filters | comparison of the code with the approved specification; [workflow-conformance.md](workflow-conformance.md) | see B13.1 |
-| I-21 | Low | **Live data: three task assignments point at people who are not members of the task's project** (tasks 2, 3 and 5 of PRJ-2001 are assigned to `lead.owen`, who has no PRJ-2001 membership in the live database though the seed gives him one). `verify_invariants.sql` query 3 returns these rows on the live database; it passes on a freshly seeded one. Already present in a backup taken before any of the 2026-10-08 work; probably left by an earlier test run. Not touched | `database/verify_invariants.sql` query 3 against the live database | live data only |
-| I-22 | Low | **An unknown API path returns `500 "An unexpected error occurred"`, not `404`.** Spring's "no static resource" exception reaches the catch-all handler in `GlobalExceptionHandler`, so every mistyped URL logs a stack trace. Seen on all 17 probes of missing endpoints in [workflow-conformance.md](workflow-conformance.md) | live probes | `exception/GlobalExceptionHandler.java` |
+| I-20 | Medium | **The application still differs from the approved specification in a few places** ([ADR-0015](adr/0015-two-level-roles-system-and-project.md), [assignment-brief.md](../assignment-brief.md) §B13.1). The two-level role model, one owner per project and the Team Member limits are done (`V10`); still open: creating extra system roles (D-14). Done on 2026-10-09: own position/department (D-16), the stored status `TODO` (D-15) (batch 1) and the approval workflow with a designated approver and notifications (batch 2, `V12`). Missing required features: auto-logout and reminders (the KPIs and the seven named reports were built on 2026-10-09, batch 3c; Team Tasks, the project timeline and the Delayed calculation in batch 3b; checklists, attachments, comment replies in the UI and project activity were built on 2026-10-09, batch 3a) | comparison of the code with the approved specification; [workflow-conformance.md](workflow-conformance.md) | see B13.1 |
+| I-21 | Low | **Live data: three task assignments point at people who are not members of the task's project** (tasks 2, 3 and 5 of PRJ-2001 are assigned to `lead.owen`, who has no PRJ-2001 membership in the live database though the seed gives him one). `verify_invariants.sql` query 3 returns these rows on the live database; it passes on a freshly seeded one. Already present in a backup taken before any of the 2026-10-08 work; probably left by an earlier test run. Not touched. **2026-10-09:** the query returns no rows any more (checked after batch 2); the cause of the change is not known, so keep watching it | `database/verify_invariants.sql` query 3 against the live database | live data only |
+| I-22 | Low | ~~**An unknown API path returns `500 "An unexpected error occurred"`, not `404`.** Spring's "no static resource" exception reaches the catch-all handler in `GlobalExceptionHandler`, so every mistyped URL logs a stack trace. Seen on all 17 probes of missing endpoints in [workflow-conformance.md](workflow-conformance.md)~~ — **fixed 2026-10-09** (F-24) | live probes | `exception/GlobalExceptionHandler.java` |
+
+> **I-22 fixed 2026-10-09** (F-24): `GlobalExceptionHandler.handleNoResource` answers `404 "Resource not found"`.
 
 ## 3. Inconsistencies between frontend, backend, database and tests
 
 | ID | Inconsistency | Evidence |
 |---|---|---|
 | X-01 | ~~Team page offered "+ Add New" position/department to anyone who administers a project, though `POST /api/positions` and `/api/departments` need `LOOKUP:CREATE`~~ — **fixed 2026-10-08:** the option is hidden unless the caller holds `LOOKUP:CREATE` (`LookupSelect` without `onAddNew`) | `Team.jsx`, `LookupSelect.jsx` |
-| X-02 | **Login accepts the username only**, while the requirements (and the register/login screens' wording elsewhere) imply "Username or Email" | verified in `CustomUserDetailsService`, `LoginRequest` |
+| X-02 | ~~**Login accepts the username only**, while the requirements imply "Username or Email"~~ — **fixed 2026-10-09:** the login accepts the e-mail address too (`UserService.resolveLoginIdentifier`) and the form says "Username or email" | `AuthService`, `Login.jsx`; `batch1.spec.js` |
 | X-03 | ~~Frontend permission helpers vs backend disagreed about `VIEWER`~~ — **fixed 2026-10-06:** the backend now refuses `VIEWER` writes and the task panel hides the comment box and subtask controls from viewers | live + e2e |
 | X-04 | **`init/01-init.sql` vs Flyway migrations:** the migrations lack the task/subtask consistency objects (`check_task_not_completed_with_open_subtasks`, `trg_tasks_not_completed_with_open_subtasks`, `fn_compute_task_progress_from_subtasks`, `trg_subtasks_sync_parent_task`, `trg_tasks_progress_derived_from_subtasks`). A database built from migrations would not enforce them | verified by search |
 | X-05 | **CI vs local database:** CI uses `postgres:16`, local Compose uses `postgres:18-alpine`. The grant lists were brought back in line on 2026-10-08 (CI and `03-app-role.sh` now grant the same 17 tables plus `SELECT` on `permissions`) | verified in `ci.yml`, `03-app-role.sh` |
@@ -94,6 +96,15 @@ IDs I-01 … I-07 are intentionally absent: those defects are fixed and recorded
 | F-21 *(was I-10)* | **Built-in roles are protected:** a built-in role (`ADMINISTRATOR`, `PROJECT_MANAGER`, `USER`, `OWNER`, `ADMIN`, `MEMBER`, `VIEWER`) cannot be renamed or deleted, so the administrator bypass cannot be broken through the roles API | 2026-10-08; `RoleService`, `roles.built_in` |
 | F-22 *(was X-01)* | **"+ Add New" position/department is hidden** from people without `LOOKUP:CREATE` instead of failing with `403` | 2026-10-08; `LookupSelect.jsx`, `Team.jsx` |
 | F-23 *(was I-19)* | **A project whose only active owner is one person can be deleted again.** The V8 "at least one owner" trigger blocked the cascade; `V10` replaces it with a deferred "exactly one owner" check that skips a project being deleted | 2026-10-08; `V10`, `e2e/roles-permissions.spec.js` (the owner deletes a single-owner project) |
+| F-24 *(was I-22)* | **An unknown API path answers `404 "Resource not found"`** instead of `500` with a stack trace | 2026-10-09; `GlobalExceptionHandlerTest`, `batch1.spec.js` |
+| F-25 *(was X-02)* | **Sign in with username or e-mail**; login form label updated | 2026-10-09; `UserServiceTest` (3), `batch1.spec.js` (2) |
+| F-26 | **Change-plan batch 1 alignment with the specification:** Completed / In Review labels (C-01, X-4), assignment notification text, users set their own position/department (D-16), project and task filters and sorting (B1.9, in the browser), stored status `TODO` (D-15, `V11`) | 2026-10-09; [change-plan.md](change-plan.md) §3; `NotificationServiceTest`, `TextFormatTest`, `UserServiceTest`, `batch1.spec.js` |
+| F-27 | **Task approval workflow** (B3.8, D-05): approval records, a designated approver, Approved / Changes requested / Rejected with comments, no approving your own work, activity entries and notifications; completing through the ordinary task edit is recorded as the approval | 2026-10-09; `V12`; `TaskApprovalServiceTest`, `TaskServiceTest`, `approvals.spec.js` |
+| F-28 | **Comment replies** work from the UI, and a reply must belong to the same task as its parent (I-15, first half) | 2026-10-09; `CommentServiceTest`, `collaboration.spec.js` |
+| F-29 | **Attachments, checklists and the project activity feed** (change-plan 3a): files up to 10 MB on tasks and projects with a type allow-list; checklist items counted in progress (D-07); project, milestone, comment and file events and `GET /api/activity-logs/project/{id}` (closes I-16); nginx now passes request bodies up to 12 MB (profile photos over 1 MB used to fail in Docker) | 2026-10-09; `V13`; `AttachmentServiceTest`, `ChecklistItemServiceTest`, `FileTypeGuardTest`, `ActivityLogServiceTest`, `collaboration.spec.js` |
+| F-30 | **Manager views** (change-plan 3b): server-calculated dashboard statistics, Delayed projects, Team Tasks, Team Workload (D-13), the project timeline, and a role picker / ownership transfer on the project page; `PUT /api/project-members/{id}` now enforces B3.7 / B3.9 (nobody changes their own role; a Team Leader only moves Team Members and Viewers) | 2026-10-09; `DashboardServiceTest`, `TeamViewsServiceTest`, `WorkloadClassifierTest`, `DerivedTest`, `ProjectMemberServiceTest`, `manager-views.spec.js` |
+| F-31 | **Flaky end-to-end specs**: `projects.spec.js` and `time-tracking.spec.js` opened "the first project card", which changes whenever a test creates or deletes a project (Postgres reuses freed rows). They open *Website Redesign* now | 2026-10-09; the specs |
+| F-32 | **KPIs and the seven named reports** (change-plan 3c): `GET /api/reports/*` calculated on the server and gated by `REPORT:GENERATE_REPORTS` (Administrator all projects; others only projects where they hold the permission; `403` / `404` otherwise), the approved D-12 formulas with "—" for an empty denominator, and a tab for each on the Reports page. This closes the "only the Reports page is gated" gap | 2026-10-09; `ReportServiceTest` (25), `reports.spec.js` (13) |
 
 ## 6. In progress
 
@@ -104,12 +115,12 @@ None found. The working tree contained only the new `docs/` folder when this was
 Items the project's own documents list as future work (root `README.md` → *Future Enhancements*, `backend.md` → *Next Steps*, `database.md`, requirement files) — see [roadmap.md](roadmap.md) for the full classification:
 
 1. A refresh-token flow.
-2. Server-side report endpoints gated by `REPORT:GENERATE_REPORTS` (today only the Reports page is gated).
+2. ~~Server-side report endpoints gated by `REPORT:GENERATE_REPORTS`.~~ Done 2026-10-09 (batch 3c).
 3. A scheduled job for overdue and deadline notifications.
 4. The remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `MILESTONE_UPDATED`, `DEADLINE_REMINDER`).
 5. Pagination and search/filtering on list endpoints.
 6. Wiring Flyway into startup.
-7. Entities/controllers for `checklist_items`, `attachments`, `work_logs`.
+7. ~~Entities/controllers for `checklist_items`, `attachments`, `work_logs`.~~ Done (work logs earlier; checklists and attachments on 2026-10-09).
 8. Endpoints over the reporting views, `report_exports`, `kpi_snapshots`.
 9. Broader automated tests; Playwright in CI.
 10. A deploy target for the CD pipeline.
@@ -125,9 +136,10 @@ Items the project's own documents list as future work (root `README.md` → *Fut
 - **Single task assignee in the UI** although the API supports several.
 - **Authorization is code, not data:** adding a role or permission needs a code change.
 - **Flyway is not run by the application;** the init SQL is the schema.
-- **Notifications:** 4 of 9 types are produced.
-- **Reports** are charts computed in the browser; no export.
-- **Profile photos live in the database** (portable, but bloats the `users` table and every backup).
+- **Notifications:** 6 of 11 types are produced.
+- **Reports:** the KPIs and the seven named reports are calculated on the server; the *Overview* charts are still computed in the browser; no PDF / Excel export (optional).
+- **Profile photos and attachments live in the database** (portable, but they bloat the `users` and `attachment_contents` tables and every backup; at most 10 MB x 25 files per task or project).
+- **Uploads are not virus-scanned and the upload endpoint has no rate limit of its own** (it needs a signed-in member with `ATTACHMENT:CREATE`; size, count and type are limited). A scanner and a per-user upload limit are the next hardening steps.
 - **Seed data and development secrets** are for development only.
 - **Responsive layout** has not been audited screen by screen.
 - **Each e2e run leaves a few `activity_logs` rows** (task created/deleted, subtask added/deleted for tasks the tests create and delete). They are detached from any task (`task_id` NULL) so no screen or endpoint shows them; there is no API to remove activity entries.

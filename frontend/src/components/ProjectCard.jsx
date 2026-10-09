@@ -3,6 +3,7 @@ import { CalendarDays, ListChecks, AlertTriangle } from 'lucide-react'
 import { Avatar, AvatarGroup } from './ui/Avatar'
 import { ProgressBar } from './ui/ProgressBar'
 import { Badge } from './ui/Badge'
+import { DelayedBadge } from './DelayedBadge'
 import { humanizeEnum, formatDate, initialsFor, colorForId } from '../api/format'
 
 // `stats` is optional ({ total, completed, overdue } from
@@ -23,6 +24,7 @@ export function ProjectCard({ project, stats }) {
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <Badge tone={project.status}>{humanizeEnum(project.status)}</Badge>
+          <DelayedBadge project={project} />
           {project.priority && <Badge tone={project.priority}>{humanizeEnum(project.priority)}</Badge>}
         </div>
       </div>

@@ -22,6 +22,8 @@ export function blockedReason(task) {
 
 export function humanizeEnum(value) {
   if (!value) return ''
+  // Stored as one word, labelled as two.
+  if (value === 'TODO') return 'To Do'
   return value
     .toLowerCase()
     .split('_')

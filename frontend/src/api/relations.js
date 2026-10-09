@@ -95,6 +95,9 @@ export function toProjectCard(project, memberIds = []) {
     priority: project.priority,
     manager: project.manager,
     members: memberIds,
+    // Calculated by the server (end date passed and not Completed / Cancelled), never stored.
+    delayed: Boolean(project.delayed),
+    daysDelayed: project.daysDelayed ?? 0,
   }
 }
 

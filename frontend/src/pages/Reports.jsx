@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, SlidersHorizontal, Check, BarChart3 } from 'lucide-react'
 import {
   LineChart,
@@ -24,6 +25,16 @@ import { getTasks } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { buildTaskAssigneeMap, countByValue, filterTasksByProject } from '../api/relations'
 import { computePeriodTaskStats, PERIOD_OPTIONS } from '../api/stats'
+import {
+  KpiView,
+  ProjectReportView,
+  TaskReportView,
+  ProjectStatusReportView,
+  TaskCompletionReportView,
+  OverdueReportView,
+  TeamPerformanceReportView,
+  WorkloadReportView,
+} from '../components/reports/ReportViews'
 
 const barColors = ['var(--color-charcoal)', '#66676B', '#AEB9D2', '#B9B0C8', '#7E9FC4', '#D2A85A']
 
@@ -59,7 +70,7 @@ function ChartTooltip({ active, payload, label }) {
   )
 }
 
-export function Reports() {
+function ReportsOverview() {
   const { members } = useMembers()
   const { data: projects, loading: projectsLoading } = useApi(getProjects)
   const { data: tasks, loading: tasksLoading } = useApi(getTasks)
@@ -135,11 +146,7 @@ export function Reports() {
 
   return (
     <div>
-      <TopBar
-        title="Reports"
-        subtitle="Insights across tasks, projects, and team performance"
-        actions={
-          <>
+      <div className="mb-5 flex flex-wrap items-center gap-2">
             <Dropdown
               button={({ toggle }) => (
                 <button className="btn btn-secondary" onClick={toggle}>
@@ -209,9 +216,7 @@ export function Reports() {
                 </div>
               )}
             </Dropdown>
-          </>
-        }
-      />
+      </div>
 
       <div className="mb-6 grid grid-cols-4 gap-[18px] max-[520px]:gap-3 max-[1100px]:grid-cols-2">
         {loading &&
@@ -277,6 +282,50 @@ export function Reports() {
           </ResponsiveContainer>
         </ChartCard>
       </div>
+    </div>
+  )
+}
+
+// Overview = the quick charts; the KPIs and the seven named reports are calculated on
+// the server (assignment-brief.md B8) and only the people allowed to generate reports
+// can reach this page at all.
+const TABS = [
+  { key: 'overview', label: 'Overview', view: ReportsOverview },
+  { key: 'kpis', label: 'KPIs', view: KpiView },
+  { key: 'project', label: 'Project Report', view: ProjectReportView },
+  { key: 'tasks', label: 'Task Report', view: TaskReportView },
+  { key: 'project-status', label: 'Project Status', view: ProjectStatusReportView },
+  { key: 'task-completion', label: 'Task Completion', view: TaskCompletionReportView },
+  { key: 'overdue', label: 'Overdue Tasks', view: OverdueReportView },
+  { key: 'team-performance', label: 'Team Performance', view: TeamPerformanceReportView },
+  { key: 'workload', label: 'Workload', view: WorkloadReportView },
+]
+
+export function Reports() {
+  const [params, setParams] = useSearchParams()
+  const active = TABS.find((t) => t.key === params.get('tab')) ?? TABS[0]
+  const View = active.view
+
+  return (
+    <div>
+      <TopBar title="Reports" subtitle="Insights across tasks, projects, and team performance" />
+      <div className="mb-5 flex flex-wrap items-center gap-2" role="tablist" aria-label="Reports">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={t.key === active.key}
+            onClick={() => setParams(t.key === TABS[0].key ? {} : { tab: t.key })}
+            className={`rounded-full px-3.5 py-2 text-[13px] font-semibold transition-colors ${
+              t.key === active.key ? 'bg-charcoal text-on-charcoal' : 'bg-subtle text-muted hover:text-ink'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <View />
     </div>
   )
 }

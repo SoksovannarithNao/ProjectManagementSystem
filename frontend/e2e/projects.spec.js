@@ -29,7 +29,7 @@ test('opening a project card navigates to its detail page', async ({ page }) => 
 
 test('clicking a task inside a project opens its detail panel', async ({ page }) => {
   await page.goto('/projects')
-  await page.locator('a[href^="/projects/"]').first().click()
+  await page.locator('a[href^="/projects/"]', { hasText: 'Website Redesign' }).click()
   await expect(page).toHaveURL(/\/projects\/\d+$/)
 
   await page.getByTestId('task-row').first().click()

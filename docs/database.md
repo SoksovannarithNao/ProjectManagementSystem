@@ -3,7 +3,7 @@
 PostgreSQL schema as it actually exists. **Sources read:** `database/init/01-init.sql` (what Docker and CI execute), `02-seed.sql`, `03-app-role.sh`, `database/verify_invariants.sql`, and the Flyway migrations `database/taskmanager/migrations/V1…V10`. This page is both the structural reference (sections 1-10) and the operational guide that used to live in `database/README.md` (sections 11-14: running and inspecting, design decisions, authorization, backend coverage; migration details are in section 8). The folder README was removed.
 
 - **22 tables**, 5 views, and 23 triggers: 7 `updated_at` triggers plus 16 rule/derivation triggers (see [section 5](#5-triggers-and-functions)).
-- **18 tables** have JPA entities and repositories; **4 do not** (`checklist_items`, `attachments`, `report_exports`, `kpi_snapshots`). `permissions` and `role_permissions` are read by the backend since migration `V9`. Hibernate runs with `ddl-auto=validate`.
+- **22 tables** have JPA entities and repositories; **2 do not** (`report_exports`, `kpi_snapshots`). `permissions` and `role_permissions` are read by the backend since migration `V9`. Hibernate runs with `ddl-auto=validate`.
 - Conventions: `BIGINT GENERATED ALWAYS AS IDENTITY` primary keys; timestamps are `TIMESTAMPTZ`; enum-like columns are `VARCHAR` + `CHECK` (not native enums).
 
 ## 1. Entity-relationship diagram
@@ -26,6 +26,9 @@ erDiagram
     projects ||--o{ tasks : "CASCADE"
     milestones |o--o{ tasks : "milestone_id (SET NULL)"
     users |o--o{ tasks : "created_by (SET NULL)"
+    users |o--o{ tasks : "approver_id (SET NULL)"
+    tasks ||--o{ task_approvals : "CASCADE"
+    users |o--o{ task_approvals : "requested_by / decided_by (SET NULL)"
     tasks ||--o{ task_assignees : "CASCADE"
     users ||--o{ task_assignees : "CASCADE"
     tasks ||--o{ task_dependencies : "task_id (CASCADE)"
@@ -75,7 +78,7 @@ erDiagram
         bigint id PK
         bigint project_id FK
         bigint milestone_id FK "nullable"
-        varchar status "TO_DO|IN_PROGRESS|IN_REVIEW|COMPLETED|CANCELLED"
+        varchar status "TODO|IN_PROGRESS|IN_REVIEW|COMPLETED|CANCELLED"
         date start_date
         date due_date
     }
@@ -117,11 +120,11 @@ All enforced by `CHECK` constraints in `01-init.sql` (and mirrored by `@Pattern`
 | `project_members.status` | `PENDING`, `ACTIVE`, `DECLINED` | `ACTIVE` |
 | `milestones.status` | `PENDING`, `IN_PROGRESS`, `COMPLETED` | `PENDING` |
 | `tasks.priority` | `LOW`, `MEDIUM`, `HIGH`, `URGENT` | `MEDIUM` |
-| `tasks.status` | `TO_DO`, `IN_PROGRESS`, `IN_REVIEW`, `COMPLETED`, `CANCELLED` | `TO_DO` |
-| `subtasks.status` | `TO_DO`, `IN_PROGRESS`, `COMPLETED` | `TO_DO` |
+| `tasks.status` | `TODO`, `IN_PROGRESS`, `IN_REVIEW`, `COMPLETED`, `CANCELLED` | `TODO` |
+| `subtasks.status` | `TODO`, `IN_PROGRESS`, `COMPLETED` | `TODO` |
 | `otp_verifications.purpose` | `REGISTRATION` | `REGISTRATION` |
-| `notifications.type` | `TASK_ASSIGNED`, `TASK_STATUS_CHANGED`, `COMMENT_ADDED`, `PROJECT_UPDATED`, `DEADLINE_REMINDER`, `OVERDUE_TASK`, `MILESTONE_UPDATED`, `TEAM_INVITATION`, `TEAM_INVITATION_RESPONDED` | — |
-| `activity_logs.action` | `PROJECT_CREATED`, `PROJECT_UPDATED`, `PROJECT_COMPLETED`, `TASK_CREATED`, `TASK_DELETED`, `TASK_ASSIGNED`, `TASK_UNASSIGNED`, `TASK_STATUS_CHANGED`, `TASK_PRIORITY_CHANGED`, `TASK_DUE_DATE_CHANGED`, `TASK_COMPLETED`, `SUBTASK_ADDED`, `SUBTASK_COMPLETED`, `SUBTASK_DELETED`, `COMMENT_ADDED`, `FILE_UPLOADED`, `MILESTONE_CREATED`, `MILESTONE_COMPLETED` | — |
+| `notifications.type` | `TASK_ASSIGNED`, `TASK_STATUS_CHANGED`, `COMMENT_ADDED`, `PROJECT_UPDATED`, `DEADLINE_REMINDER`, `OVERDUE_TASK`, `MILESTONE_UPDATED`, `TEAM_INVITATION`, `TEAM_INVITATION_RESPONDED`, `APPROVAL_REQUESTED`, `APPROVAL_DECIDED` | — |
+| `activity_logs.action` | `PROJECT_CREATED`, `PROJECT_UPDATED`, `PROJECT_COMPLETED`, `TASK_CREATED`, `TASK_DELETED`, `TASK_ASSIGNED`, `TASK_UNASSIGNED`, `TASK_STATUS_CHANGED`, `TASK_PRIORITY_CHANGED`, `TASK_DUE_DATE_CHANGED`, `TASK_COMPLETED`, `SUBTASK_ADDED`, `SUBTASK_COMPLETED`, `SUBTASK_DELETED`, `COMMENT_ADDED`, `FILE_UPLOADED`, `MILESTONE_CREATED`, `MILESTONE_COMPLETED`, `TASK_APPROVAL_REQUESTED`, `TASK_APPROVED`, `TASK_CHANGES_REQUESTED`, `TASK_REJECTED`, `TASK_APPROVER_SET` | — |
 | `report_exports.report_type` | `PROJECT_REPORT`, `TASK_REPORT`, `PROJECT_STATUS_REPORT`, `TASK_COMPLETION_REPORT`, `OVERDUE_TASK_REPORT`, `TEAM_PERFORMANCE_REPORT`, `WORKLOAD_REPORT` | — |
 | `report_exports.file_format` | `PDF`, `EXCEL` | — |
 
@@ -137,7 +140,7 @@ Legend: **PK** primary key · **FK** foreign key (with `ON DELETE`) · **UQ** un
 
 **`permissions`** — action catalog. `id` PK; `code` varchar(30) NN **UQ**; `description`. Seed: `VIEW`, `CREATE`, `EDIT`, `DELETE`, `ASSIGN`, `APPROVE`, `GENERATE_REPORTS` *(implemented — read-only)*.
 
-**`role_permissions`** *(implemented)* — the permission matrix. Composite PK `(role_id, permission_id, resource, scope)`; `role_id`, `permission_id` FK `CASCADE`; `resource` varchar(30) NN (`PROJECT`, `MILESTONE`, `MEMBER`, `TASK`, `TASK_STATUS`, `SUBTASK`, `COMMENT`, `WORK_LOG`, `REPORT`, `USER`, `ROLE`, `LOOKUP`); `scope` varchar(10) NN CHECK `SYSTEM`/`PROJECT`; index on `permission_id`. Seed: **163 rows** — Administrator 84, Project Manager 2 (`PROJECT:CREATE`, `REPORT:GENERATE_REPORTS`), Owner 30, Admin 28, Member 12, Viewer 7, User 0. The matrix is listed in [authentication-authorization.md](authentication-authorization.md#52-project-scope-matrix); the SQL is `V10` / `01-init.sql`.
+**`role_permissions`** *(implemented)* — the permission matrix. Composite PK `(role_id, permission_id, resource, scope)`; `role_id`, `permission_id` FK `CASCADE`; `resource` varchar(30) NN (`PROJECT`, `MILESTONE`, `MEMBER`, `ATTACHMENT`, `CHECKLIST_ITEM`, `TASK`, `TASK_STATUS`, `SUBTASK`, `COMMENT`, `WORK_LOG`, `REPORT`, `USER`, `ROLE`, `LOOKUP`); `scope` varchar(10) NN CHECK `SYSTEM`/`PROJECT`; index on `permission_id`. Seed: **163 rows** — Administrator 84, Project Manager 2 (`PROJECT:CREATE`, `REPORT:GENERATE_REPORTS`), Owner 30, Admin 28, Member 12, Viewer 7, User 0. The matrix is listed in [authentication-authorization.md](authentication-authorization.md#52-project-scope-matrix); the SQL is `V10` / `01-init.sql`.
 
 **`positions`**, **`departments`** *(implemented)* — org-wide lookup lists. `id` PK; `name` varchar(100) NN; `description` varchar(255); `created_at`. Unique index on `LOWER(name)`.
 
@@ -176,7 +179,9 @@ Indexes: `idx_users_username_lower`, `idx_users_email_lower` (unique), `idx_user
 
 ### 3.3 Tasks
 
-**`tasks`** *(implemented)* — `id` PK; `project_id` NN FK → `projects` `CASCADE`; `milestone_id` FK → `milestones` `SET NULL`; `title` varchar(200) NN; `description` text; `priority`, `status`; `start_date`, `due_date` date **NN**; `estimated_hours` NUMERIC(6,2); `progress` NN default 0; `completed_at` timestamptz; `created_by` FK → `users` `SET NULL`; `created_at`, `updated_at`. `CHECK (due_date >= start_date)`. Indexes: `project_id`, `milestone_id`, `created_by`, `status`, `due_date`.
+**`tasks`** *(implemented)* — `id` PK; `project_id` NN FK → `projects` `CASCADE`; `milestone_id` FK → `milestones` `SET NULL`; `title` varchar(200) NN; `description` text; `priority`, `status`; `start_date`, `due_date` date **NN**; `estimated_hours` NUMERIC(6,2); `progress` NN default 0; `completed_at` timestamptz; `created_by` FK → `users` `SET NULL`; `approver_id` FK → `users` `SET NULL` (the approver named for this task, optional, V12); `created_at`, `updated_at`. `CHECK (due_date >= start_date)`. Indexes: `project_id`, `milestone_id`, `created_by`, `approver_id`, `status`, `due_date`.
+
+**`task_approvals`** *(implemented, V12)* — one row per review request. `id` PK; `task_id` NN FK → `tasks` `CASCADE`; `requested_by` FK → `users` `SET NULL`; `requested_at` NN; `decided_by` FK → `users` `SET NULL`; `decided_at`; `decision` NN default `PENDING` (`PENDING`, `APPROVED`, `CHANGES_REQUESTED`, `REJECTED`, `WITHDRAWN`); `comment` varchar(1000). `CHECK`: `decided_at` is null exactly while the decision is `PENDING`. Indexes: `task_id`, `decision`, and a **partial unique index** `(task_id) WHERE decision = 'PENDING'` (one open request per task).
 
 **`task_assignees`** *(implemented)* — `id` PK; `task_id` NN FK `CASCADE`; `user_id` NN FK `CASCADE`; `assigned_at` NN. **`UNIQUE (task_id, user_id)`**. Indexes on both FKs.
 
@@ -184,11 +189,13 @@ Indexes: `idx_users_username_lower`, `idx_users_email_lower` (unique), `idx_user
 
 **`subtasks`** *(implemented)* — `id` PK; `task_id` NN FK `CASCADE`; `title` varchar(200) NN; `assignee_id` FK → `users` `SET NULL`; `due_date`; `status`; `created_at`, `updated_at`. Indexes: `task_id`, `assignee_id`.
 
-**`checklist_items`** — `id` PK; `task_id` NN FK `CASCADE`; `content` varchar(300) NN; `is_completed` boolean NN default false; `sort_order` int NN default 0; `created_at`, `updated_at`. Index on `task_id`. **No entity/API/UI.**
+**`checklist_items`** — `id` PK; `task_id` NN FK `CASCADE`; `content` varchar(300) NN; `is_completed` boolean NN default false; `sort_order` int NN default 0; `created_by` FK → `users` `SET NULL` (V13: who added it, so an author may delete their own); `created_at`, `updated_at`. Indexes on `task_id`, `created_by`. Trigger `trg_checklist_items_sync_parent_task` keeps the task's progress current (V13). *(implemented)*
 
 **`comments`** *(implemented)* — `id` PK; `task_id` NN FK `CASCADE`; `user_id` NN FK `CASCADE`; `parent_comment_id` FK → `comments` `CASCADE`; `message` text NN; `created_at`, `updated_at`. Indexes: `task_id`, `user_id`, `parent_comment_id`.
 
-**`attachments`** — `id` PK; `project_id` FK `CASCADE`; `task_id` FK `CASCADE`; `uploaded_by` FK → `users` `SET NULL`; `file_name` varchar(255) NN; `file_url` varchar(500) NN; `file_size` bigint; `mime_type` varchar(100); `uploaded_at` NN. `CHECK (num_nonnulls(project_id, task_id) = 1)` — attached to exactly one of project or task. Indexes on both FKs. **No entity/API/UI.**
+**`attachments`** — `id` PK; `project_id` FK `CASCADE`; `task_id` FK `CASCADE`; `uploaded_by` FK → `users` `SET NULL`; `file_name` varchar(255) NN; `file_url` varchar(500) *(unused since V13, optional)*; `file_size` bigint; `mime_type` varchar(100); `uploaded_at` NN. `CHECK (num_nonnulls(project_id, task_id) = 1)` — attached to exactly one of project or task. Indexes on both FKs. *(implemented)*
+
+**`attachment_contents`** *(implemented, V13)* — the bytes of an attachment, kept apart from the metadata so listing never reads them. `attachment_id` PK and FK → `attachments` `CASCADE`; `data` bytea NN. Stored in the database like profile photos, so `pg_dump` carries the files.
 
 **`work_logs`** *(implemented 2026-10-08)* — `id` PK; `task_id` NN FK `CASCADE`; `user_id` NN FK `CASCADE`; `work_date` date NN; `hours_worked` NUMERIC(5,2) NN `CHECK (> 0)`; `description` varchar(500); `created_at`. Indexes: `task_id`, `user_id`, `work_date`. Entity `WorkLog`, API `/api/work-logs`, UI in the task panel; a task's `actualHours` is the sum of its logs ([tasks.md](tasks.md#time-tracking-estimated-vs-actual)).
 
@@ -266,6 +273,9 @@ Loaded once, after `01-init.sql`, into an empty volume: 13 positions, 7 departme
 | `V7__add_default_global_user_role.sql` | adds the `USER` role |
 | `V8__enforce_project_owner_integrity.sql` | `trg_project_members_owner_integrity` (replaced in `V10`) |
 | `V9__requirement_roles_and_permissions.sql` | first version of the role matrix: `roles.scope/project_role/built_in`, `role_permissions.resource/scope`, four requirement roles + `VIEWER` at both levels, backfill, grants to `taskmanager_app` |
+| `V13__attachments_checklists.sql` | **attachments and checklists** (change-plan 3a): resources `ATTACHMENT` and `CHECKLIST_ITEM` in the `role_permissions` check plus their grants (35 rows; the matrix is now 198); `attachments.file_url` optional; table `attachment_contents`; `checklist_items.created_by`; `fn_compute_task_progress_from_subtasks(task, status)` counts checklist items with subtasks (D-07) and the `checklist_items` sync trigger; grants for the application role; idempotent |
+| `V12__task_approval_workflow.sql` | **approval workflow** (B3.8): `tasks.approver_id`; table `task_approvals` with a partial unique index (one open request per task); widens the `activity_logs.action` and `notifications.type` checks; gives each task already `IN_REVIEW` an open request; grants the application role; idempotent |
+| `V11__rename_status_to_do_to_todo.sql` | renames the stored task/subtask status `TO_DO` → `TODO` (D-15): drops and re-adds the two `CHECK` constraints, new column defaults, rewrites the rows with the user triggers switched off (no new `updated_at`), re-creates `v_team_workload`; idempotent |
 | `V10__two_level_roles.sql` | **two-level roles** ([ADR-0015](adr/0015-two-level-roles-system-and-project.md)): adds `USER`, `OWNER`, `ADMIN`, `MEMBER`; retires the `TEAM_LEADER` / `TEAM_MEMBER` system roles (their accounts become `USER`); `PROJECT_MANAGER` becomes system-only; rewrites the matrix (163 rows: a Team Member no longer creates tasks or deletes subtasks, report access moves to the project roles); makes every project have exactly one owner (extra owners → `ADMIN`) and every owner a Project Manager; replaces the V8 trigger with the deferred `trg_project_members_single_owner`. **Idempotent**: the data changes run only while the old model (`TEAM_LEADER`) is present, so a re-run or a database built from the new `01-init.sql` is left alone and edited grants are never wiped |
 
 **Drift (verified):** the migrations V1–V8 do **not** contain the task/subtask consistency objects that `01-init.sql` has — `check_task_not_completed_with_open_subtasks`, `trg_tasks_not_completed_with_open_subtasks`, `fn_compute_task_progress_from_subtasks`, `trg_subtasks_sync_parent_task`, `trg_tasks_progress_derived_from_subtasks`. A database built from the migrations would lack those rules. The old `database/README.md` (since removed) stated that the two routes produce identical schemas; that was true when it was written but is no longer. See [issues.md](issues.md).
@@ -280,7 +290,7 @@ database/taskmanager/
 ├── flyway.user.toml         per-user Development/Shadow connection details: git-ignored, never commit
 ├── filter.rgf               SQL Compare filter used by Flyway Desktop's diffing
 ├── schema-model/            schema snapshot Flyway Desktop maintains from the Development connection
-└── migrations/              V1 … V10 (table above)
+└── migrations/              V1 … V13 (table above)
 ```
 
 - **Source of truth, stated plainly:** `database/init/*.sql` is what creates the schema (Docker Compose through `docker-entrypoint-initdb.d`, and CI, both run `01-init.sql` then `02-seed.sql`). The migrations are a parallel, versioned historical record kept equivalent by hand. Editing `init/01-init.sql` without also adding a matching migration (or the reverse) is how the drift above was introduced.
@@ -364,7 +374,7 @@ Choices that were ambiguous or under-specified when the schema was written, reco
 - **Reports are mostly derived live.** The four reporting views cover the Project Status, Task Completion, Team Performance and Workload reports from existing tables. `report_exports` would hold metadata for a generated file, and `kpi_snapshots` would hold point-in-time values of the five KPIs both requirement documents list (`project_completion_rate`, `task_completion_rate`, `overdue_rate`, `average_task_completion_time`, `on_time_completion_rate`) so a trend chart has history. Neither is filled by a trigger; both are meant to be written by whatever job or endpoint eventually generates reports.
 - **Validation triggers set `ERRCODE '23514'`.** Without it Postgres defaults to `P0001`, which is not in the SQLSTATE class (`23`) that Hibernate and Spring translate into `DataIntegrityViolationException`; the error fell through as an unclassified `500`. When adding a cross-row check as a trigger, set it on the `RAISE EXCEPTION` too. The progress triggers are the one exception because they never raise.
 
-**Task integrity rules** (all trigger-enforced, listed in section 5): `start_date` and `due_date` are required; a dependent task cannot go active while its prerequisite is incomplete (enforced from both directions, because either write path can create the invalid state; `TO_DO` and `CANCELLED` are always allowed); a task's milestone must belong to the task's own project; an assignee must be an `ACTIVE` member of the task's project; and a task cannot enter `COMPLETED` while it has an incomplete subtask. That last rule is one-directional: it never reaches back to un-complete an already-`COMPLETED` task if a subtask is reopened, and task `status` otherwise stays manual by design (the only exception, an application-layer promotion from `TO_DO` to `IN_PROGRESS`, is in [backend.md](backend.md#task--subtask-rules)).
+**Task integrity rules** (all trigger-enforced, listed in section 5): `start_date` and `due_date` are required; a dependent task cannot go active while its prerequisite is incomplete (enforced from both directions, because either write path can create the invalid state; `TODO` and `CANCELLED` are always allowed); a task's milestone must belong to the task's own project; an assignee must be an `ACTIVE` member of the task's project; and a task cannot enter `COMPLETED` while it has an incomplete subtask. That last rule is one-directional: it never reaches back to un-complete an already-`COMPLETED` task if a subtask is reopened, and task `status` otherwise stays manual by design (the only exception, an application-layer promotion from `TODO` to `IN_PROGRESS`, is in [backend.md](backend.md#task--subtask-rules)).
 
 ## 13. Authorization and permissions
 
@@ -387,8 +397,7 @@ Not every table has a backend entity, repository, service and controller; some a
 | `comments` | Full stack: read and create by project members, author-only edit, author-or-manager delete |
 | `activity_logs` | Full stack, read-only API (`GET /api/activity-logs/task/{taskId}`), written internally by other services |
 | `work_logs` | Full stack (added 2026-10-08): list by task, create, delete; feeds `TaskResponse.actualHours` |
-| `checklist_items` | DB-only: no entity, repository, service or controller |
-| `attachments` | DB-only |
+| `checklist_items`, `attachments`, `attachment_contents` | implemented in V13 (`ChecklistItemService`, `AttachmentService`) |
 | `permissions`, `role_permissions` | Full stack (added 2026-10-08): `GET /api/permissions/matrix`, `PUT /api/roles/{id}/permissions`, `GET /api/users/me/permissions` (section 13) |
 | `report_exports`, `kpi_snapshots` | DB-only: nothing writes to them; the reporting views are queryable but have no controller |
 

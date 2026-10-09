@@ -25,16 +25,19 @@ public class CommentService {
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
     private final ProjectAccessGuard projectAccessGuard;
+    private final ActivityLogService activityLogService;
 
     public CommentService(
             CommentRepository commentRepository,
             TaskRepository taskRepository,
             UserRepository userRepository,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            ActivityLogService activityLogService) {
         this.commentRepository = commentRepository;
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
+        this.activityLogService = activityLogService;
     }
 
     @Transactional(readOnly = true)
@@ -58,9 +61,22 @@ public class CommentService {
         if (request.getParentCommentId() != null) {
             Comment parent = commentRepository.findById(request.getParentCommentId())
                     .orElseThrow(() -> new NotFoundException("Parent comment not found"));
+            // A reply stays in the discussion of its own task.
+            if (!parent.getTask().getId().equals(task.getId())) {
+                throw new IllegalArgumentException("The comment you are replying to belongs to another task");
+            }
             comment.setParentComment(parent);
         }
-        return new CommentResponse(commentRepository.save(comment));
+        Comment saved = commentRepository.save(comment);
+        activityLogService.record(caller, task, "COMMENT_ADDED",
+                (saved.getParentComment() != null ? "Reply added: \"" : "Comment added: \"") + preview(saved.getMessage()) + "\"");
+        return new CommentResponse(saved);
+    }
+
+    // A comment can be long; the activity feed shows only its start.
+    private static String preview(String message) {
+        String oneLine = message.replaceAll("\\s+", " ").trim();
+        return oneLine.length() <= 80 ? oneLine : oneLine.substring(0, 79) + "…";
     }
 
     // Editing is author-only — even a Team Admin/Administrator can't rewrite

@@ -67,7 +67,7 @@ test.describe('roles and permissions: API', () => {
       dueDate: '2026-10-30',
     })
 
-    const created = await request.post('/api/tasks', { headers: pm, data: body('TO_DO') })
+    const created = await request.post('/api/tasks', { headers: pm, data: body('TODO') })
     expect(created.status()).toBe(201)
     const id = (await created.json()).id
     try {
@@ -173,7 +173,7 @@ test.describe('roles and permissions: ownership and Team Member limits (API)', (
     const chen = await auth(request, 'dev.chen')
     const projects = await (await request.get('/api/projects', { headers: olivia })).json()
     const projectId = projects.find((p) => p.projectCode === 'PRJ-2001').id
-    const body = { projectId, title: 'e2e member limits', priority: 'LOW', status: 'TO_DO', startDate: '2026-10-05', dueDate: '2026-10-30' }
+    const body = { projectId, title: 'e2e member limits', priority: 'LOW', status: 'TODO', startDate: '2026-10-05', dueDate: '2026-10-30' }
 
     expect((await request.post('/api/tasks', { headers: chen, data: body })).status()).toBe(403)
 

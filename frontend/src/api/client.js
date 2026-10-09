@@ -65,6 +65,31 @@ export async function apiFetch(path, { method = 'GET', body, skipAuth = false } 
   return handleResponse(response, skipAuth)
 }
 
+// Fetches a file the API only serves to a signed-in user (an attachment): an
+// <a href> cannot carry the Authorization header, so the bytes are fetched
+// here and handed back as a Blob. Errors come back as the usual JSON body.
+export async function apiDownload(path) {
+  const headers = {}
+  const auth = getStoredAuth()
+  if (auth?.token) headers.Authorization = `Bearer ${auth.token}`
+
+  const response = await fetch(`/api${path}`, { headers })
+  if (!response.ok) {
+    if (response.status === 401) {
+      storeAuth(null)
+      unauthorizedHandler?.()
+    }
+    let message = response.statusText
+    try {
+      message = (await response.json())?.message || message
+    } catch {
+      // not JSON: keep the status text
+    }
+    throw new ApiError(response.status, message)
+  }
+  return response.blob()
+}
+
 // For multipart/form-data uploads (e.g. a profile photo) — no Content-Type
 // header (the browser sets one with the correct multipart boundary itself
 // once it sees a FormData body) and no JSON.stringify.

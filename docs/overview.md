@@ -10,7 +10,7 @@ The application is built to the requirements in [assignment-brief.md](../assignm
 
 **In scope and implemented:** authentication with self-registration, project-level authorization, projects, project membership and invitations, milestones, tasks, subtasks, task dependencies, comments, per-task activity history, notifications, a dashboard, Kanban board, calendar, reports charts, profile and settings.
 
-**In the requirements but not implemented** (see [roadmap.md](roadmap.md)): file attachments, time tracking / work logs, deadline reminders, a Gantt chart, named reports with PDF/Excel export, KPI calculation, a project-wide activity feed.
+**In the requirements but not implemented** (see [roadmap.md](roadmap.md)): deadline reminders, a Gantt chart, named reports with PDF/Excel export, KPI calculation.
 
 ## 2. Main functionality
 
@@ -45,7 +45,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 .
 ├── backend/               Spring Boot API
 │   └── src/main/java/backend/
-│       ├── controller/    19 REST controllers (91 endpoints)
+│       ├── controller/    25 REST controllers (119 endpoints)
 │       ├── service/       business rules, transactions, ProjectAccessGuard
 │       ├── repository/    Spring Data JPA repositories
 │       ├── entity/        15 JPA entities
@@ -82,12 +82,12 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Project membership, invitations, accept/decline, member search | Done |
 | Milestones | Partial — add/delete in the UI; update exists only in the API |
 | Tasks, subtasks, dependencies, assignment | Done |
-| Comments | Partial — no reply UI; no notification |
+| Comments | Partial — replies work; no notification |
 | Per-task activity feed | Done (per task only) |
-| Notifications | Partial — 4 of 9 types are produced |
+| Notifications | Partial — 6 of 11 types are produced |
 | Dashboard, Kanban, Calendar | Partial — see [roadmap.md](roadmap.md) |
 | Reports | Partial — charts only, no export |
-| Attachments, work logs, checklist items | Not started (tables only) |
+| Attachments, work logs, checklist items | Done (work logs earlier; attachments and checklists 2026-10-09) |
 | Deadline reminders, overdue notifications | Not started (a database function exists; nothing calls it) |
 | Gantt chart, KPI calculation | Not started |
 

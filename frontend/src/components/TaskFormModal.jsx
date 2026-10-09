@@ -20,7 +20,7 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
 
-// New tasks always start in TO_DO — per the board's workflow, they only ever
+// New tasks always start in TODO — per the board's workflow, they only ever
 // reach Doing/Done by being moved forward from there, never created directly.
 // Editing an existing task (`task` passed) keeps its current status untouched.
 export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose, onSaved }) {
@@ -183,7 +183,7 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
             title: title.trim(),
             description: description.trim() || null,
             priority,
-            status: 'TO_DO',
+            status: 'TODO',
             startDate: startDate || null,
             dueDate: dueDate || null,
             estimatedHours: estimateValue,

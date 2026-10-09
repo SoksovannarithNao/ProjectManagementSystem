@@ -220,7 +220,7 @@ DECLARE
         'Fix reported defects',
         'Documentation and handoff'
     ];
-    base_statuses TEXT[] := ARRAY['TO_DO','IN_PROGRESS','IN_PROGRESS','IN_REVIEW','COMPLETED','IN_PROGRESS','TO_DO'];
+    base_statuses TEXT[] := ARRAY['TODO','IN_PROGRESS','IN_PROGRESS','IN_REVIEW','COMPLETED','IN_PROGRESS','TODO'];
     base_priorities TEXT[] := ARRAY['LOW','MEDIUM','HIGH','MEDIUM','HIGH','URGENT','LOW'];
     i INT;
     final_status TEXT;
@@ -276,7 +276,7 @@ BEGIN
 
             final_status := base_statuses[i];
             IF proj.proj_status = 'PLANNING' THEN
-                final_status := 'TO_DO';
+                final_status := 'TODO';
             ELSIF proj.proj_status = 'COMPLETED' THEN
                 final_status := CASE WHEN i = 6 THEN 'CANCELLED' ELSE 'COMPLETED' END;
             END IF;
@@ -324,8 +324,8 @@ BEGIN
                     -- A COMPLETED task's subtasks must themselves all be
                     -- COMPLETED (trg_tasks_not_completed_with_open_subtasks
                     -- would otherwise reject/self-heal this the moment
-                    -- anything re-touches the row). Symmetrically, a TO_DO
-                    -- task's subtasks must all still be TO_DO too — through
+                    -- anything re-touches the row). Symmetrically, a TODO
+                    -- task's subtasks must all still be TODO too — through
                     -- the app, touching any subtask on a To Do task
                     -- immediately promotes it to In Progress
                     -- (SubtaskService.startTaskIfStillToDo), so "To Do" with
@@ -334,8 +334,8 @@ BEGIN
                     -- every other final_status, since those two are the only
                     -- ones gated/coupled to subtask state.
                     CASE WHEN final_status = 'COMPLETED' THEN 'COMPLETED'
-                         WHEN final_status = 'TO_DO' THEN 'TO_DO'
-                         ELSE (ARRAY['TO_DO', 'IN_PROGRESS', 'COMPLETED'])[1 + floor(random() * 3)::int]
+                         WHEN final_status = 'TODO' THEN 'TODO'
+                         ELSE (ARRAY['TODO', 'IN_PROGRESS', 'COMPLETED'])[1 + floor(random() * 3)::int]
                     END
                 );
             END LOOP;
@@ -358,11 +358,11 @@ BEGIN
 
         -- One dependency per project, for the "Blocked" state: task 7
         -- ("Documentation and handoff") depends on task 6 ("Fix reported
-        -- defects"). Task 7 is always TO_DO (or, for a PLANNING project,
+        -- defects"). Task 7 is always TODO (or, for a PLANNING project,
         -- every task is) — trg_task_dependencies_status_gate only rejects a
         -- new dependency when the dependent task is already
         -- IN_PROGRESS/IN_REVIEW/COMPLETED while the prerequisite isn't, so a
-        -- TO_DO task 7 is always a safe side to attach this to regardless of
+        -- TODO task 7 is always a safe side to attach this to regardless of
         -- task 6's status. Skipped for a COMPLETED project, where task 7 is
         -- COMPLETED and task 6 is CANCELLED (not COMPLETED) — exactly the
         -- combination that trigger exists to reject.
@@ -396,6 +396,16 @@ UPDATE tasks SET
     progress = 30 + floor(random() * 40)
 WHERE id IN (SELECT id FROM candidates);
 
+-- ==================== open approval requests ====================
+-- A task in review has an open (PENDING) approval request, as the application
+-- would have recorded when it entered IN_REVIEW (V12).
+INSERT INTO task_approvals (task_id, requested_by, requested_at)
+SELECT t.id,
+       COALESCE((SELECT ta.user_id FROM task_assignees ta WHERE ta.task_id = t.id ORDER BY ta.id LIMIT 1), t.created_by),
+       t.updated_at
+FROM tasks t
+WHERE t.status = 'IN_REVIEW';
+
 -- ==================== notifications derived from tasks/assignments ====================
 
 INSERT INTO notifications (user_id, type, title, message, project_id, task_id, is_read)
@@ -411,7 +421,7 @@ SELECT ta.user_id, 'TASK_STATUS_CHANGED', 'Task status updated',
        t.project_id, t.id,
        (random() > 0.5)
 FROM task_assignees ta JOIN tasks t ON t.id = ta.task_id
-WHERE t.status <> 'TO_DO';
+WHERE t.status <> 'TODO';
 
 -- Reuses the existing DB function rather than hand-inserting OVERDUE_TASK
 -- rows — generates one per (assignee, overdue task) not already notified
@@ -421,7 +431,7 @@ SELECT fn_generate_overdue_notifications();
 -- ==================== activity_logs (per-task history feed) ====================
 -- Backfills the history a real ActivityLogService.record() call would have
 -- written for everything already seeded above — task creation, its current
--- status (if not the TO_DO default), each assignment, and each subtask's
+-- status (if not the TODO default), each assignment, and each subtask's
 -- add/completion — so TaskDetailPanel's Activity tab has real content for
 -- every seeded task instead of only ever showing entries for changes made
 -- after this file ran. Descriptions match ActivityLogService's own callers
@@ -442,7 +452,7 @@ SELECT created_by, 'TASK_STATUS_CHANGED', project_id, id,
            ELSE status
        END
 FROM tasks
-WHERE status <> 'TO_DO' AND created_by IS NOT NULL;
+WHERE status <> 'TODO' AND created_by IS NOT NULL;
 
 INSERT INTO activity_logs (user_id, action, project_id, task_id, description)
 SELECT t.created_by, 'TASK_ASSIGNED', t.project_id, t.id, u.full_name || ' was assigned'

@@ -180,7 +180,7 @@ Frontend has no `.env` of its own — it calls the backend via relative `/api/..
 
 Schema currently lives in [database/init/01-init.sql](database/init/01-init.sql), applied automatically by Postgres (`docker-entrypoint-initdb.d`) the first time the container's data volume is created, or manually via `psql -f database/init/01-init.sql`. A parallel Flyway project ([database/taskmanager/](database/taskmanager/)) tracks the same schema as versioned migrations (`V1__initial_schema.sql`, `V2__add_permissions_progress_and_integrity_rules.sql`) for when Flyway gets wired into the actual startup path — see [docs/database.md](docs/database.md#8-migrations-vs-the-init-script). [database/verify_invariants.sql](database/verify_invariants.sql) has a standalone set of zero-rows-expected sanity checks for the business rules below.
 
-Main tables: `roles`, `permissions`, `role_permissions`, `positions`, `departments`, `users`, `otp_verifications`, `projects`, `project_members`, `milestones`, `tasks`, `task_assignees`, `task_dependencies`, `subtasks`, `checklist_items`, `comments`, `attachments`, `work_logs`, `notifications`, `activity_logs`, `report_exports`, `kpi_snapshots` (22 total) — plus derived reporting views (`v_overdue_tasks`, `v_project_status_summary`, `v_task_completion_by_project`, `v_team_performance`, `v_team_workload`).
+Main tables: `roles`, `permissions`, `role_permissions`, `positions`, `departments`, `users`, `otp_verifications`, `projects`, `project_members`, `milestones`, `tasks`, `task_assignees`, `task_dependencies`, `subtasks`, `checklist_items`, `comments`, `attachments`, `work_logs`, `notifications`, `activity_logs`, `report_exports`, `kpi_snapshots` (22 total, plus `task_approvals` and `attachment_contents` from V12 and V13) — plus derived reporting views (`v_overdue_tasks`, `v_project_status_summary`, `v_task_completion_by_project`, `v_team_performance`, `v_team_workload`).
 
 ## Running the Application
 
@@ -288,7 +288,7 @@ Content-Type: application/json
 | Task Dependencies | `/api/task-dependencies` | That project's `OWNER`/`ADMIN` |
 | Notifications | `/api/notifications` | Any authenticated user — always scoped to "your own" by JWT identity, not by role |
 
-All `GET` endpoints require only a valid token, further scoped to the caller's own project memberships (see [docs/backend.md](docs/backend.md#security)). Not yet implemented: attachments, checklist items, permissions/role_permissions, report_exports/kpi_snapshots, and the reporting views — these have database tables/views but no API (see [docs/database.md](docs/database.md#14-api--backend-coverage) for the full DB-only list).
+All `GET` endpoints require only a valid token, further scoped to the caller's own project memberships (see [docs/backend.md](docs/backend.md#security)). Not yet implemented: report_exports/kpi_snapshots and the reporting views — these have database tables/views but no API (see [docs/database.md](docs/database.md#14-api--backend-coverage) for the full DB-only list).
 
 ### Status Codes
 
@@ -356,7 +356,7 @@ Data models as returned by the API (full column-level detail, including tables w
 - milestone: Milestone (optional)
 - title, description: String
 - priority: String — LOW | MEDIUM | HIGH | URGENT
-- status: String — TO_DO | IN_PROGRESS | IN_REVIEW | COMPLETED | CANCELLED
+- status: String — TODO | IN_PROGRESS | IN_REVIEW | COMPLETED | CANCELLED
 - startDate, dueDate: LocalDate (optional)
 - estimatedHours, progress: BigDecimal
 - completedAt: OffsetDateTime (optional)
@@ -379,7 +379,7 @@ Data models as returned by the API (full column-level detail, including tables w
 - title: String
 - assignee: User (optional)
 - dueDate: LocalDate (optional)
-- status: String — TO_DO | IN_PROGRESS | COMPLETED
+- status: String — TODO | IN_PROGRESS | COMPLETED
 - createdAt, updatedAt: OffsetDateTime
 
 **Comment**
@@ -487,7 +487,7 @@ See [Contributing.md](Contributing.md) and [Role_Requirment.md](Role_Requirment.
 - The remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `DEADLINE_REMINDER`, `MILESTONE_UPDATED`) — only `TASK_ASSIGNED`/`TASK_STATUS_CHANGED`/`TEAM_INVITATION`/`TEAM_INVITATION_RESPONDED` are wired up in application code so far; comments don't notify anyone yet even though the feature itself is built, and the deadline/overdue types need a scheduled job (see above).
 - Pagination and search/filtering on list endpoints.
 - Wire Flyway into the actual startup path instead of the current plain-SQL `docker-entrypoint-initdb.d` bootstrap.
-- Entities/controllers for the remaining 3 DB-only feature tables: `checklist_items`, `attachments`, `work_logs`.
+- Entities/controllers for the remaining DB-only tables: `report_exports`, `kpi_snapshots`.
 - Endpoints over the reporting views (`v_project_status_summary`, `v_task_completion_by_project`, `v_team_performance`, `v_team_workload`) and over `report_exports`/`kpi_snapshots` — all exist in the database with no API yet.
 - Broader automated test coverage (backend controller/integration tests; wire the existing Playwright E2E suite into CI and expand its coverage — see [docs/frontend.md](docs/frontend.md#testing)).
 - An actual deploy target for the CD pipeline's built images (currently build-and-push only).

@@ -94,7 +94,7 @@ test.describe('permissions and data isolation', () => {
     const p2 = await projectIdByCode(request, admin, 'PRJ-2002')
     expect(await projectIdByCode(request, olivia, 'PRJ-2002')).toBeUndefined() // not visible to her
 
-    const body = { projectId: p1, title: 'E2E move test', startDate: '2026-10-06', dueDate: '2026-10-07', priority: 'LOW', status: 'TO_DO' }
+    const body = { projectId: p1, title: 'E2E move test', startDate: '2026-10-06', dueDate: '2026-10-07', priority: 'LOW', status: 'TODO' }
     const created = await request.post('/api/tasks', { headers: olivia, data: body })
     expect(created.status()).toBe(201)
     const task = await created.json()
@@ -179,7 +179,7 @@ test.describe('permissions and data isolation', () => {
     // (in afterEach) removes the comments and subtasks with it.
     const created = await request.post('/api/tasks', {
       headers: olivia,
-      data: { projectId: p1, title: 'E2E comment target', startDate: '2026-10-06', dueDate: '2026-10-07', priority: 'LOW', status: 'TO_DO' },
+      data: { projectId: p1, title: 'E2E comment target', startDate: '2026-10-06', dueDate: '2026-10-07', priority: 'LOW', status: 'TODO' },
     })
     expect(created.status()).toBe(201)
     const taskId = (await created.json()).id

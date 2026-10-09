@@ -15,7 +15,7 @@ public interface TaskDependencyRepository
 
     List<TaskDependency> findByDependsOnTaskId(Long taskId);
 
-    // Used by SubtaskService's TO_DO -> IN_PROGRESS auto-promotion to check
+    // Used by SubtaskService's TODO -> IN_PROGRESS auto-promotion to check
     // first whether that move is even allowed — trg_tasks_dependencies_status_gate
     // (01-init.sql) would otherwise reject it, taking the whole subtask
     // update down with it in the same transaction.

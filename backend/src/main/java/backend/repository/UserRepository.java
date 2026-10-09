@@ -62,6 +62,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByEmail(String email);
 
+    // Sign-in by e-mail address (the login form accepts either). Email is
+    // unique case-insensitively (idx_users_email_lower), so at most one row.
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.role WHERE LOWER(u.email) = LOWER(:email)")
+    Optional<User> findByEmailIgnoreCase(@Param("email") String email);
+
     // Case-insensitive, matching idx_users_username_lower/idx_users_email_lower
     // — used for friendly pre-checks during registration (the DB unique
     // index enforces the same rule regardless, but with a less readable

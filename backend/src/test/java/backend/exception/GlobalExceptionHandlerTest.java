@@ -5,6 +5,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,6 +20,15 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody().message()).isEqualTo("Project not found");
+    }
+
+    @Test
+    void unknownPath_mapsTo404NotTheGeneric500() {
+        ResponseEntity<ErrorResponse> response = handler.handleNoResource(
+                new NoResourceFoundException(org.springframework.http.HttpMethod.GET, "/api/does-not-exist", "api/does-not-exist"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody().message()).isEqualTo("Resource not found");
     }
 
     @Test
@@ -73,5 +83,14 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(response.getBody().message()).doesNotContain("internal detail");
+    }
+
+    @Test
+    void aMultipartRequestWithoutAFile_mapsTo400() {
+        ResponseEntity<ErrorResponse> response = handler.handleMissingPart(
+                new org.springframework.web.multipart.support.MissingServletRequestPartException("file"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().message()).isEqualTo("No file was uploaded");
     }
 }

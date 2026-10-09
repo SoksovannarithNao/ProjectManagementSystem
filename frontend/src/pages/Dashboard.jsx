@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronDown, Check, AlertTriangle, Circle, CheckCircle2 } from 'lucide-react'
+import { ChevronDown, Check, AlertTriangle, Circle, CheckCircle2, History, Clock } from 'lucide-react'
 import {
   LineChart,
   Line,
@@ -11,6 +11,8 @@ import {
 } from 'recharts'
 import { TopBar } from '../layout/TopBar'
 import { ProjectCard } from '../components/ProjectCard'
+import { StatCard } from '../components/StatCard'
+import { WorkloadTable } from '../components/WorkloadTable'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
@@ -24,10 +26,13 @@ import { getProjectMembers } from '../api/projectMembers'
 import { getTasks, toggleTaskCompletion } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { buildProjectMemberMap, buildTaskAssigneeMap, toProjectCard } from '../api/relations'
-import { computeTaskOverview, computePeriodTaskStats, PERIOD_OPTIONS } from '../api/stats'
-import { formatDate, humanizeEnum, taskDisplayTitle } from '../api/format'
+import { computeTaskOverview, computePeriodTaskStats, taskOverviewFromStats, PERIOD_OPTIONS } from '../api/stats'
+import { getDashboardStats } from '../api/dashboard'
+import { getRecentActivity } from '../api/activityLog'
+import { getManagedWorkload } from '../api/teamViews'
+import { formatDate, humanizeEnum, taskDisplayTitle, timeAgo } from '../api/format'
 
-const OPEN_STATUSES = new Set(['TO_DO', 'IN_PROGRESS', 'IN_REVIEW'])
+const OPEN_STATUSES = new Set(['TODO', 'IN_PROGRESS', 'IN_REVIEW'])
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
@@ -45,7 +50,7 @@ function ChartTooltip({ active, payload, label }) {
 }
 
 export function Dashboard() {
-  const { profile, username, can } = useAuth()
+  const { profile, username, can, canAny } = useAuth()
   const notify = useToast()
   const { getMember } = useMembers()
   const { data: projects, loading: projectsLoading } = useApi(getProjects)
@@ -53,10 +58,22 @@ export function Dashboard() {
   const { data: tasks, loading: tasksLoading, refetch: refetchTasks } = useApi(getTasks)
   const { data: taskAssignees } = useApi(getTaskAssignees)
   const [period, setPeriod] = useState(PERIOD_OPTIONS[0])
+  // Project and task figures calculated on the server (B1.3, D-06), so every
+  // screen shows the same numbers; the lists below still come from the resources.
+  const { data: stats } = useApi(getDashboardStats)
+  const recentFetcher = useCallback(() => getRecentActivity(8), [])
+  const { data: recent } = useApi(recentFetcher)
+  // Team workload is a manager's card: only people who may assign tasks somewhere ask for it.
+  const showWorkload = canAny('TASK', 'ASSIGN')
+  const workloadFetcher = useCallback(() => (showWorkload ? getManagedWorkload() : Promise.resolve(null)), [showWorkload])
+  const { data: workload } = useApi(workloadFetcher)
 
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
-  const taskOverview = useMemo(() => computeTaskOverview(tasks), [tasks])
+  const taskOverview = useMemo(
+    () => (stats ? taskOverviewFromStats(stats.tasks) : computeTaskOverview(tasks)),
+    [stats, tasks]
+  )
   const periodReport = useMemo(() => computePeriodTaskStats(tasks, period.days), [tasks, period])
   const todayLabel = periodReport[periodReport.length - 1]?.day
 
@@ -74,10 +91,9 @@ export function Dashboard() {
       .slice(0, 7)
   }, [tasks])
 
-  const overdueCount = useMemo(
-    () => (tasks ?? []).filter((t) => t.overdue && OPEN_STATUSES.has(t.status)).length,
-    [tasks],
-  )
+  const overdueCount = stats
+    ? stats.tasks.overdue
+    : (tasks ?? []).filter((t) => t.overdue && OPEN_STATUSES.has(t.status)).length
 
   const firstName = (profile?.fullName || username || '').split(' ')[0] || ''
 
@@ -93,6 +109,21 @@ export function Dashboard() {
   return (
     <div>
       <TopBar title={`Hello, ${firstName}`} subtitle="Welcome back!" />
+
+      <div className="mb-6 grid grid-cols-6 gap-4 max-[1200px]:grid-cols-3 max-[640px]:grid-cols-2" data-testid="dashboard-stats">
+        {stats ? (
+          <>
+            <StatCard label="Total projects" value={stats.projects.total} />
+            <StatCard label="Active projects" value={stats.projects.active} />
+            <StatCard label="Completed projects" value={stats.projects.completed} />
+            <StatCard label="Delayed projects" value={stats.projects.delayed} tone="danger" />
+            <StatCard label="Average completion" value={`${Math.round(Number(stats.projects.averageProgress))}%`} />
+            <StatCard label="Total tasks" value={stats.tasks.total} />
+          </>
+        ) : (
+          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[92px] rounded-card" />)
+        )}
+      </div>
 
       <div className="grid grid-cols-[1fr_380px] items-start gap-6 max-[1200px]:grid-cols-1">
         {/* Sections are direct grid items. Phones: Overview, Due, Projects, Reports (DOM order).
@@ -196,7 +227,7 @@ export function Dashboard() {
                       <button
                         className="text-faint duration-[var(--duration-fast)] ease-[var(--ease-standard)] -m-2.5 inline-flex rounded-full border-none bg-none p-2.5 transition-colors hover:text-charcoal"
                         onClick={() => handleToggle(t)}
-                        aria-label={isChecked ? `Mark "${t.title}" as not done` : `Mark "${t.title}" as done`}
+                        aria-label={isChecked ? `Mark "${t.title}" as not completed` : `Mark "${t.title}" as completed`}
                       >
                         {isChecked ? (
                           <CheckCircle2 size={19} className="text-success-ink" />
@@ -323,6 +354,83 @@ export function Dashboard() {
               </span>
             </div>
           </section>
+        </div>
+
+        <div className="contents">
+          <section
+            className="card min-w-0 px-6 py-[22px] min-[1201px]:col-start-1 min-[1201px]:row-start-3"
+            data-testid="recent-activity"
+          >
+            <div className="mb-[18px] flex items-center justify-between">
+              <h3 className="section-title">Recent activity</h3>
+            </div>
+            {recent && recent.length === 0 && <p className="text-faint text-[12px]">No activity yet.</p>}
+            <div className="flex flex-col gap-3">
+              {(recent ?? []).map((a) => (
+                <div key={a.id} className="flex gap-2.5">
+                  <span className="bg-subtle text-faint mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                    <History size={12} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-ink text-[12px] leading-snug break-words">
+                      {a.taskTitle && <span className="text-muted font-semibold">{a.taskTitle} — </span>}
+                      {a.description}
+                    </p>
+                    <span className="text-faint text-[12px]">
+                      {a.userName}
+                      {a.projectName ? ` · ${a.projectName}` : ''} · {timeAgo(a.createdAt)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section
+            className="card min-w-0 px-6 py-[22px] min-[1201px]:col-start-2 min-[1201px]:row-start-3"
+            data-testid="delayed-projects"
+          >
+            <div className="mb-[18px] flex items-center justify-between">
+              <h3 className="section-title">Delayed projects</h3>
+              <span className="text-faint text-[12px]">{stats?.projects.delayed ?? 0}</span>
+            </div>
+            {stats && stats.delayedProjects.length === 0 && (
+              <p className="text-faint text-[12px]">Nothing is behind schedule.</p>
+            )}
+            <div className="flex flex-col">
+              {(stats?.delayedProjects ?? []).map((p) => (
+                <Link
+                  key={p.id}
+                  to={`/projects/${p.id}`}
+                  className="border-divider hover:bg-subtle flex items-center gap-3 border-b py-2.5 last:border-b-0"
+                >
+                  <Clock size={15} className="text-danger-ink shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="text-ink block truncate text-[13px] font-semibold">{p.name}</span>
+                    <span className="text-faint text-[12px]">
+                      Ended {formatDate(p.endDate)} · {Math.round(Number(p.progress ?? 0))}% done
+                    </span>
+                  </span>
+                  <span className="bg-danger-soft text-danger-ink rounded-full px-2.5 py-1 text-[12px] leading-none font-semibold whitespace-nowrap">
+                    {p.daysDelayed}d late
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          {showWorkload && (
+            <section
+              className="card min-w-0 px-6 py-[22px] min-[1201px]:col-span-2 min-[1201px]:col-start-1 min-[1201px]:row-start-4"
+              data-testid="dashboard-workload"
+            >
+              <div className="mb-[18px] flex items-center justify-between">
+                <h3 className="section-title">Team workload</h3>
+                <span className="text-faint text-[12px]">across the projects you manage</span>
+              </div>
+              {workload ? <WorkloadTable workload={workload} compact /> : <Skeleton className="h-[120px] rounded-card" />}
+            </section>
+          )}
         </div>
       </div>
     </div>
