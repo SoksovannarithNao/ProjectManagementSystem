@@ -82,3 +82,17 @@ JOIN users u ON u.id = m.user_id
 LEFT JOIN roles r ON r.id = u.role_id
 WHERE m.project_role = 'OWNER' AND m.status = 'ACTIVE'
   AND r.name IS DISTINCT FROM 'PROJECT_MANAGER' AND r.name IS DISTINCT FROM 'ADMINISTRATOR';
+
+-- 10. A pending approval request belongs to a task that is waiting in review
+--     (the application opens it when a task enters IN_REVIEW and closes it when the
+--     task leaves; V12).
+SELECT a.id AS approval_id, a.task_id, t.status
+FROM task_approvals a
+JOIN tasks t ON t.id = a.task_id
+WHERE a.decision = 'PENDING' AND t.status <> 'IN_REVIEW';
+
+-- 11. Every task in review has an open request, so an approver has something to decide.
+SELECT t.id, t.title
+FROM tasks t
+WHERE t.status = 'IN_REVIEW'
+  AND NOT EXISTS (SELECT 1 FROM task_approvals a WHERE a.task_id = t.id AND a.decision = 'PENDING');

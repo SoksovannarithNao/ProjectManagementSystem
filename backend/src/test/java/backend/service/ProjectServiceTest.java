@@ -43,6 +43,8 @@ class ProjectServiceTest {
 
     @Mock
     private ProjectAccessGuard projectAccessGuard;
+    @Mock
+    private ActivityLogService activityLogService;
 
     @Mock
     private ProjectOwnership projectOwnership;
@@ -53,7 +55,7 @@ class ProjectServiceTest {
 
     @BeforeEach
     void setUp() {
-        projectService = new ProjectService(projectRepository, projectMemberRepository, userRepository, projectAccessGuard, projectOwnership);
+        projectService = new ProjectService(projectRepository, projectMemberRepository, userRepository, projectAccessGuard, projectOwnership, activityLogService);
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 7L);
         caller.setUsername("pm.olivia");
@@ -203,5 +205,69 @@ class ProjectServiceTest {
                 .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
         verify(projectRepository, never()).save(any());
         verify(projectRepository, never()).delete(any());
+    }
+
+    // ---- the project feed ---------------------------------------------------
+
+    @Test
+    void creatingAProject_isLoggedInItsActivityFeed() {
+        when(projectRepository.findAutoProjectCodes()).thenReturn(List.of());
+        stubSave();
+
+        projectService.createProject(request(null), "pm.olivia");
+
+        verify(activityLogService).recordProjectEvent(
+                org.mockito.ArgumentMatchers.eq(caller), any(Project.class),
+                org.mockito.ArgumentMatchers.eq("PROJECT_CREATED"), org.mockito.ArgumentMatchers.contains("Demo"));
+    }
+
+    @Test
+    void editingAProject_logsWhatChanged() {
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(existingProject()));
+        when(projectRepository.existsByProjectCodeAndIdNot("PRJ-2005", 5L)).thenReturn(false);
+        stubSave();
+
+        // the stored project has no name or dates, the request sets them
+        projectService.updateProject(5L, request("PRJ-2005"), "pm.olivia");
+
+        verify(activityLogService).recordProjectEvent(
+                org.mockito.ArgumentMatchers.eq(caller), any(Project.class),
+                org.mockito.ArgumentMatchers.eq("PROJECT_UPDATED"), org.mockito.ArgumentMatchers.contains("name"));
+    }
+
+    @Test
+    void savingAProjectWithoutChanges_logsNothing() {
+        Project existing = existingProject();
+        ProjectRequest same = request("PRJ-2005");
+        existing.setName(same.getName());
+        existing.setStartDate(same.getStartDate());
+        existing.setEndDate(same.getEndDate());
+        existing.setDescription(same.getDescription());
+        existing.setPriority(same.getPriority() != null ? same.getPriority() : existing.getPriority());
+        existing.setStatus(same.getStatus() != null ? same.getStatus() : existing.getStatus());
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(existing));
+        when(projectRepository.existsByProjectCodeAndIdNot("PRJ-2005", 5L)).thenReturn(false);
+        stubSave();
+
+        projectService.updateProject(5L, same, "pm.olivia");
+
+        verify(activityLogService, never()).recordProjectEvent(any(), any(), any(), any());
+    }
+
+    @Test
+    void completingAProject_isLoggedOnItsOwn() {
+        Project existing = existingProject();
+        existing.setName("Demo");
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(existing));
+        when(projectRepository.existsByProjectCodeAndIdNot("PRJ-2005", 5L)).thenReturn(false);
+        stubSave();
+        ProjectRequest done = request("PRJ-2005");
+        done.setStatus("COMPLETED");
+
+        projectService.updateProject(5L, done, "pm.olivia");
+
+        verify(activityLogService).recordProjectEvent(
+                org.mockito.ArgumentMatchers.eq(caller), any(Project.class),
+                org.mockito.ArgumentMatchers.eq("PROJECT_COMPLETED"), any());
     }
 }

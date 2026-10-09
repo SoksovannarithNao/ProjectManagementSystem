@@ -17,6 +17,10 @@ public enum Resource {
     SUBTASK("subtasks"),
     COMMENT("comments"),
     WORK_LOG("time entries"),
+    // Files attached to a task or a project (assignment-brief.md B3.4, D-17).
+    ATTACHMENT("attachments"),
+    // Lightweight tick-boxes inside a task, apart from subtasks (B1.6).
+    CHECKLIST_ITEM("checklist items"),
     REPORT("reports"),
     USER("users"),
     ROLE("roles and permissions"),

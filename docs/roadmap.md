@@ -58,22 +58,22 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | *My Tasks* filter (assignee-based) | Done | ✓ | ✓ existing | — | None | Manually verified against live data |
 | Subtasks and subtask-driven progress | Done | ✓ | ✓ | ✓ triggers | None | |
 | Task dependencies and blocked state | Done | ✓ | ✓ | ✓ triggers | None | Cross-project dependencies not prevented (I-15) |
-| Comments | Partial | add/edit/delete | ✓ incl. replies | ✓ | None | No reply UI; no notification |
+| Comments | Partial | add/edit/delete/reply | ✓ incl. replies | ✓ | e2e | No notification (2026-10-09: replies in the UI) |
 | Per-task activity feed | Done | ✓ | ✓ | ✓ | None | Project-wide feed missing; most allowed actions never written (I-16) |
 | Milestones | Partial | add/delete | ✓ full CRUD | ✓ | None | No edit UI; no picker on task forms; not on the calendar |
 | Kanban board | Partial | ✓ view | uses `/tasks` | ✓ | None | Cards open the panel; **no drag-and-drop** |
 | Calendar (month/week/day) | Partial | ✓ | uses `/tasks` | ✓ | None | Tasks only — no milestones |
 | Task search / filter / sort | Partial | ✓ | client-side | — | None | Missing: filter by status, assignee, due date; sort by latest, progress, status; project search is name/description only |
 | Overdue detection | Partial | ✓ badge | ✓ computed | ✓ view | None | No notification (nothing calls the DB function) |
-| Dashboard | Partial | ✓ | uses `/tasks`, `/projects` | — | None | No project counts, recent activity or workload |
+| Dashboard | Done (2026-10-09) | ✓ | `/dashboard/stats`, `/activity-logs/recent`, `/workload` | — | e2e | project counts incl. Delayed, recent activity, manager workload; KPIs are separate |
 
 ### Notifications and reporting
 
 | Feature | Status | UI | API | DB | Tests | Notes / gap |
 |---|---|---|---|---|---|---|
-| In-app notifications (bell, read, dismiss) | Partial | ✓ | ✓ | ✓ | None | 4 of 9 types produced; no live refresh |
-| Reports page (charts) | Partial | ✓ | derived from `/tasks` | views unused | None | Four charts and four stat cards; no named reports, no PDF/Excel export |
-| Workload view | Partial | ✓ chart | derived | view unused | None | Task counts only (no hours) |
+| In-app notifications (bell, read, dismiss) | Partial | ✓ | ✓ | ✓ | None | 6 of 11 types produced; no live refresh |
+| Reports page | Done (export optional) | ✓ | `/api/reports/*` | views unused | None | Overview charts, the KPIs and the seven named reports (2026-10-09); no PDF/Excel export |
+| Workload view | Done (2026-10-09) | ✓ | `/projects/{id}/workload`, `/workload` | computed in Java | unit + e2e | assigned / active / overdue, estimated and actual hours, overloaded / underloaded (D-13) |
 
 ### Platform and delivery
 
@@ -92,8 +92,8 @@ Database tables exist for several of these, but **no entity, API or UI**:
 
 | Feature | What exists | Evidence |
 |---|---|---|
-| File attachments (projects/tasks) | `attachments` table | No controller, entity or UI |
-| Checklist items | `checklist_items` table | Subtasks serve as the checklist |
+| ~~File attachments (projects/tasks)~~ | done 2026-10-09 (`V13`) | 10 MB, 25 per target, type allow-list; stored in the database |
+| ~~Checklist items~~ | done 2026-10-09 (`V13`) | counted in task progress with subtasks (D-07) |
 | Deadline reminders | `DEADLINE_REMINDER` type allowed | No code or database function produces it |
 | Overdue notifications at runtime | `fn_generate_overdue_notifications()` | Called only by the seed script; no scheduler (`@Scheduled`/`pg_cron`) |
 | Named reports and PDF/Excel export | reporting views, `report_exports` | No endpoint or UI |
@@ -101,7 +101,7 @@ Database tables exist for several of these, but **no entity, API or UI**:
 | Gantt chart | — | Mentioned in `Contributing.md`/requirements only |
 | Refresh tokens, forgot-password, auto-logout | — | Listed as future work in the READMEs |
 | Project-wide/per-user audit feed | per-task feed only | Listed in the READMEs |
-| Server-side report endpoints | — | `REPORT:GENERATE_REPORTS` gates only the Reports page (done 2026-10-08: the permission matrix itself is data-driven) |
+| ~~Server-side report endpoints~~ | Done 2026-10-09 | `GET /api/reports/*` check `REPORT:GENERATE_REPORTS` on the server |
 | Pagination and server-side search/filter | — | Listed in the READMEs |
 
 ## 3. Planned work recorded by the project
@@ -114,7 +114,7 @@ From the root `README.md` (*Future Enhancements*), `backend.md` (*Next Steps*), 
 4. Remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `MILESTONE_UPDATED`, `DEADLINE_REMINDER`).
 5. Pagination, search and filtering on list endpoints.
 6. Flyway wired into application startup.
-7. Entities and controllers for `checklist_items`, `attachments`, `work_logs`.
+7. ~~Entities and controllers for `checklist_items`, `attachments`, `work_logs`.~~ Done.
 8. Endpoints over the reporting views, `report_exports` and `kpi_snapshots`.
 9. More backend tests; Playwright in CI.
 10. A deploy target for the CD pipeline.
@@ -127,11 +127,11 @@ Requirement-document items that are **not** on any of the project's own lists (s
 
 Work needed to bring the application to the model in [ADR-0015](adr/0015-two-level-roles-system-and-project.md) and [assignment-brief.md](../assignment-brief.md) Part B. The authoritative gap list is §B13.1 (G-01 … G-15); the order below is a proposal.
 
-1. ~~**Role model migration**~~ — **done 2026-10-08** (`V10`): the `TEAM_LEADER` / `TEAM_MEMBER` system roles are retired, new accounts are `USER`, one `OWNER` per project with single-step transfer. Still to do from this item: rename the stored status `TO_DO` → `TODO` (D-15).
+1. ~~**Role model migration**~~ — **done 2026-10-08** (`V10`): the `TEAM_LEADER` / `TEAM_MEMBER` system roles are retired, new accounts are `USER`, one `OWNER` per project with single-step transfer. The stored status was renamed `TO_DO` → `TODO` on 2026-10-09 (`V11`, D-15).
 2. ~~**Matrix changes**~~ — **done 2026-10-08** (`V10`): Team Member loses task creation and "edit any subtask"; report access comes through the project roles; a Team Leader may delete everything except the project (D-01); a system role never widens a project role (D-02).
-3. **Approval workflow:** approval records, designated approver, Approved / Changes requested / Rejected, notifications, activity entries.
-4. **Profile and roles:** users edit their own position/department (D-16); administrators create and edit extra system roles (D-14).
-5. **Required features still missing:** checklists, file attachments, project timeline, Team Tasks, Delayed-project calculation, the seven named reports and the five KPIs (server-side), workload page, login by email, project filters, comment replies in the UI, project/comment/file activity events, deadline reminders and overdue notifications (scheduled), auto-logout.
+3. ~~**Approval workflow:** approval records, designated approver, Approved / Changes requested / Rejected, notifications, activity entries.~~ — **done 2026-10-09** (`V12`).
+4. **Profile and roles:** ~~users edit their own position/department (D-16)~~ — **done 2026-10-09**; administrators create and edit extra system roles (D-14) — still open.
+5. **Required features still missing:** the seven named reports and the five KPIs (server-side), deadline reminders and overdue notifications (scheduled), auto-logout. *(Checklists, attachments, comment replies and project activity: 3a; the project timeline, Team Tasks, Delayed projects, the workload page, dashboard statistics and role / ownership UI: 3b; all 2026-10-09.)* *(Checklists, file attachments, comment replies in the UI and project / comment / file activity events were built on 2026-10-09, change-plan 3a.)*
 6. **Optional, if time allows:** Kanban moving, time-tracking polish (exists), report export, Gantt, documents, audit log.
 
 ## 4. In progress

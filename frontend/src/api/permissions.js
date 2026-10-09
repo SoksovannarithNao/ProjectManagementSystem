@@ -6,7 +6,7 @@
 // A grant is the string "RESOURCE:ACTION", e.g. "TASK:CREATE". There are 7
 // actions (VIEW, CREATE, EDIT, DELETE, ASSIGN, APPROVE, GENERATE_REPORTS) and the
 // resources are PROJECT, MILESTONE, MEMBER, TASK, TASK_STATUS, SUBTASK, COMMENT,
-// WORK_LOG, REPORT, USER, ROLE and LOOKUP (see docs/adr/0014-...).
+// WORK_LOG, ATTACHMENT, CHECKLIST_ITEM, REPORT, USER, ROLE and LOOKUP (see docs/adr/0014-...).
 //
 // Shape of `permissions` (the API response):
 //   { role, administrator, system: ['PROJECT:CREATE', ...],
@@ -46,4 +46,31 @@ export function canAnywhere(permissions, resource, action) {
 // Projects (from a list of project ids) where the user holds the grant.
 export function projectIdsWhere(permissions, resource, action, projectIds) {
   return projectIds.filter((id) => canInProject(permissions, resource, action, id))
+}
+
+// The project role of the signed-in user in one project (OWNER, ADMIN, MEMBER,
+// VIEWER), or null when they are not an active member.
+export function projectRoleOf(permissions, projectId) {
+  if (projectId == null) return null
+  return permissions?.projects.find((p) => p.projectId === Number(projectId))?.projectRole ?? null
+}
+
+// The Owner of a project and any Administrator may approve work they did
+// themselves, and override a task's named approver (assignment-brief.md B3.8, D-05).
+export function isOwnerOrAdministrator(permissions, projectId) {
+  return Boolean(permissions?.administrator) || projectRoleOf(permissions, projectId) === 'OWNER'
+}
+
+// May this user complete/approve THIS task? TASK:APPROVE in its project, and
+// - unless Owner/Administrator - not when another approver is named, not on a
+// task they are assigned to, and not on a review they asked for. Advisory: the
+// server (TaskApprovalService) decides.
+export function canApproveTask(permissions, userId, task, isAssignee) {
+  const projectId = task?.project?.id
+  if (!canInProject(permissions, 'TASK', 'APPROVE', projectId)) return false
+  if (isOwnerOrAdministrator(permissions, projectId)) return true
+  if (task.approver && task.approver.id !== userId) return false
+  if (isAssignee) return false
+  if (task.approvalStatus === 'PENDING' && task.approvalRequestedBy?.id === userId) return false
+  return true
 }

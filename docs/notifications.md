@@ -4,7 +4,7 @@ In-app notifications only (no email, push or SMS apart from the registration cod
 
 ## 1. Notification types
 
-The `notifications.type` CHECK constraint allows 9 values. **Four are produced by the application today.**
+The `notifications.type` CHECK constraint allows 11 values. **Six are produced by the application today** (the approval pair since 2026-10-09).
 
 | Type | Produced? | Producer | Recipient |
 |---|---|---|---|
@@ -12,6 +12,8 @@ The `notifications.type` CHECK constraint allows 9 values. **Four are produced b
 | `TASK_STATUS_CHANGED` | ✅ | `TaskService.updateTask` → `notifyTaskStatusChanged` | every current assignee of the task |
 | `TEAM_INVITATION` | ✅ | `ProjectMemberService.inviteMember` → `notifyTeamInvitation` | the invitee |
 | `TEAM_INVITATION_RESPONDED` | ✅ | `ProjectMemberService.respondToInvitation` → `notifyInvitationResponded` | the person who sent the invitation |
+| `APPROVAL_REQUESTED` | ✅ | `TaskApprovalService.openRequest` / `designateApprover` → `notifyApprovalRequested` | the approver named for the task; otherwise every active member of the project who may approve; never the person asking |
+| `APPROVAL_DECIDED` | ✅ | `TaskApprovalService.decide` / `recordDirectCompletion` → `notifyApprovalDecided` | the person who asked for the review (not when they decided it themselves) |
 | `COMMENT_ADDED` | ❌ | — (comments notify nobody) | — |
 | `PROJECT_UPDATED` | ❌ | — | — |
 | `MILESTONE_UPDATED` | ❌ | — | — |
@@ -22,8 +24,10 @@ The `notifications.type` CHECK constraint allows 9 values. **Four are produced b
 
 | Type | Fires when | Title | Message |
 |---|---|---|---|
-| `TASK_ASSIGNED` | a `task_assignees` row is created | "New task assigned" | `You were assigned to "<task title>"` |
+| `TASK_ASSIGNED` | a `task_assignees` row is created | "New task assigned" | `<assigner> assigned you to "<task title>" in "<project>" — due <yyyy-mm-dd or "no due date set">` (since 2026-10-09; before: `You were assigned to "<task title>"`) |
 | `TASK_STATUS_CHANGED` | a task update changes `status` (previous ≠ new) | "Task status updated" | `"<task title>" is now <Status>` (e.g. *In Progress*) |
+| `APPROVAL_REQUESTED` | a task enters In Review, or an approver is named for a task already waiting | "Approval requested" | `<requester> asked you to review "<task>" in "<project>"` |
+| `APPROVAL_DECIDED` | an approver approves, requests changes or rejects (or completes the task directly) | "Task approved" / "Changes requested" / "Task rejected" | `<approver> approved\|asked for changes on\|rejected "<task>"[: <comment>]` |
 | `TEAM_INVITATION` | a project invitation is created or re-sent | "Team invitation" | `<inviter name> invited you to join "<project name>"` |
 | `TEAM_INVITATION_RESPONDED` | the invitee accepts or declines (and the inviter still exists) | "Invitation accepted" / "Invitation declined" | `<invitee name> accepted|declined your invitation to join "<project name>"` |
 
@@ -70,4 +74,4 @@ This has a side effect on invitations: the notification is the only place the UI
 
 ## 7. Seed data
 
-`02-seed.sql` inserts notifications so the bell has content on first run: invitation notifications, one `TASK_ASSIGNED` per seeded assignment, one `TASK_STATUS_CHANGED` per assignment on a non-`TO_DO` task, and — by calling `fn_generate_overdue_notifications()` once — `OVERDUE_TASK` rows. Read/unread flags on the generated ones are randomised (`random()`), and the seeded status messages print the raw status (for example `IN_PROGRESS`) whereas notifications created by the app print `In Progress`.
+`02-seed.sql` inserts notifications so the bell has content on first run: invitation notifications, one `TASK_ASSIGNED` per seeded assignment, one `TASK_STATUS_CHANGED` per assignment on a non-`TODO` task, and — by calling `fn_generate_overdue_notifications()` once — `OVERDUE_TASK` rows. Read/unread flags on the generated ones are randomised (`random()`), and the seeded status messages print the raw status (for example `IN_PROGRESS`) whereas notifications created by the app print `In Progress`.

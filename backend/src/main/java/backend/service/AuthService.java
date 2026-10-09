@@ -63,10 +63,14 @@ public class AuthService {
     public LoginResponse login(LoginRequest request, String rateLimitKey) {
         loginRateLimiter.assertNotLocked(rateLimitKey);
 
+        // The form field is still called "username" but accepts the account's
+        // e-mail address as well; everything after this works on the username.
+        String username = userService.resolveLoginIdentifier(request.getUsername());
+
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
-                            request.getUsername(),
+                            username,
                             request.getPassword()
                     )
             );
@@ -77,7 +81,7 @@ public class AuthService {
 
         loginRateLimiter.recordSuccess(rateLimitKey);
 
-        User user = userService.getUserEntityByUsername(request.getUsername());
+        User user = userService.getUserEntityByUsername(username);
         String roleName = user.getRole() != null ? user.getRole().getName() : null;
 
         String token = jwtService.generateToken(user.getUsername(), roleName);

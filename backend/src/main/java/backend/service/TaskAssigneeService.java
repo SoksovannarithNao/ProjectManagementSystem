@@ -124,8 +124,9 @@ public class TaskAssigneeService {
         taskAssignee.setUser(user);
 
         TaskAssignee saved = taskAssigneeRepository.save(taskAssignee);
-        notificationService.notifyTaskAssigned(task, user);
-        activityLogService.record(requireUser(username), task, "TASK_ASSIGNED", user.getFullName() + " was assigned");
+        User caller = requireUser(username);
+        notificationService.notifyTaskAssigned(task, user, caller);
+        activityLogService.record(caller, task, "TASK_ASSIGNED", user.getFullName() + " was assigned");
         return new TaskAssigneeResponse(saved);
     }
 

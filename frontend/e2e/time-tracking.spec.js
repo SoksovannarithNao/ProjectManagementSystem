@@ -7,7 +7,7 @@ import { login } from './helpers.js'
 test.beforeEach(async ({ page }) => {
   await login(page)
   await page.goto('/projects')
-  await page.locator('a[href^="/projects/"]').first().click()
+  await page.locator('a[href^="/projects/"]', { hasText: 'Website Redesign' }).click()
   await expect(page).toHaveURL(/\/projects\/\d+$/)
   await page.getByTestId('task-row').first().click()
   await expect(page.getByRole('heading', { name: 'Time tracking', exact: true })).toBeVisible()

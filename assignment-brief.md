@@ -327,7 +327,7 @@ Part A (everything above) is the assignment text as received. Part B resolves it
 - **Where Part B differs from Part A, Part B governs**, and the difference is listed in section B0.
 - **Wording convention.** *REQUIRED* = Part A says "must". *OPTIONAL* = Part A says "can" or "prototype". *UNDEFINED* = no source says. *OUT OF SCOPE* = explicitly excluded (nothing is, today).
 - **`D-nn`** marks a rule this specification had to choose because a source leaves it open. All are collected in section B13.2. D-01 to D-18 were all approved by the project owner on 2026-10-08.
-- **"Current implementation"** notes describe the application as it is on 2026-10-08. They are information, not requirements.
+- **"Current implementation"** notes describe the application as it is on 2026-10-09 (after change-plan batches 1, 2, 3a and 3b). They are information, not requirements.
 
 **Outline of Part B** (the 13 headings the specification must contain)
 
@@ -400,7 +400,7 @@ Only `ACTIVE` accounts can be invited to projects or assigned tasks.
 | `CANCELLED` | Cancelled | intentionally removed from scope |
 
 Normal path: `TODO → IN_PROGRESS → IN_REVIEW → COMPLETED`. `CANCELLED` can be set from any other status by someone with `EDIT`. A task can be reopened (`COMPLETED → IN_PROGRESS`) by someone with `EDIT`. "Done" is **not** a status.
-*Current implementation:* the stored value is `TO_DO` (identifier only; the label is already "To Do"). See D-15.
+*Current implementation:* stored as `TODO` since migration `V11` (2026-10-09); the label shown is "To Do". The UI uses the labels To Do, In Progress, In Review and Completed everywhere ("Done" and "Review" are gone). See D-15.
 
 ### B1.3 Derived states (calculated, never stored)
 
@@ -415,7 +415,7 @@ Normal path: `TODO → IN_PROGRESS → IN_REVIEW → COMPLETED`. `CANCELLED` can
 | **Delayed** | task | not used; use **Overdue**. |
 
 `DELAYED` is **never** a stored status for a project or a task, so it can never contradict the dates. The Project Status Report lists "Delayed" as a derived group next to the five stored statuses (B8).
-*Current implementation:* Overdue is already a database view, date-based, excluding Completed and Cancelled. Delayed projects are not calculated anywhere.
+*Current implementation (2026-10-09):* Overdue and Delayed are both calculated in `backend/util/Derived` from the dates and statuses and never stored. `ProjectResponse` carries `delayed` and `daysDelayed`; `GET /api/dashboard/stats` counts them for what the caller may see; the dashboard, the project cards and page, and the projects filter show them.
 
 ### B1.4 Feature classification
 
@@ -428,26 +428,26 @@ Classification of every feature named in only one source or marked inconsistentl
 | Change password, logout | REQUIRED | Part A *Users & Access* (now A2) | done |
 | Session management + auto-logout prototype | REQUIRED | Part A *Security & Sessions* (now A3) | token expires after one hour, no warning or auto-logout |
 | Task dependencies and ordering rules | REQUIRED | Part A *Task Dependencies* (now A4) | done (database rules + UI) |
-| Project Timeline | REQUIRED | Part A *Projects*; no workflow (now A5) | missing |
+| Project Timeline | REQUIRED | Part A *Projects*; no workflow (now A5) | done (2026-10-09, `/projects/:id/timeline`) |
 | Gantt chart prototype | OPTIONAL | Part A "can"; listed in the Overview and the team-responsibilities file but in no function list | missing |
 | Kanban board (view by status) | REQUIRED | Part A | done |
 | Kanban moving cards between columns | OPTIONAL | Part A "can … as a prototype" | missing (cards open the panel) |
 | Calendar (tasks, due dates, milestones) | REQUIRED | Part A; at least one of day/week/month, all three is the target | month view; tasks only |
 | Task List with search/filter/sort | REQUIRED | Part A | partly |
 | Subtasks | REQUIRED | Part A | done |
-| Checklists | REQUIRED | Part A | missing (table only) |
-| File attachments | REQUIRED | Part A "must" | missing |
+| Checklists | REQUIRED | Part A | done (2026-10-09, `V13`) |
+| File attachments | REQUIRED | Part A "must" | done (2026-10-09, `V13`) |
 | Document management | OPTIONAL | Part A "can" | missing |
-| Comments with replies | REQUIRED | Part A | replies work in the API only |
+| Comments with replies | REQUIRED | Part A | done (replies in the UI since 2026-10-09) |
 | Task discussion (threads) | OPTIONAL | Part A "can" | same as above |
 | @mentions | UNDEFINED | in neither source; requested for notifications only | missing |
 | Notifications (7 kinds) | REQUIRED | Part A | 3 of 7 produced |
 | Deadline reminders, overdue notifications | REQUIRED | Part A | database function exists, nothing runs it |
 | Time tracking, work logs | OPTIONAL | Part A "can … as a prototype"; work-log fields are listed as "must" if it is built | done |
-| Team workload | REQUIRED | Part A | chart on the Reports page only |
-| KPIs (five) | REQUIRED | Part A | missing |
-| Team performance | OPTIONAL | Part A "can" (but the Team Performance Report is REQUIRED) | missing |
-| Reports (seven named) | REQUIRED | Part A | charts only |
+| Team workload | REQUIRED | Part A | done (2026-10-09: `/projects/:id/workload`, the dashboard card; the Reports page chart stays) |
+| KPIs (five) | REQUIRED | Part A | done (2026-10-09: `GET /api/reports/kpis`, the *KPIs* tab) |
+| Team performance | OPTIONAL | Part A "can" (but the Team Performance Report is REQUIRED) | done as the Team Performance Report (2026-10-09) |
+| Reports (seven named) | REQUIRED | Part A | done (2026-10-09: `GET /api/reports/*`, one tab each) |
 | Report export (PDF/Excel) | OPTIONAL | Part A "can … as a prototype" | missing |
 | Activity log | REQUIRED | Part A | per task only |
 | Audit log | OPTIONAL | Part A "can" | missing |
@@ -461,7 +461,7 @@ Classification of every feature named in only one source or marked inconsistentl
 
 | Item | Rule |
 |---|---|
-| Task progress | If the task has subtasks: `completed subtasks ÷ all subtasks`. Otherwise a manual value 0–100. A `COMPLETED` task is 100. Checklist items: **RULE TO BE APPROVED (D-07)**; Part A only says checklist progress "can" contribute. |
+| Task progress | If the task has subtasks: `completed subtasks ÷ all subtasks`. Otherwise a manual value 0–100. A `COMPLETED` task is 100. Checklist items count with the subtasks (D-07, approved): `(completed subtasks + completed checklist items) ÷ (all subtasks + all items)`, with no subtasks and no items the manual value; a `COMPLETED` task whose subtasks are all done stays 100 even if checklist items are open (only subtasks gate completion). Implemented 2026-10-09 (`V13`). |
 | Project progress | `completed tasks ÷ (total tasks − cancelled tasks)`. Cancelled tasks do not count as unfinished work. No effective tasks → 0. A task counts only when `COMPLETED` (no partial credit, no weighting by estimate). |
 | Milestone progress | the same formula over the tasks linked to the milestone. |
 | Subtasks and project progress | Subtasks affect **their parent task's** progress only. They do not count as tasks in project progress. |
@@ -482,7 +482,7 @@ Task
 | What it is | a child task | one line to tick off |
 | Fields | title, assignee, due date, status, completion | text, completed yes/no |
 | Can have comments, dependencies, own permissions | yes (as a child of its task) | no |
-| Counts toward the parent's progress | yes | per D-07 |
+| Counts toward the parent's progress | yes | yes (D-07) |
 | Part A | REQUIRED | REQUIRED |
 
 ### B1.7 Priority
@@ -509,7 +509,7 @@ Part A uses "Critical" for projects and "Urgent" for tasks; the specification ke
 
 - Filters can be combined (logical AND); search combines with filters; "Clear" restores the full list.
 - **Search and filters never widen access.** Results are computed only from items the user may already see (administrator: all; everyone else: projects where they are an active member and the tasks of those projects). A user must never retrieve a project or task through search that they cannot open directly.
-- *Current implementation:* task search/sort partly; no project filters; sorting by priority and status incomplete.
+- *Current implementation (2026-10-09):* done in the browser, over lists the server already limited to what the caller may see, so a filter can never reveal an item the user cannot open. **Projects:** filter by status (Planning, Active, On Hold, Completed, Cancelled), priority and project manager; sort by name, start date, end date, priority, progress; search over name, description, code, manager, status and dates. **Tasks:** filter by status, priority, assignee (or unassigned), project, due date (overdue, today, next 7 days, none) and My Tasks; sort by latest, due date, priority, progress, status, title; search over title, description, project, assignee, priority, status and due date. Filters combine with AND; Clear restores the list. **Not done:** the list endpoints take no search/filter/sort parameters yet (B11 criterion 2); see G-16.
 
 ---
 
@@ -686,7 +686,7 @@ Approver
 - A task can become `COMPLETED` only after `APPROVED`. An approver who completes a task directly counts as approving it (recorded with their name). A `MEMBER` can never set `COMPLETED`.
 - Every request and decision produces an activity entry and a notification (B9).
 - The approval record keeps: task, requested by, requested at, decided by, decision, decided at, comment.
-- *Current implementation:* only the completion gate exists (a person without `APPROVE` cannot set `COMPLETED`; they use `IN_REVIEW`). There are no approval records, no `CHANGES_REQUESTED`/`REJECTED`, no designated approver and no notifications.
+- *Current implementation (2026-10-09, `V12`):* built as specified. `task_approvals` keeps one row per request (PENDING, then APPROVED / CHANGES_REQUESTED / REJECTED, or WITHDRAWN when the task leaves review with no decision); `tasks.approver_id` names an optional approver (set with `ASSIGN`). **Approving completes the task** (progress 100; refused while a subtask is open). Changes requested and Rejected need a comment; Rejected also needs the approver's choice of In Progress or Cancelled. When an approver is named, only that person, the project `OWNER` or an `ADMINISTRATOR` may decide. Nobody decides their own work (requested the review, or is assigned to the task) except the `OWNER` and `ADMINISTRATOR`. An approver who completes a task through the ordinary task edit counts as approving it, under the same rules. Every request and decision writes an activity entry and a notification (requester for a decision; the named approver, otherwise every active member who may approve, for a request; the actor is never notified).
 
 ### B3.9 Project creation, ownership and membership
 
@@ -721,10 +721,10 @@ Conceptual model required by Part A *Architecture & Logic*. "Current" says wheth
 | **Task assignee** | task, user | assignee must be an `ACTIVE` project member | yes |
 | **Task dependency** | task, blocks-task | no self reference, no cycles | yes |
 | **Subtask** | title, assignee, due date, status, completion | child of a task | yes |
-| **Checklist item** | task, text, completed | child of a task; **not** a task | no |
+| **Checklist item** | task, text, completed | child of a task; **not** a task | yes (2026-10-09, `V13`) |
 | **Approval record** | task, requested by/at, decided by/at, decision, comment | many per task over time | no |
-| **Comment** | task, user, message, date/time, parent comment (reply), mentions *(undefined)* | belongs to a task | yes (no mentions) |
-| **Attachment** | project or task, file name, type, size, uploaded by, uploaded at | belongs to a project **or** a task | table only |
+| **Comment** | task, user, message, date/time, parent comment (reply), mentions *(undefined)* | belongs to a task | yes (replies in the UI since 2026-10-09; no mentions) |
+| **Attachment** | project or task, file name, type, size, uploaded by, uploaded at | belongs to a project **or** a task | yes (2026-10-09, `V13`) |
 | **Work log** *(optional)* | task, user, work date, hours, description | belongs to a task | yes |
 | **Notification** | recipient, type, message, task/project reference, read flag, created at | per user | yes |
 | **Activity log entry** | actor, action, project/task, details, time | per project and task | task events only |
@@ -784,11 +784,11 @@ The **seven named reports** are the authoritative requirement. A generic "genera
 | 6 | **Team Performance Report** | per member: assigned, completed, pending, overdue tasks and completion rate | project, date range | assignees, completion data |
 | 7 | **Workload Report** | per member: assigned, active, overdue tasks, estimated hours, actual hours | project | **actual hours need Time Tracking (OPTIONAL)** — without it, actual hours are shown as unavailable |
 
-*Current implementation:* none of the seven exists as a named report. The Reports page shows charts only, computed in the browser, and is hidden from roles without `GENERATE_REPORTS`. There are no report endpoints.
+*Current implementation (2026-10-09, change-plan 3c):* all seven exist as server endpoints (`GET /api/reports/project`, `/tasks`, `/project-status`, `/task-completion`, `/overdue`, `/team-performance`, `/workload`) and as tabs of the Reports page, each with an explicit *Generate* step. The server enforces who may generate: an Administrator reports on every project, anyone else only on the projects where they hold `GENERATE_REPORTS` (Owner, Team Leader, and the Project Manager through the Owner role); everyone else gets `403`, and a project outside that set `404` (stranger) or `403`. Task Completion needs the date range and counts completed ÷ non-cancelled tasks due in it; Team Performance shows To Do (the "pending" of B1.3), In Progress and In Review apart; the Project Status *Delayed* group is calculated and overlaps the others. The page's first tab, *Overview*, keeps the earlier charts, computed in the browser. Export is not built.
 
-**KPIs (REQUIRED, five).** Part A names them without formulas. Proposed definitions, **to be approved (D-12)**:
+**KPIs (REQUIRED, five).** Part A names them without formulas. Definitions **approved (D-12)** and implemented on 2026-10-09 (`GET /api/reports/kpis`; percentages with one decimal; a rate whose denominator is empty is shown as "—", not 0%):
 
-| KPI | Proposed formula |
+| KPI | Formula |
 |---|---|
 | Project completion rate | completed projects ÷ (all projects − cancelled) |
 | Task completion rate | completed tasks ÷ (all tasks − cancelled) |
@@ -812,8 +812,8 @@ Part A requires seven kinds (task assignment, status change, comment, project up
 | Mention | **UNDEFINED** — mentions are in neither source | — | no |
 | Deadline approaching (3 days and 1 day before; task, milestone, project) | the assignee and the project's `OWNER` | workflow §27 | no |
 | Deadline passed / task overdue | the assignee and the project's `OWNER` | Part A, workflow §28 | generator exists, never run |
-| Approval requested | the designated approver; otherwise everyone who may approve — **pending** (D-10) | this spec | no |
-| Approval completed | the person who requested — **pending** (D-10) | this spec | no |
+| Approval requested | the designated approver; otherwise everyone who may approve — **pending** (D-10) | this spec | yes (2026-10-09) |
+| Approval completed | the person who requested — **pending** (D-10) | this spec | yes (2026-10-09) |
 | Project updated | **pending** (D-10) | Part A names it | no |
 | Milestone updated | **pending** (D-10) | Part A names it | no |
 | Project member added / removed | the person added or removed (invitation sent, response returned to the inviter) — the added/removed case is **pending** | partly current | invitation and its response only |
@@ -835,7 +835,7 @@ Two different things.
 | Record | actor, action, project/task, time (+ readable detail) | actor, action, target type and id, time, **before and after values** |
 | Editable? | no | no (append-only) |
 
-*Current implementation:* the activity log exists per task only (task and subtask events). Project, comment and file events and the audit log do not exist.
+*Current implementation (2026-10-09, `V13`):* one `activity_logs` table feeds both views: the task panel (per task) and the project page (`GET /api/activity-logs/project/{id}`, newest first). Recorded: project created / updated (naming what changed) / completed, milestone created / completed, task created / assigned / unassigned / status / priority / due date / deleted, subtask events, approval events, comment and reply added, file uploaded. The audit log (optional) does not exist.
 
 ---
 
@@ -899,7 +899,7 @@ Remain optional; none is acceptance criteria. If shown in the demo they are labe
 
 ### B13.1 Differences between this specification and the application
 
-Status after the role-model migration `V10` (2026-10-08). These are implementation gaps, not reasons to change the requirements.
+Status after the role-model migration `V10` (2026-10-08) and change-plan batches 1, 2, 3a and 3b (2026-10-09). These are implementation gaps, not reasons to change the requirements.
 
 | # | Area | Status | Detail |
 |---|---|---|---|
@@ -909,15 +909,19 @@ Status after the role-model migration `V10` (2026-10-08). These are implementati
 | G-04 | Matrix | **Resolved** | `V10` matrix = B3.4–B3.6; reports through the project roles |
 | G-05 | Team Members create tasks | **Resolved** | refused (`403`) |
 | G-06 | New roles | Open | cannot be created from the UI; the API can add a bare role with no grants (D-14) |
-| G-07 | Own position / department | Open | users cannot edit their own (D-16) |
-| G-08 | `APPROVE` | Open | only a completion gate; no review workflow (B3.8) |
-| G-09 | `GENERATE_REPORTS` | Open | gates the Reports page and link only; no named reports; no report endpoints (B8) |
+| G-07 | Own position / department | **Resolved** | the Profile page offers the managed lists; `PUT /api/users/me` accepts `positionId` / `departmentId` (2026-10-09) |
+| G-08 | `APPROVE` | **Resolved** | approval records, designated approver, Approved / Changes requested / Rejected, notifications and activity entries (B3.8; 2026-10-09, `V12`) |
+| G-09 | `GENERATE_REPORTS` | **Resolved** | the seven report endpoints and the KPIs check it (and which projects it covers) on the server (B8; 2026-10-09, change-plan 3c) |
 | G-10 | Authorization code | Informational | `ProjectAccessGuard` asks a permission service resource × action; B3.6 describes the fine-grained layer |
-| G-11 | Status name | Open | stored `TO_DO` (D-15) |
+| G-11 | Status name | **Resolved** | stored `TODO` since `V11` (2026-10-09) |
 | G-12 | Ownership transfer | **Resolved** | `PUT /api/project-members/{id}` with role `OWNER`, one step; previous owner becomes `ADMIN` |
 | G-13 | Administrator creating for others | **Resolved** | the named manager must be able to own projects; becomes the owner |
-| G-14 | Missing features | Open | project timeline, Gantt, checklists, attachments, KPIs, workload page, Team Tasks, Delayed calculation, approval records, audit log, project/comment/file activity, @mentions, auto-logout, login by email, project filters, comment replies in the UI, deadline reminders, Kanban moving, report export (B1.4) |
+| G-14 | Missing features | Open | Gantt, audit log, @mentions, auto-logout, deadline reminders, Kanban moving, report export (B1.4) |
+| G-19 | Dashboard statistics, Delayed, Team Tasks, Workload, Timeline, role / ownership UI | **Resolved** | built 2026-10-09 (change-plan 3b); see D-13 |
+| G-18 | Checklists, attachments, comment replies, project / comment / file activity | **Resolved** | built 2026-10-09 (`V13`, change-plan 3a); see D-07 and D-17 |
 | G-15 | A project with a single owner could not be deleted | **Resolved** | the owner check is deferred and skipped for a project being deleted |
+| G-16 | Search, filter and sort parameters | Open | project and task filters/sorting work in the browser over permission-scoped lists; the list endpoints take no such parameters (B11 criterion 2) |
+| G-17 | Login, labels, assignment notification | **Resolved** | sign-in by username or e-mail; UI says Completed / In Review; the assignment notification names the task, project, due date and assigner (2026-10-09) |
 
 ### B13.2 Decisions
 
@@ -929,19 +933,19 @@ Status after the role-model migration `V10` (2026-10-08). These are implementati
 | D-02 | Does a system role ever widen a project role? | No. Within a project the project role decides; only `ADMINISTRATOR` bypasses (B3.3 rule 4). |
 | D-03 | May an administrator create a project for someone else? | Yes; names the owner (who can own projects); else the administrator owns it. |
 | D-04 | Who may receive ownership? What if an owner loses `PROJECT_MANAGER`? | New owner must hold `PROJECT_MANAGER` or `ADMINISTRATOR`. Demoting an owner's system role is refused while they are the sole owner of a project. |
-| D-05 | Meaning of `CHANGES_REQUESTED` vs `REJECTED`; is approval needed for every task; may an approver approve their own work? | Changes requested → back to In Progress. Rejected → approver chooses In Progress or Cancelled. Approval needed for every task. Approving one's own work is allowed only for `OWNER`/`ADMINISTRATOR`. |
+| D-05 | Meaning of `CHANGES_REQUESTED` vs `REJECTED`; is approval needed for every task; may an approver approve their own work? | Changes requested → back to In Progress. Rejected → approver chooses In Progress or Cancelled. Approval needed for every task. Approving one's own work is allowed only for `OWNER`/`ADMINISTRATOR`. **Implemented 2026-10-09.** |
 | D-06 | Dashboard definitions: is a `PLANNING` project "active"? Does "Total Tasks" include cancelled? Where is In Review counted? | Active = `IN_PROGRESS` only. Total = all tasks, with Cancelled shown separately. In Review shown as its own count. Buckets are exclusive except Overdue, which overlaps. |
-| D-07 | Do checklist items count toward task progress? | Yes: `(completed subtasks + completed checklist items) ÷ (all subtasks + all checklist items)`; manual value if neither exists. |
+| D-07 | Do checklist items count toward task progress? | Yes: `(completed subtasks + completed checklist items) ÷ (all subtasks + all checklist items)`; manual value if neither exists. **Implemented 2026-10-09.** |
 | D-08 | May a milestone be completed with unfinished linked tasks? | Yes, with a warning; tasks are not changed. |
 | D-09 | Part A lets a "Project Manager or Team Leader" be the responsible person. Is the responsible person always the `OWNER`? | Yes; a Team Leader (`ADMIN`) assists and may be listed as "lead", but the project record has one responsible person, the `OWNER`. |
 | D-10 | Notification recipients for status change, comment, approvals, project/milestone update, member added/removed | Proposal: assignees and the `OWNER`/`ADMIN`s of the project; the actor excluded. |
 | D-11 | Who may read the audit log? | `ADMINISTRATOR`; ownership events also visible to that project's `OWNER`. |
-| D-12 | KPI formulas | B8 table. |
-| D-13 | Overloaded / underloaded thresholds | **Decided:** relative to the team. A member is overloaded when their active-plus-overdue tasks or estimated hours are clearly above the average of the same team, underloaded when clearly below; no fixed numbers. The margin is an implementation detail to tune. |
+| D-12 | KPI formulas | B8 table. **Implemented 2026-10-09** (`ReportService`). |
+| D-13 | Overloaded / underloaded thresholds | **Implemented 2026-10-09** (`util/WorkloadClassifier`): a member's load is their open tasks (active + overdue) and the estimated hours of unfinished work; **overloaded** when either is more than 1.5x the team average and at least one task / four hours above it; **underloaded** when open tasks are under half the average (at least one task below) and estimated hours are not above it; **balanced** otherwise and always for a one-person team. An Owner or Team Leader counts only once work is assigned to them. **Decided:** relative to the team. A member is overloaded when their active-plus-overdue tasks or estimated hours are clearly above the average of the same team, underloaded when clearly below; no fixed numbers. The margin is an implementation detail to tune. |
 | D-14 | Role creation (workflow §4 "Create or edit a role") | Required. An administrator may create, edit and delete extra **system** roles and assign them any of the seven permissions; the three built-in system roles keep their names and cannot be deleted; project roles stay the four built-ins (custom project roles are UNDEFINED). |
-| D-15 | Rename the stored value `TO_DO` to `TODO`? | The specification uses `TODO`; a rename is a separate migration decision. |
-| D-16 | May users edit their own position and department? | Yes (Part A: users edit their profile; both are profile fields). They choose from the managed lists; only an administrator creates new list entries. An administrator or a project owner/leader may also set them for others (current behaviour). |
-| D-17 | Attachment limits (types, size) and who may upload/delete | Upload: `OWNER`, `ADMIN`, `MEMBER` on tasks they can see; delete: the uploader, `OWNER`. Limits UNDEFINED. |
+| D-15 | Rename the stored value `TO_DO` to `TODO`? | The specification uses `TODO`; a rename is a separate migration decision. **Done 2026-10-09** (`V11`). |
+| D-16 | May users edit their own position and department? | Yes (Part A: users edit their profile; both are profile fields). They choose from the managed lists; only an administrator creates new list entries. An administrator or a project owner/leader may also set them for others (current behaviour). **Implemented 2026-10-09.** |
+| D-17 | Attachment limits (types, size) and who may upload/delete | Upload: `OWNER`, `ADMIN`, `MEMBER` on tasks they can see; delete: the uploader, `OWNER` (and `ADMIN`, D-01). **Limits chosen 2026-10-09 (they were UNDEFINED):** 10 MB per file, 25 files per task or project, an allow-list of types (images, PDF, text, CSV, JSON, Office / OpenDocument, ZIP; no executables, scripts, HTML or SVG), content checked against the type. |
 | D-18 | Calendar views | at least month; day and week are the target. |
 
 ### B13.3 Requirements that still conflict or are still open

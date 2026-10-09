@@ -112,20 +112,20 @@ public class SubtaskService {
     // completion consistency section, and the Done-side gate that's the only
     // other exception): touching a subtask on a task that hasn't been
     // started yet is a clear "work has begun" signal, so it's auto-promoted
-    // TO_DO -> IN_PROGRESS the first time that happens. It never does
-    // anything else — a task already past TO_DO, or one a caller explicitly
-    // set back to TO_DO, is left alone.
+    // TODO -> IN_PROGRESS the first time that happens. It never does
+    // anything else — a task already past TODO, or one a caller explicitly
+    // set back to TODO, is left alone.
     //
     // Skipped entirely for a task "Blocked" by an incomplete dependency:
     // trg_tasks_dependencies_status_gate (01-init.sql) refuses to let a task
     // move to IN_PROGRESS while it depends on something unfinished, and
     // since this all runs in the same transaction as the subtask save,
     // attempting it anyway would throw and roll back that subtask update
-    // too — silently leaving the task at TO_DO here is far less surprising
+    // too — silently leaving the task at TODO here is far less surprising
     // than a routine subtask toggle failing for a reason that has nothing to
     // do with the subtask itself.
     private void startTaskIfStillToDo(User actor, Task task) {
-        if (!"TO_DO".equals(task.getStatus())) {
+        if (!"TODO".equals(task.getStatus())) {
             return;
         }
         if (taskDependencyRepository.existsByTaskIdAndDependsOnTaskStatusNot(task.getId(), "COMPLETED")) {

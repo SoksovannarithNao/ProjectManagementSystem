@@ -27,7 +27,7 @@ public class Subtask {
     private LocalDate dueDate;
 
     @Column(nullable = false, length = 20)
-    private String status = "TO_DO";
+    private String status = "TODO";
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

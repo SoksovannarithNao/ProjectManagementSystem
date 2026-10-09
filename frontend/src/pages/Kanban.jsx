@@ -18,9 +18,10 @@ import { getProjects } from '../api/projects'
 import { buildTaskAssigneeMap } from '../api/relations'
 import { groupTasksByStatus } from '../api/stats'
 import { formatDate, humanizeEnum, taskDisplayTitle, blockedReason } from '../api/format'
+import { ApprovalChip } from '../components/ApprovalChip'
 
 const COLUMN_ACCENT = {
-  TO_DO: 'bg-faint',
+  TODO: 'bg-faint',
   IN_PROGRESS: 'bg-info',
   IN_REVIEW: 'bg-warning',
   COMPLETED: 'bg-success',
@@ -226,6 +227,7 @@ export function Kanban() {
                       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
                         <Badge tone={task.priority}>{humanizeEnum(task.priority)}</Badge>
                         <TimeChip task={task} />
+                        <ApprovalChip task={task} />
                         {task.totalSubtasks > 0 && (
                           <span className="text-muted inline-flex items-center gap-1 text-[12px]">
                             <ListChecks size={11} />

@@ -19,7 +19,7 @@ public class SubtaskRequest {
 
     private LocalDate dueDate;
 
-    @Pattern(regexp = "TO_DO|IN_PROGRESS|COMPLETED")
+    @Pattern(regexp = "TODO|IN_PROGRESS|COMPLETED")
     private String status;
 
     public Long getTaskId() {

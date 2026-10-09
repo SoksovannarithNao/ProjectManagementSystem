@@ -23,7 +23,7 @@ stateDiagram-v2
 | Profile | `PUT /api/users/me` | Editable by the user: full name, email, gender, date of birth, phone. **Not** editable by the user: username, role, status, position, department |
 | Photo | `PUT /api/users/me/photo` (multipart `file`), `DELETE /api/users/me/photo` | JPEG, PNG, WEBP or GIF only; max 5 MB (`spring.servlet.multipart`); stored as bytes in `users.profile_photo`; served publicly at `/api/photos/{token}` (see [ADR-0009](adr/0009-profile-photos-in-database.md)) |
 | Preferences | `PUT /api/users/me/preferences` | `themePreference` (`LIGHT`/`DARK`/`SYSTEM`) and `taskNotificationsEnabled`. **Turning notifications off also stops invitation notifications** — see [notifications.md](notifications.md#5-the-preference-switch) |
-| Position / department | `PUT /api/users/{id}/position-department` | By a "team admin" for that user; never by or for yourself. Lists are org-wide (`positions`, `departments`; names unique case-insensitively) |
+| Position / department | `PUT /api/users/{id}/position-department` | A user sets their own on the **Profile** page (`PUT /api/users/me`, chosen from the lists); a "team admin" can set them for someone else here, never for themselves. Lists are org-wide (`positions`, `departments`; names unique case-insensitively) |
 | Change status / edit | `PUT /api/users/{id}` (administrator) | Full replace of the fields in `UserUpdateRequest` including `username`. Setting a non-`ACTIVE` status is refused while the user is the **sole active owner** of any project |
 | Give a system role | `PUT /api/users/{id}/role` `{ "roleId" }` (`USER:ASSIGN`, administrator) | UI: Administration → Users. `VIEWER` (project-only) is refused; the last Administrator cannot be demoted |
 | Delete | `DELETE /api/users/{id}` (administrator) | Refused while the user is a sole active owner. Database cascades remove their memberships, comments, assignments, notifications and OTP rows; `tasks.created_by`, `subtasks.assignee_id` and `activity_logs.user_id` become NULL. `projects.manager_id` is `ON DELETE RESTRICT`, so deleting a user who is still a project's manager fails at the database |
@@ -63,8 +63,8 @@ The user directory (`GET /api/users`) is scoped: an administrator sees everyone;
 Observations:
 
 - **No rule links project status to its tasks.** Nothing prevents setting a project to `COMPLETED` while tasks are open, and `projects` has no completion-date column (only `tasks.completed_at` exists). *(Confirmed by reading `ProjectService` and the schema.)*
-- The Projects page search matches the project **name and description** only (not code, manager or status). There are no status/priority filters on the project list.
-- The card list sorts fully complete (100%) projects to the bottom.
+- The Projects page search matches the project name, description, code, manager, status and dates.
+- **Filter** (since 2026-10-09): status (Planning, Active, On Hold, Completed, Cancelled), priority and project manager; they combine with AND and with the search, and **Clear filters** resets them. **Sort**: Default (fully complete 100% projects last), name, start date, end date, priority, progress. Both work in the browser over the projects the server already limited to the caller, so they never reveal a project the user cannot open.
 - The Projects page subtitle reads "N active projects" but counts every project the caller can see.
 
 ## 3. Project membership
@@ -84,7 +84,7 @@ Two ways a row appears:
 1. **Direct add** — `POST /api/project-members` (`MEMBER:CREATE`). Becomes `ACTIVE` immediately. Used internally when a project is created (the creator → `OWNER`). Adding as `OWNER` is refused; making a member the owner is a transfer (below). Inactive/suspended users are refused.
 2. **Invitation** — see below.
 
-Other operations: `PUT /api/project-members/{id}` (change role; `MEMBER:EDIT`; role `OWNER` = transfer ownership, `PROJECT:ASSIGN`, one step, previous owner becomes `ADMIN`), `DELETE /api/project-members/{id}` (remove; `MEMBER:DELETE`; blocked if it would remove the last active owner). In the UI, **removal** is on the Team page (an ✕ beside a project in a member's list). **Role changes have no UI.**
+Other operations: `PUT /api/project-members/{id}` (change role; `MEMBER:EDIT`; role `OWNER` = transfer ownership, `PROJECT:ASSIGN`, one step, previous owner becomes `ADMIN`), `DELETE /api/project-members/{id}` (remove; `MEMBER:DELETE`; blocked if it would remove the last active owner). In the UI, **removal** is on the Team page (an ✕ beside a project in a member's list). **Role changes** are on the project page since 2026-10-09: each member (except you and the Owner) has a role picker — *Team Leader*, *Team Member*, *Viewer* for the Owner and an Administrator, only *Team Member* / *Viewer* for a Team Leader (who cannot touch another leader) — and *Owner (transfer ownership)* appears for a member who can own projects, behind a confirmation. The project page also links to **Team tasks**, **Workload** (for people who can assign tasks) and **Timeline** (everyone); see [frontend.md](frontend.md).
 
 Reads: `GET /api/project-members` and `GET /api/project-members/project/{id}` return **active** members only; `GET /api/project-members/{id}` requires access to that row's project; `GET /api/project-members/user/{userId}` is **scoped**: an administrator gets every row, anyone else only the user's *active* memberships in projects the caller also belongs to. `PUT /api/project-members/{id}` can change only the **role** — the row's project and user cannot be re-pointed (`400`).
 

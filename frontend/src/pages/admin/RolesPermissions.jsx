@@ -38,6 +38,8 @@ const APPLICABLE = {
   SUBTASK: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
   COMMENT: ['VIEW', 'CREATE', 'DELETE'],
   WORK_LOG: ['VIEW', 'CREATE', 'DELETE'],
+  ATTACHMENT: ['VIEW', 'CREATE', 'DELETE'],
+  CHECKLIST_ITEM: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
   REPORT: ['GENERATE_REPORTS'],
   USER: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'ASSIGN'],
   ROLE: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
@@ -45,7 +47,7 @@ const APPLICABLE = {
 }
 
 const SYSTEM_RESOURCES = ['PROJECT', 'REPORT', 'USER', 'ROLE', 'LOOKUP']
-const PROJECT_RESOURCES = ['PROJECT', 'MILESTONE', 'MEMBER', 'TASK', 'TASK_STATUS', 'SUBTASK', 'COMMENT', 'WORK_LOG', 'REPORT']
+const PROJECT_RESOURCES = ['PROJECT', 'MILESTONE', 'MEMBER', 'TASK', 'TASK_STATUS', 'SUBTASK', 'COMMENT', 'WORK_LOG', 'ATTACHMENT', 'CHECKLIST_ITEM', 'REPORT']
 
 // Two levels of role (ADR-0015). System roles say what a person may do anywhere;
 // project roles say what they may do inside one project, and carry the business
@@ -69,6 +71,8 @@ const RESOURCE_HINTS = {
   MEMBER: { PROJECT: 'Create = invite or add. Edit = change a member’s role. Delete = remove.' },
   COMMENT: { PROJECT: 'Everyone can edit their own comment; Delete also lets someone remove others’ comments.' },
   WORK_LOG: { PROJECT: 'Everyone can delete their own entry; Delete also lets someone remove others’ entries.' },
+  ATTACHMENT: { PROJECT: 'Create = upload a file to a task or the project. Everyone can delete a file they uploaded; Delete also lets someone remove others’ files.' },
+  CHECKLIST_ITEM: { PROJECT: 'Edit = tick or rename items (a Team Member only on tasks assigned to them). Everyone can delete an item they added; Delete also lets someone remove others’.' },
   REPORT: {
     SYSTEM: 'Reports across every project the person belongs to. Needed to open the Reports page.',
     PROJECT: 'Reports for this project. A Team Leader or Owner can open the Reports page through this.',

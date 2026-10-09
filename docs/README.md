@@ -25,7 +25,7 @@ Documentation for the **TaskFlow** task and project management system (React fro
 | 5 | Task management — fields, statuses, assignment, *My Tasks*, subtasks, comments, activity, rules | [tasks.md](tasks.md) |
 | 6 | Notifications — types, triggers, read/unread, deletion | [notifications.md](notifications.md) |
 | 7 | Database — tables, relationships, constraints, ERD, triggers, migrations, running and inspecting, design decisions | [database.md](database.md) |
-| 8 | API reference — all 91 endpoints, permissions, payloads, error codes, known quirks | [api-reference.md](api-reference.md) |
+| 8 | API reference — all 119 endpoints, permissions, payloads, error codes, known quirks | [api-reference.md](api-reference.md) |
 | 9 | Validation & security — validation layers, error handling, hardening, gaps | [security.md](security.md) |
 | 10 | Testing — inventory, coverage, regression tests, gaps | [testing.md](testing.md) |
 | 11 | Bug & issue tracking — open defects, inconsistencies, fixed, limitations, debt | [issues.md](issues.md) |

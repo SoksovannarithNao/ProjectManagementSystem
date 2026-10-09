@@ -13,8 +13,8 @@ Subtasks represent a task's checklist, and dependencies say some tasks must wait
 A task's **status is set by people**. The system intervenes in exactly three narrow, one-directional ways:
 
 1. **Completion gate:** a task cannot **enter** `COMPLETED` while any subtask is not `COMPLETED` (service check with a clean message, plus trigger `trg_tasks_not_completed_with_open_subtasks`). It never reaches back: an already-completed task stays completed if a subtask is added or reopened.
-2. **Dependency gate:** a task cannot move to `IN_PROGRESS`, `IN_REVIEW` or `COMPLETED` while a prerequisite is not `COMPLETED` (triggers). `TO_DO` and `CANCELLED` are always allowed.
-3. **Auto-promotion:** the first time a subtask of a still-`TO_DO` task is touched, the task moves to `IN_PROGRESS` once (`SubtaskService.startTaskIfStillToDo`) — skipped if the task is blocked by a dependency. It never demotes or completes anything.
+2. **Dependency gate:** a task cannot move to `IN_PROGRESS`, `IN_REVIEW` or `COMPLETED` while a prerequisite is not `COMPLETED` (triggers). `TODO` and `CANCELLED` are always allowed.
+3. **Auto-promotion:** the first time a subtask of a still-`TODO` task is touched, the task moves to `IN_PROGRESS` once (`SubtaskService.startTaskIfStillToDo`) — skipped if the task is blocked by a dependency. It never demotes or completes anything.
 
 Only the task's **progress %** follows its subtasks automatically ([ADR-0012](0012-derived-progress.md)). The backend does not enforce a fixed transition order (any status can be set from any other, subject to the gates).
 
@@ -31,7 +31,7 @@ Only the task's **progress %** follows its subtasks automatically ([ADR-0012](00
 ## Consequences
 
 - Predictable behaviour; users are never surprised by automatic status changes beyond the one auto-promotion.
-- A task can sit at `TO_DO` with every subtask done (by design).
+- A task can sit at `TODO` with every subtask done (by design).
 - The auto-promotion changes status without creating a notification and does log an activity entry (issue I-17).
 - Reopening a task clears `completed_at` (`trg_tasks_completed_at` clears it whenever the status is not `COMPLETED`).
 - The completion-gate message exists in three places (service, trigger, UI) and must stay identical.

@@ -1,6 +1,7 @@
 package backend.dto;
 
 import backend.entity.Project;
+import backend.util.Derived;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -20,6 +21,10 @@ public class ProjectResponse {
     private BigDecimal progress;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+    // Calculated, never stored (assignment-brief.md B1.3): the end date has
+    // passed and the project is neither Completed nor Cancelled.
+    private boolean delayed;
+    private long daysDelayed;
 
     public ProjectResponse(Project project) {
         this.id = project.getId();
@@ -34,6 +39,17 @@ public class ProjectResponse {
         this.progress = project.getProgress();
         this.createdAt = project.getCreatedAt();
         this.updatedAt = project.getUpdatedAt();
+        LocalDate today = LocalDate.now();
+        this.delayed = Derived.isProjectDelayed(project.getStatus(), project.getEndDate(), today);
+        this.daysDelayed = delayed ? Derived.daysLate(project.getEndDate(), today) : 0;
+    }
+
+    public boolean isDelayed() {
+        return delayed;
+    }
+
+    public long getDaysDelayed() {
+        return daysDelayed;
     }
 
     public Long getId() {

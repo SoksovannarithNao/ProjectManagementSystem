@@ -43,6 +43,8 @@ public class UserService {
     // narrow (real image formats only), checked server-side since a
     // client-side accept="image/*" is only a UI hint, not a security
     // boundary.
+    private static final long MAX_PHOTO_BYTES = 5L * 1024 * 1024;
+
     private static final Set<String> ALLOWED_PHOTO_TYPES =
             Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
 
@@ -144,6 +146,27 @@ public class UserService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
+    /**
+     * Resolves what a person typed into the sign-in form: a username, or the
+     * e-mail address of an account. A username can never contain '@' (see
+     * RegisterRequest), so the two cannot be confused. Returns the account's
+     * username, or the input unchanged when nothing matches so that the
+     * normal "invalid username or password" path runs.
+     */
+    @Transactional(readOnly = true)
+    public String resolveLoginIdentifier(String identifier) {
+        if (identifier == null) {
+            return null;
+        }
+        String trimmed = identifier.trim();
+        if (trimmed.contains("@")) {
+            return userRepository.findByEmailIgnoreCase(trimmed)
+                    .map(User::getUsername)
+                    .orElse(trimmed);
+        }
+        return trimmed;
+    }
+
     public UserResponse createUser(UserCreateRequest request) {
         User user = new User();
         user.setFullName(request.getFullName());
@@ -201,9 +224,12 @@ public class UserService {
         user.setGender(request.getGender());
         user.setDateOfBirth(request.getDateOfBirth());
         user.setPhoneNumber(request.getPhoneNumber());
-        // Deliberately does NOT touch position/department (Team-Admin-managed
-        // only, via updateMemberPositionDepartment below) or profilePhotoUrl
-        // (managed only via uploadOwnProfilePhoto/deleteOwnProfilePhoto below).
+        // Position/department come from the managed lists (an unknown id is a
+        // 404); creating a new list entry stays administrator-only. The
+        // profile photo is managed only via uploadOwnProfilePhoto/
+        // deleteOwnProfilePhoto below.
+        user.setPosition(resolvePosition(request.getPositionId()));
+        user.setDepartment(resolveDepartment(request.getDepartmentId()));
 
         return new UserResponse(userRepository.save(user));
     }
@@ -222,6 +248,11 @@ public class UserService {
         }
         if (!ALLOWED_PHOTO_TYPES.contains(file.getContentType())) {
             throw new IllegalArgumentException("Photo must be a JPEG, PNG, WEBP, or GIF image");
+        }
+        // The multipart ceiling is higher now (attachments), so a photo's own
+        // limit is checked here.
+        if (file.getSize() > MAX_PHOTO_BYTES) {
+            throw new IllegalArgumentException("Photo is too large (max 5MB)");
         }
 
         byte[] bytes;
@@ -284,7 +315,7 @@ public class UserService {
         User target = getUserEntityById(targetUserId);
 
         if (caller.getId().equals(target.getId())) {
-            throw new AccessDeniedException("You cannot change your own position/department");
+            throw new AccessDeniedException("Change your own position/department from your Profile page");
         }
 
         if (!isSystemAdministrator(caller)) {

@@ -11,9 +11,10 @@ import java.time.LocalDate;
 // the token's "sub" claim doesn't change until the next login). Also no
 // password — changing a password now goes through ChangePasswordRequest,
 // which requires the current password rather than accepting a bare
-// replacement from anyone holding a still-valid JWT. Also no position/
-// department — those are Team-Admin-managed only, via
-// UserService.updateMemberPositionDepartment (see docs/backend.md). Also
+// replacement from anyone holding a still-valid JWT. Position/department ARE
+// accepted (D-16): a user picks their own from the managed lists, and only an
+// administrator can add new list entries. A team admin may also set them for
+// someone else, via UserService.updateMemberPositionDepartment. Also
 // no profilePhotoUrl — that's upload-only now, via
 // UserService.uploadOwnProfilePhoto/deleteOwnProfilePhoto.
 public class SelfProfileUpdateRequest {
@@ -34,6 +35,11 @@ public class SelfProfileUpdateRequest {
 
     @Size(max = 30)
     private String phoneNumber;
+
+    // Either may be null to clear it, like the other optional fields.
+    private Long positionId;
+
+    private Long departmentId;
 
     public String getFullName() {
         return fullName;
@@ -73,6 +79,22 @@ public class SelfProfileUpdateRequest {
 
     public void setPhoneNumber(String phoneNumber) {
         this.phoneNumber = phoneNumber;
+    }
+
+    public Long getPositionId() {
+        return positionId;
+    }
+
+    public void setPositionId(Long positionId) {
+        this.positionId = positionId;
+    }
+
+    public Long getDepartmentId() {
+        return departmentId;
+    }
+
+    public void setDepartmentId(Long departmentId) {
+        this.departmentId = departmentId;
     }
 
 }

@@ -5,9 +5,11 @@ import backend.dto.TaskResponse;
 import backend.entity.Milestone;
 import backend.entity.Project;
 import backend.entity.Task;
+import backend.entity.TaskApproval;
 import backend.entity.User;
 import backend.entity.TaskAssignee;
 import backend.exception.NotFoundException;
+import backend.repository.ChecklistItemRepository;
 import backend.repository.MilestoneRepository;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
@@ -47,6 +49,8 @@ public class TaskService {
     private final ActivityLogService activityLogService;
     private final ProjectAccessGuard projectAccessGuard;
     private final WorkLogRepository workLogRepository;
+    private final TaskApprovalService approvalService;
+    private final ChecklistItemRepository checklistItemRepository;
 
     public TaskService(
             TaskRepository taskRepository,
@@ -60,7 +64,9 @@ public class TaskService {
             NotificationService notificationService,
             ActivityLogService activityLogService,
             ProjectAccessGuard projectAccessGuard,
-            WorkLogRepository workLogRepository) {
+            WorkLogRepository workLogRepository,
+            TaskApprovalService approvalService,
+            ChecklistItemRepository checklistItemRepository) {
         this.taskRepository = taskRepository;
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
@@ -73,6 +79,8 @@ public class TaskService {
         this.activityLogService = activityLogService;
         this.projectAccessGuard = projectAccessGuard;
         this.workLogRepository = workLogRepository;
+        this.approvalService = approvalService;
+        this.checklistItemRepository = checklistItemRepository;
     }
 
     // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
@@ -160,6 +168,11 @@ public class TaskService {
         for (var row : workLogRepository.sumHoursByTaskIds(taskIds)) {
             loggedHours.put(row.getTaskId(), row.getHours());
         }
+        Map<Long, TaskApproval> latestApprovals = approvalService.latestByTaskIds(taskIds);
+        Map<Long, long[]> checklistCounts = new HashMap<>();
+        for (var row : checklistItemRepository.countByTaskIds(taskIds)) {
+            checklistCounts.put(row.getTaskId(), new long[] { row.getTotal(), row.getCompleted() });
+        }
         Map<Long, List<String>> blockingTitles = new HashMap<>();
         for (var row : taskDependencyRepository.findBlockingTasks(taskIds)) {
             blockingTitles.computeIfAbsent(row.getTaskId(), k -> new ArrayList<>()).add(row.getTitle());
@@ -172,6 +185,9 @@ public class TaskService {
                     response.setActualHours(loggedHours.get(t.getId()));
                     response.setBlocked(!titles.isEmpty());
                     response.setBlockingTaskTitles(titles);
+                    response.setApproval(latestApprovals.get(t.getId()));
+                    long[] items = checklistCounts.getOrDefault(t.getId(), new long[] { 0, 0 });
+                    response.setChecklistCounts(items[0], items[1]);
                     return response;
                 })
                 .toList();
@@ -222,6 +238,9 @@ public class TaskService {
             // completes it. Checked before the subtask rule so the caller learns
             // first that they may not do this at all.
             projectAccessGuard.assertCan(caller, currentProjectId, Resource.TASK, Action.APPROVE);
+            // ...and a completion made here counts as the approval, so the same
+            // who-may-decide rules apply (named approver, no approving your own work).
+            approvalService.assertMayDecide(caller, task);
             assertNotCompletingWithOpenSubtasks(id);
         }
 
@@ -232,6 +251,8 @@ public class TaskService {
             // any project in the system, including ones they can't even see.
             if (request.getProjectId() != null && !request.getProjectId().equals(currentProjectId)) {
                 projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.TASK, Action.EDIT);
+                // The approver named in the old project may not belong to the new one.
+                task.setApprover(null);
             }
             applyRequest(task, request);
         } else {
@@ -249,6 +270,14 @@ public class TaskService {
         logFieldChanges(caller, saved, previousStatus, previousPriority, previousDueDate);
 
         if (previousStatus != null && !previousStatus.equals(saved.getStatus())) {
+            // Keep the approval trail in step with the status, whichever screen changed it.
+            if ("COMPLETED".equals(saved.getStatus())) {
+                approvalService.recordDirectCompletion(saved, caller);
+            } else if ("IN_REVIEW".equals(saved.getStatus())) {
+                approvalService.openRequest(saved, caller);
+            } else if ("IN_REVIEW".equals(previousStatus)) {
+                approvalService.withdrawPending(saved, caller);
+            }
             List<User> assignees = taskAssigneeRepository.findByTaskId(saved.getId())
                     .stream()
                     .map(TaskAssignee::getUser)
@@ -258,6 +287,7 @@ public class TaskService {
 
         TaskResponse response = new TaskResponse(saved);
         response.setActualHours(workLogRepository.sumHoursByTaskId(saved.getId()));
+        approvalService.latestFor(saved.getId()).ifPresent(response::setApproval);
         return response;
     }
 

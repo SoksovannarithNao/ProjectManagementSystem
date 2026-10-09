@@ -15,6 +15,7 @@ import backend.repository.UserRepository;
 import backend.security.Action;
 import backend.security.Resource;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -296,6 +297,7 @@ public class ProjectMemberService {
             throw new IllegalArgumentException(
                     "A membership's project and user cannot be changed — remove it and add a new one");
         }
+        assertMayChangeRole(caller, projectMember, request.getProjectRole());
         boolean isOwner = "OWNER".equals(projectMember.getProjectRole()) && "ACTIVE".equals(projectMember.getStatus());
         if ("OWNER".equals(request.getProjectRole()) && !isOwner) {
             // Making someone the owner IS the transfer of ownership: the previous
@@ -309,6 +311,34 @@ public class ProjectMemberService {
         assertNotRemovingLastOwner(projectMember, effectiveNewRole);
         applyRequest(projectMember, request);
         return new ProjectMemberResponse(projectMemberRepository.save(projectMember));
+    }
+
+    // Who may set whose project role (assignment-brief.md B3.7 and B3.9):
+    //  * nobody changes their own project role;
+    //  * the Owner (and an Administrator) may set any role - making someone the
+    //    Owner is the ownership transfer, handled by the caller;
+    //  * a Team Leader may only make a Team Member a Team Member or a Viewer
+    //    (never a leader or the Owner), and may not touch the role of the Owner or
+    //    of another Team Leader.
+    private void assertMayChangeRole(User caller, ProjectMember target, String newRole) {
+        // (The Owner trying to step down is told to transfer ownership instead, which
+        // is the more useful answer and comes from assertNotRemovingLastOwner.)
+        if (target.getUser().getId().equals(caller.getId()) && !"OWNER".equals(target.getProjectRole())) {
+            throw new AccessDeniedException("You cannot change your own project role");
+        }
+        Long projectId = target.getProject().getId();
+        boolean privileged = projectAccessGuard.isAdmin(caller)
+                || projectAccessGuard.activeRole(caller, projectId).map("OWNER"::equals).orElse(false);
+        if (privileged) {
+            return;
+        }
+        boolean targetIsLeaderOrOwner = "OWNER".equals(target.getProjectRole()) || "ADMIN".equals(target.getProjectRole());
+        if (targetIsLeaderOrOwner) {
+            throw new AccessDeniedException("Only the Owner can change the role of the Owner or of a Team Leader");
+        }
+        if (newRole != null && !"MEMBER".equals(newRole) && !"VIEWER".equals(newRole)) {
+            throw new AccessDeniedException("A Team Leader can only make someone a Team Member or a Viewer");
+        }
     }
 
     public void deleteProjectMember(Long id, String username) {

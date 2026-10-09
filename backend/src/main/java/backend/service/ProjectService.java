@@ -28,18 +28,21 @@ public class ProjectService {
     private final UserRepository userRepository;
     private final ProjectAccessGuard projectAccessGuard;
     private final ProjectOwnership projectOwnership;
+    private final ActivityLogService activityLogService;
 
     public ProjectService(
             ProjectRepository projectRepository,
             ProjectMemberRepository projectMemberRepository,
             UserRepository userRepository,
             ProjectAccessGuard projectAccessGuard,
-            ProjectOwnership projectOwnership) {
+            ProjectOwnership projectOwnership,
+            ActivityLogService activityLogService) {
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
         this.projectOwnership = projectOwnership;
+        this.activityLogService = activityLogService;
     }
 
     // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
@@ -91,6 +94,8 @@ public class ProjectService {
         applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
         projectOwnership.assignOwner(saved, saved.getManager());
+        activityLogService.recordProjectEvent(caller, saved, "PROJECT_CREATED",
+                "Project \"" + saved.getName() + "\" created");
         return new ProjectResponse(saved);
     }
 
@@ -98,11 +103,41 @@ public class ProjectService {
         User caller = requireUser(callerUsername);
         projectAccessGuard.assertCan(caller, id, Resource.PROJECT, Action.EDIT);
         Project project = getProjectEntityById(id);
+        String[] before = snapshot(project);
         applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
         // Only an administrator can change the manager; that is an ownership transfer.
         projectOwnership.assignOwner(saved, saved.getManager());
+        logProjectChanges(caller, saved, before);
         return new ProjectResponse(saved);
+    }
+
+    // name, status, priority, start, end, description - what an edit can change.
+    private static String[] snapshot(Project p) {
+        return new String[] {p.getName(), p.getStatus(), p.getPriority(),
+                String.valueOf(p.getStartDate()), String.valueOf(p.getEndDate()), String.valueOf(p.getDescription())};
+    }
+
+    // One "updated" entry naming what changed (nothing is logged for a save that
+    // changed nothing), and a separate "completed" entry when the status
+    // became Completed.
+    private void logProjectChanges(User actor, Project saved, String[] before) {
+        String[] after = snapshot(saved);
+        String[] labels = {"name", "status", "priority", "start date", "end date", "description"};
+        List<String> changed = new java.util.ArrayList<>();
+        for (int i = 0; i < labels.length; i++) {
+            if (!java.util.Objects.equals(before[i], after[i])) {
+                changed.add(labels[i]);
+            }
+        }
+        if (!changed.isEmpty()) {
+            activityLogService.recordProjectEvent(actor, saved, "PROJECT_UPDATED",
+                    "Project updated (" + String.join(", ", changed) + ")");
+        }
+        if ("COMPLETED".equals(saved.getStatus()) && !"COMPLETED".equals(before[1])) {
+            activityLogService.recordProjectEvent(actor, saved, "PROJECT_COMPLETED",
+                    "Project \"" + saved.getName() + "\" completed");
+        }
     }
 
     // OWNER-only (or system ADMINISTRATOR) — matches ADMIN's project-level

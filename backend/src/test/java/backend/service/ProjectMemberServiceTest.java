@@ -75,6 +75,8 @@ class ProjectMemberServiceTest {
         // lenient: pure helper tests (likePattern) don't touch these.
         lenient().when(userRepository.findByUsername("pm.olivia")).thenReturn(Optional.of(caller));
         lenient().when(projectRepository.findById(10L)).thenReturn(Optional.of(project));
+        // by default the caller is the project Owner; the role-rule tests below change that
+        lenient().when(projectAccessGuard.activeRole(caller, 10L)).thenReturn(Optional.of("OWNER"));
     }
 
     private static User user(Long id, String username, String status) {
@@ -432,5 +434,80 @@ class ProjectMemberServiceTest {
                 .hasMessageContaining("Transfer ownership");
         verify(projectMemberRepository, never()).save(any());
         verify(projectMemberRepository, never()).delete(any());
+    }
+
+    // ---- who may set whose project role (B3.7, B3.9) ----------------------
+
+    private ProjectMember existingMember(Long rowId, Long userId, String username, String role) {
+        User u = user(userId, username, "ACTIVE");
+        ProjectMember m = row(rowId, projectRepository.findById(10L).orElseThrow(), u, "ACTIVE");
+        m.setProjectRole(role);
+        when(projectMemberRepository.findById(rowId)).thenReturn(Optional.of(m));
+        lenient().when(userRepository.findById(userId)).thenReturn(Optional.of(u));
+        return m;
+    }
+
+    @Test
+    void nobodyChangesTheirOwnProjectRole() {
+        ProjectMember mine = row(5L, projectRepository.findById(10L).orElseThrow(), caller, "ACTIVE");
+        mine.setProjectRole("ADMIN");
+        when(projectMemberRepository.findById(5L)).thenReturn(Optional.of(mine));
+
+        assertThatThrownBy(() -> service.updateProjectMember(5L, memberRequest(10L, 1L, "MEMBER"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("your own project role");
+        verify(projectMemberRepository, never()).save(any());
+    }
+
+    @Test
+    void theOwner_makesAMemberATeamLeader() {
+        ProjectMember member = existingMember(7L, 2L, "dev.chen", "MEMBER");
+        when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "ADMIN"), "pm.olivia");
+
+        assertThat(member.getProjectRole()).isEqualTo("ADMIN");
+    }
+
+    @Test
+    void aTeamLeader_makesAMemberAViewer_butNotALeader() {
+        when(projectAccessGuard.activeRole(caller, 10L)).thenReturn(Optional.of("ADMIN"));
+        ProjectMember member = existingMember(7L, 2L, "dev.chen", "MEMBER");
+        when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "VIEWER"), "pm.olivia");
+        assertThat(member.getProjectRole()).isEqualTo("VIEWER");
+
+        assertThatThrownBy(() -> service.updateProjectMember(7L, memberRequest(10L, 2L, "ADMIN"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Team Member or a Viewer");
+        assertThat(member.getProjectRole()).isEqualTo("VIEWER");
+    }
+
+    @Test
+    void aTeamLeader_cannotChangeAnotherLeadersRoleOrTheOwners() {
+        when(projectAccessGuard.activeRole(caller, 10L)).thenReturn(Optional.of("ADMIN"));
+        ProjectMember leader = existingMember(7L, 2L, "lead.owen", "ADMIN");
+        ProjectMember owner = existingMember(8L, 3L, "pm.marcus", "OWNER");
+
+        assertThatThrownBy(() -> service.updateProjectMember(7L, memberRequest(10L, 2L, "MEMBER"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Only the Owner");
+        assertThatThrownBy(() -> service.updateProjectMember(8L, memberRequest(10L, 3L, "MEMBER"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThat(leader.getProjectRole()).isEqualTo("ADMIN");
+        assertThat(owner.getProjectRole()).isEqualTo("OWNER");
+        verify(projectMemberRepository, never()).save(any());
+    }
+
+    @Test
+    void anAdministrator_mayChangeAnyRole_butStillNotTheirOwn() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(true);
+        ProjectMember leader = existingMember(7L, 2L, "lead.owen", "ADMIN");
+        when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "MEMBER"), "pm.olivia");
+
+        assertThat(leader.getProjectRole()).isEqualTo("MEMBER");
     }
 }

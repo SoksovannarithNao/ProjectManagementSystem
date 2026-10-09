@@ -43,9 +43,9 @@ No claim of being faster, smarter or cheaper than other tools has been establish
 
 ## Capabilities and Constraints
 
-**Implemented:** self-registration with OTP, login (rate-limited), profile and theme (light, dark, system), projects and membership with invitations, milestones, tasks, subtasks, dependencies, assignment, comments, per-task activity, notifications (4 of 9 types), dashboard, task list with a My Tasks filter, Kanban, calendar (month/week/day), reports (charts), team page, and time tracking (estimated vs. logged hours, work-log entries and a start/stop timer on each task).
+**Implemented:** self-registration with OTP, login (rate-limited), profile and theme (light, dark, system), projects and membership with invitations, milestones, tasks, subtasks, dependencies, assignment, comments, per-task activity, notifications (6 of 11 types), dashboard, task list with a My Tasks filter, Kanban, calendar (month/week/day), reports (charts), team page, and time tracking (estimated vs. logged hours, work-log entries and a start/stop timer on each task).
 
-**In the requirements, not built** (see [roadmap.md](roadmap.md)): file attachments, deadline reminders and overdue notifications, Gantt chart, named reports with PDF/Excel export, KPI calculation, project-wide activity feed.
+**In the requirements, not built** (see [roadmap.md](roadmap.md)): deadline reminders and overdue notifications, Gantt chart, named reports with PDF/Excel export, KPI calculation.
 
 **Constraints that future work must respect:**
 
@@ -74,7 +74,7 @@ No claim of being faster, smarter or cheaper than other tools has been establish
 2. **Show only what the user may act on.** Role and project membership shape what appears; permission is a design input, not an error message.
 3. **Make the daily path short.** Finding "my tasks" and moving a task forward should take a couple of actions from any screen.
 4. **One status vocabulary everywhere.** A status, priority or deadline looks and reads the same on the dashboard, list, board, calendar and detail panel.
-5. **Be honest about incomplete features.** Where a requirement is not built (attachments, reminders, export), do not present a control that appears to work.
+5. **Be honest about incomplete features.** Where a requirement is not built (reminders, export), do not present a control that appears to work.
 
 ## Accessibility & Inclusion
 

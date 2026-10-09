@@ -16,6 +16,8 @@ import {
   FolderKanban,
   SlidersHorizontal,
   ChevronRight,
+  Gauge,
+  ChartGantt,
 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar, AvatarGroup } from '../components/ui/Avatar'
@@ -30,10 +32,13 @@ import { NewProjectModal } from '../components/NewProjectModal'
 import { TaskFormModal } from '../components/TaskFormModal'
 import { AddProjectMemberModal } from '../components/AddProjectMemberModal'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
+import { DelayedBadge } from '../components/DelayedBadge'
+import { AttachmentsSection } from '../components/AttachmentsSection'
+import { ProjectActivity } from '../components/ProjectActivity'
 import { useApi } from '../api/useApi'
 import { useAuth } from '../auth/AuthContext'
 import { getProjectById, updateProject, deleteProject, projectResponseToRequest } from '../api/projects'
-import { getMembersByProjectId, getPendingInvitationCount } from '../api/projectMembers'
+import { getMembersByProjectId, getPendingInvitationCount, updateProjectMemberRole } from '../api/projectMembers'
 import { getTasksByProjectId } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getMilestonesByProjectId, createMilestone, deleteMilestone } from '../api/milestones'
@@ -42,7 +47,7 @@ import { humanizeEnum, formatDate, initialsFor, colorForId, taskDisplayTitle, bl
 import { computeTaskOverview } from '../api/stats'
 
 const PROJECT_STATUS_OPTIONS = ['PLANNING', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED']
-const TASK_STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
+const TASK_STATUS_OPTIONS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
 
 // Shared sizing so every pill in the status/priority/overdue row lines up:
 // same height, padding, line-height, font-size, and radius regardless of
@@ -50,6 +55,10 @@ const TASK_STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', '
 const STATUS_ROW_BADGE_CLASS =
   'h-7 box-border inline-flex items-center rounded-full px-2.5 text-[12px] leading-none font-semibold'
 const TASK_PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
+// Business names of the project roles (Owner = Project Manager of the project).
+const ROLE_LABELS = { OWNER: 'Owner', ADMIN: 'Team Leader', MEMBER: 'Team Member', VIEWER: 'Viewer' }
+// An Owner has to be able to own projects (Project Manager or Administrator).
+const CAN_OWN = new Set(['PROJECT_MANAGER', 'ADMINISTRATOR'])
 
 // A section's own fetch failing (members/tasks/milestones each load
 // independently) must not be displayed the same way as that section
@@ -71,7 +80,7 @@ export function ProjectDetail() {
   const projectId = Number(id)
   const navigate = useNavigate()
   const notify = useToast()
-  const { can } = useAuth()
+  const { can, profile, refreshProfile } = useAuth()
 
   const projectFetcher = useCallback(() => getProjectById(projectId), [projectId])
   const { data: project, loading, error: projectError, refetch } = useApi(projectFetcher)
@@ -99,6 +108,13 @@ export function ProjectDetail() {
   const canManageTeam = can('MEMBER', 'CREATE', projectId)
   const canCreateMilestone = can('MILESTONE', 'CREATE', projectId)
   const canDeleteMilestone = can('MILESTONE', 'DELETE', projectId)
+  // Team Tasks and Workload are for people who manage the work; the Timeline is for every member.
+  const canSeeTeamViews = can('TASK', 'ASSIGN', projectId)
+  // Setting a member's project role needs MEMBER:EDIT. Only the Owner and an
+  // Administrator (PROJECT:ASSIGN) may pick any role or transfer ownership; a
+  // Team Leader can only move a Team Member / Viewer between those two.
+  const canChangeRoles = can('MEMBER', 'EDIT', projectId)
+  const canTransferOwnership = can('PROJECT', 'ASSIGN', projectId)
 
   // The members list above only carries ACTIVE rows, so pending invitations
   // are counted server-side by their own PENDING status (Team-Admin-only, so
@@ -122,6 +138,34 @@ export function ProjectDetail() {
   const [milestoneTitle, setMilestoneTitle] = useState('')
   const [milestoneDue, setMilestoneDue] = useState('')
   const [addingMilestone, setAddingMilestone] = useState(false)
+  const [roleBusyId, setRoleBusyId] = useState(null)
+  const [transferTarget, setTransferTarget] = useState(null)
+
+  // One role change. OWNER is the ownership transfer: the current Owner becomes
+  // a Team Leader in the same step, so this person's own permissions change too.
+  const changeRole = async (member, role) => {
+    setRoleBusyId(member.id)
+    try {
+      await updateProjectMemberRole(member, role)
+      notify(
+        role === 'OWNER'
+          ? `${member.user.fullName} is now the Owner of ${project?.name ?? 'the project'}`
+          : `${member.user.fullName} is now a ${ROLE_LABELS[role]}`,
+        { tone: 'success' }
+      )
+      refetchMembers()
+      if (role === 'OWNER') {
+        refetch()
+        await refreshProfile()
+      }
+    } catch (err) {
+      notify(err.message || 'Failed to change the role', { tone: 'error' })
+      refetchMembers()
+    } finally {
+      setRoleBusyId(null)
+      setTransferTarget(null)
+    }
+  }
 
   const activeTask = useMemo(() => {
     if (activeTaskId == null) return null
@@ -288,21 +332,36 @@ export function ProjectDetail() {
         }
         subtitle={`${project.projectCode} · Managed by ${project.manager?.fullName ?? '—'}`}
         actions={
-          canEditProject && (
-            <>
-              <button className="btn btn-secondary" onClick={() => setEditing(true)}>
-                <Pencil size={15} /> Edit
-              </button>
-              {canDelete && (
-                <button
-                  className="btn bg-danger text-on-danger hover:opacity-90"
-                  onClick={() => setConfirmingDelete(true)}
-                >
-                  <Trash2 size={15} /> Delete
+          <>
+            {canSeeTeamViews && (
+              <>
+                <Link to={`/projects/${projectId}/team`} className="btn btn-secondary">
+                  <Users size={15} /> Team tasks
+                </Link>
+                <Link to={`/projects/${projectId}/workload`} className="btn btn-secondary">
+                  <Gauge size={15} /> Workload
+                </Link>
+              </>
+            )}
+            <Link to={`/projects/${projectId}/timeline`} className="btn btn-secondary">
+              <ChartGantt size={15} /> Timeline
+            </Link>
+            {canEditProject && (
+              <>
+                <button className="btn btn-secondary" onClick={() => setEditing(true)}>
+                  <Pencil size={15} /> Edit
                 </button>
-              )}
-            </>
-          )
+                {canDelete && (
+                  <button
+                    className="btn bg-danger text-on-danger hover:opacity-90"
+                    onClick={() => setConfirmingDelete(true)}
+                  >
+                    <Trash2 size={15} /> Delete
+                  </button>
+                )}
+              </>
+            )}
+          </>
         }
       />
 
@@ -334,6 +393,7 @@ export function ProjectDetail() {
                 {humanizeEnum(project.priority)}
               </Badge>
             )}
+            <DelayedBadge project={project} />
             {overdueCount > 0 && (
               <span className={`bg-danger-soft text-danger-ink gap-1 ${STATUS_ROW_BADGE_CLASS}`}>
                 <AlertTriangle size={12} /> {overdueCount} overdue task{overdueCount === 1 ? '' : 's'}
@@ -592,7 +652,30 @@ export function ProjectDetail() {
                     <p className="text-ink truncate text-[13px] font-semibold">{m.user.fullName}</p>
                     {m.user.positionName && <p className="text-faint truncate text-[12px]">{m.user.positionName}</p>}
                   </div>
-                  <Badge>{humanizeEnum(m.projectRole)}</Badge>
+                  {(() => {
+                    // A role the viewer may change shows as a picker; everything else as a badge.
+                    const mine = m.user.id === profile?.id
+                    const movable = ['MEMBER', 'VIEWER'].includes(m.projectRole)
+                    const editable = canChangeRoles && !mine && m.projectRole !== 'OWNER' && (canTransferOwnership || movable)
+                    if (!editable) return <Badge>{ROLE_LABELS[m.projectRole] ?? humanizeEnum(m.projectRole)}</Badge>
+                    const options = canTransferOwnership ? ['ADMIN', 'MEMBER', 'VIEWER'] : ['MEMBER', 'VIEWER']
+                    if (canTransferOwnership && CAN_OWN.has(m.user.role)) options.push('OWNER')
+                    return (
+                      <select
+                        aria-label={`Project role of ${m.user.fullName}`}
+                        value={m.projectRole}
+                        disabled={roleBusyId === m.id}
+                        onChange={(e) => (e.target.value === 'OWNER' ? setTransferTarget(m) : changeRole(m, e.target.value))}
+                        className="bg-subtle border-border h-8 rounded-full border px-2.5 text-[12px] font-semibold outline-none"
+                      >
+                        {options.map((r) => (
+                          <option key={r} value={r}>
+                            {r === 'OWNER' ? 'Owner (transfer ownership)' : ROLE_LABELS[r]}
+                          </option>
+                        ))}
+                      </select>
+                    )
+                  })()}
                 </div>
               ))}
             </div>
@@ -688,8 +771,32 @@ export function ProjectDetail() {
               </form>
             )}
           </div>
+
+          {/* Files attached to the project itself (task files live in the task panel) */}
+          <div className="card px-6 py-5">
+            <AttachmentsSection
+              projectId={projectId}
+              canUpload={can('ATTACHMENT', 'CREATE', projectId)}
+              canDelete={can('ATTACHMENT', 'DELETE', projectId)}
+              currentUserId={profile?.id}
+            />
+          </div>
+
+          <ProjectActivity projectId={projectId} />
         </div>
       </div>
+
+      {transferTarget && (
+        <ConfirmDialog
+          title="Transfer ownership"
+          message={`Make ${transferTarget.user.fullName} the Owner of "${project.name}"? You become a Team Leader of this project, and ${transferTarget.user.fullName} becomes its manager. A project has exactly one Owner.`}
+          confirmLabel="Transfer ownership"
+          tone="primary"
+          loading={roleBusyId === transferTarget.id}
+          onConfirm={() => changeRole(transferTarget, 'OWNER')}
+          onClose={() => setTransferTarget(null)}
+        />
+      )}
 
       {activeTask && (
         <TaskDetailPanel task={activeTask} onClose={() => setActiveTaskId(null)} onChange={refetchAfterTaskChange} />

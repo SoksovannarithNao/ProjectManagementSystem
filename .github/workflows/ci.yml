@@ -106,7 +106,8 @@ jobs:
                   roles, users, projects, project_members, milestones,
                   tasks, task_assignees, task_dependencies, notifications,
                   otp_verifications, positions, departments, subtasks, comments,
-                  activity_logs, work_logs, role_permissions
+                  activity_logs, work_logs, role_permissions, task_approvals,
+                  attachments, attachment_contents, checklist_items
                   TO taskmanager_app;
               GRANT SELECT ON permissions TO taskmanager_app;
               GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO taskmanager_app;

@@ -41,8 +41,10 @@ import static org.mockito.Mockito.lenient;
 @ExtendWith(MockitoExtension.class)
 class PermissionServiceTest {
 
-    private static final Path MATRIX_SQL =
-            Path.of("..", "database", "taskmanager", "migrations", "V10__two_level_roles.sql");
+    // The matrix is V10's, plus the resources later migrations added (V13: ATTACHMENT, CHECKLIST_ITEM).
+    private static final List<Path> MATRIX_SQL = List.of(
+            Path.of("..", "database", "taskmanager", "migrations", "V10__two_level_roles.sql"),
+            Path.of("..", "database", "taskmanager", "migrations", "V13__attachments_checklists.sql"));
 
     private static final Pattern ROW = Pattern.compile(
             "\\('(\\w+)',\\s*'(SYSTEM|PROJECT)',\\s*'(\\w+)',\\s*ARRAY\\[([^\\]]*)\\]\\)");
@@ -93,12 +95,13 @@ class PermissionServiceTest {
     }
 
     private static List<Row> readMatrix() throws IOException {
-        String sql = Files.readString(MATRIX_SQL);
         List<Row> rows = new ArrayList<>();
-        Matcher m = ROW.matcher(sql);
-        while (m.find()) {
-            for (String perm : m.group(4).split(",")) {
-                rows.add(new Row(m.group(1), m.group(2), m.group(3), perm.replace("'", "").trim()));
+        for (Path file : MATRIX_SQL) {
+            Matcher m = ROW.matcher(Files.readString(file));
+            while (m.find()) {
+                for (String perm : m.group(4).split(",")) {
+                    rows.add(new Row(m.group(1), m.group(2), m.group(3), perm.replace("'", "").trim()));
+                }
             }
         }
         return rows;

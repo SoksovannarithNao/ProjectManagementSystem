@@ -65,6 +65,10 @@ class TaskServiceTest {
     private ProjectAccessGuard projectAccessGuard;
     @Mock
     private WorkLogRepository workLogRepository;
+    @Mock
+    private TaskApprovalService approvalService;
+    @Mock
+    private backend.repository.ChecklistItemRepository checklistItemRepository;
 
     private TaskService service;
 
@@ -77,7 +81,7 @@ class TaskServiceTest {
     void setUp() {
         service = new TaskService(taskRepository, projectRepository, projectMemberRepository, milestoneRepository,
                 userRepository, taskAssigneeRepository, subtaskRepository, taskDependencyRepository,
-                notificationService, activityLogService, projectAccessGuard, workLogRepository);
+                notificationService, activityLogService, projectAccessGuard, workLogRepository, approvalService, checklistItemRepository);
 
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 1L);
@@ -90,7 +94,7 @@ class TaskServiceTest {
         ReflectionTestUtils.setField(task, "id", 5L);
         task.setProject(current);
         task.setTitle("Original title");
-        task.setStatus("TO_DO");
+        task.setStatus("TODO");
         task.setPriority("MEDIUM");
         task.setStartDate(LocalDate.of(2026, 10, 1));
         task.setDueDate(LocalDate.of(2026, 10, 30));
@@ -129,7 +133,7 @@ class TaskServiceTest {
         when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
         doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCan(caller, 20L, Resource.TASK, Action.EDIT);
 
-        assertThatThrownBy(() -> service.updateTask(5L, request(20L, "Original title", "TO_DO"), "pm.olivia"))
+        assertThatThrownBy(() -> service.updateTask(5L, request(20L, "Original title", "TODO"), "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class);
 
         verify(taskRepository, never()).save(any());
@@ -140,7 +144,7 @@ class TaskServiceTest {
     void manager_canMoveATaskIntoAProjectTheyAlsoManage() {
         when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
 
-        service.updateTask(5L, request(20L, "Original title", "TO_DO"), "pm.olivia");
+        service.updateTask(5L, request(20L, "Original title", "TODO"), "pm.olivia");
 
         verify(projectAccessGuard).assertCan(caller, 20L, Resource.TASK, Action.EDIT);
         assertThat(task.getProject().getId()).isEqualTo(20L);
@@ -150,7 +154,7 @@ class TaskServiceTest {
     void manager_editingWithinTheSameProject_needsNoCheckOnAnyOtherProject() {
         when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
 
-        service.updateTask(5L, request(10L, "Renamed", "TO_DO"), "pm.olivia");
+        service.updateTask(5L, request(10L, "Renamed", "TODO"), "pm.olivia");
 
         verify(projectAccessGuard, never()).assertCan(caller, 20L, Resource.TASK, Action.EDIT);
         assertThat(task.getTitle()).isEqualTo("Renamed");
@@ -168,7 +172,7 @@ class TaskServiceTest {
                 .hasMessageContaining("permission");
 
         verify(taskRepository, never()).save(any());
-        assertThat(task.getStatus()).isEqualTo("TO_DO");
+        assertThat(task.getStatus()).isEqualTo("TODO");
     }
 
     @Test
@@ -205,7 +209,7 @@ class TaskServiceTest {
                 .hasMessageContaining("approve");
 
         verify(taskRepository, never()).save(any());
-        assertThat(task.getStatus()).isEqualTo("TO_DO");
+        assertThat(task.getStatus()).isEqualTo("TODO");
     }
 
     @Test
@@ -229,12 +233,69 @@ class TaskServiceTest {
         assertThat(task.getStatus()).isEqualTo("IN_REVIEW");
     }
 
+    // ---- the approval trail follows the status ---------------------------------
+
+    @Test
+    void movingATaskToReview_opensAnApprovalRequest() {
+        when(taskAssigneeRepository.existsByTaskIdAndUserId(5L, 1L)).thenReturn(true);
+        when(taskAssigneeRepository.findByTaskId(5L)).thenReturn(java.util.List.of());
+
+        service.updateTask(5L, request(10L, "Original title", "IN_REVIEW"), "pm.olivia");
+
+        verify(approvalService).openRequest(task, caller);
+        verify(approvalService, never()).recordDirectCompletion(any(), any());
+    }
+
+    @Test
+    void completingATask_isCheckedAndRecordedAsTheApproval() {
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+
+        service.updateTask(5L, request(10L, "Original title", "COMPLETED"), "pm.olivia");
+
+        verify(approvalService).assertMayDecide(caller, task);
+        verify(approvalService).recordDirectCompletion(task, caller);
+    }
+
+    @Test
+    void anApproverWhoMayNotDecide_cannotCompleteTheTask() {
+        doThrow(new AccessDeniedException("You cannot approve your own work. Another approver has to decide"))
+                .when(approvalService).assertMayDecide(caller, task);
+
+        assertThatThrownBy(() -> service.updateTask(5L, request(10L, "Original title", "COMPLETED"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("your own work");
+        verify(taskRepository, never()).save(any());
+        verify(approvalService, never()).recordDirectCompletion(any(), any());
+    }
+
+    @Test
+    void takingATaskOutOfReview_withdrawsTheOpenRequest() {
+        task.setStatus("IN_REVIEW");
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+
+        service.updateTask(5L, request(10L, "Original title", "IN_PROGRESS"), "pm.olivia");
+
+        verify(approvalService).withdrawPending(task, caller);
+        verify(approvalService, never()).openRequest(any(), any());
+    }
+
+    @Test
+    void anOrdinaryEdit_leavesTheApprovalTrailAlone() {
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+
+        service.updateTask(5L, request(10L, "Renamed", "TODO"), "pm.olivia");
+
+        verify(approvalService, never()).openRequest(any(), any());
+        verify(approvalService, never()).withdrawPending(any(), any());
+        verify(approvalService, never()).recordDirectCompletion(any(), any());
+    }
+
     @Test
     void creatingATask_needsTaskCreate() {
         doThrow(new AccessDeniedException("You do not have permission to create tasks in this project"))
                 .when(projectAccessGuard).assertCan(caller, 10L, Resource.TASK, Action.CREATE);
 
-        assertThatThrownBy(() -> service.createTask(request(10L, "New", "TO_DO"), "pm.olivia"))
+        assertThatThrownBy(() -> service.createTask(request(10L, "New", "TODO"), "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class);
         verify(taskRepository, never()).save(any());
     }

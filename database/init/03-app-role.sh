@@ -51,7 +51,8 @@ psql -v ON_ERROR_STOP=1 \
         roles, users, projects, project_members, milestones,
         tasks, task_assignees, task_dependencies, notifications,
         otp_verifications, positions, departments, subtasks, comments,
-        activity_logs, work_logs, role_permissions
+        activity_logs, work_logs, role_permissions, task_approvals,
+        attachments, attachment_contents, checklist_items
         TO taskmanager_app;
 
     -- The permission catalog (VIEW, CREATE, ...) is read-only for the backend;

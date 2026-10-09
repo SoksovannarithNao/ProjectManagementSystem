@@ -5,6 +5,10 @@ import { Avatar } from '../components/ui/Avatar'
 import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
 import { updateOwnProfile, changeOwnPassword, uploadProfilePhoto, deleteProfilePhoto } from '../api/users'
+import { useApi } from '../api/useApi'
+import { getPositions } from '../api/positions'
+import { getDepartments } from '../api/departments'
+import { LookupSelect } from '../components/ui/LookupSelect'
 import { initialsFor } from '../api/format'
 import { describePasswordProblem, isPasswordComplex, passwordErrorMessage } from '../api/validation'
 import { PasswordChecklist } from '../components/ui/PasswordChecklist'
@@ -23,6 +27,12 @@ export function Profile() {
   const [gender, setGender] = useState(profile?.gender ?? '')
   const [dateOfBirth, setDateOfBirth] = useState(profile?.dateOfBirth ?? '')
   const [phoneNumber, setPhoneNumber] = useState(profile?.phoneNumber ?? '')
+  // Chosen from the managed lists; only an administrator adds new entries
+  // (Team page / Users admin), so no "+ Add New" is offered here.
+  const { data: positions, loading: loadingPositions } = useApi(getPositions)
+  const { data: departments, loading: loadingDepartments } = useApi(getDepartments)
+  const [positionId, setPositionId] = useState(profile?.positionId ?? null)
+  const [departmentId, setDepartmentId] = useState(profile?.departmentId ?? null)
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
@@ -44,6 +54,8 @@ export function Profile() {
         gender: gender || null,
         dateOfBirth: dateOfBirth || null,
         phoneNumber: phoneNumber.trim() || null,
+        positionId,
+        departmentId,
       })
       await refreshProfile()
       notify('Profile updated', { tone: 'success' })
@@ -248,6 +260,23 @@ export function Profile() {
                 className="field"
               />
             </label>
+
+            <div className="flex gap-3 max-[520px]:flex-col">
+              <LookupSelect
+                label="Position"
+                items={positions}
+                value={positionId}
+                onChange={setPositionId}
+                loading={loadingPositions}
+              />
+              <LookupSelect
+                label="Department"
+                items={departments}
+                value={departmentId}
+                onChange={setDepartmentId}
+                loading={loadingDepartments}
+              />
+            </div>
 
             {profileError && <p className="text-danger-ink text-[12px] font-semibold">{profileError}</p>}
 

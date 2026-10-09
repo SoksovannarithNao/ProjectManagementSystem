@@ -1,6 +1,7 @@
 package backend.dto;
 
 import backend.entity.Task;
+import backend.entity.TaskApproval;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -28,9 +29,19 @@ public class TaskResponse {
     private OffsetDateTime updatedAt;
     private long totalSubtasks;
     private long completedSubtasks;
+    // Checklist items count toward progress together with subtasks (D-07).
+    private long totalChecklistItems;
+    private long completedChecklistItems;
     private boolean overdue;
     private boolean blocked;
     private List<String> blockingTaskTitles = List.of();
+    // The approver named for this task, if any, and the newest approval
+    // request on it (PENDING / APPROVED / CHANGES_REQUESTED / REJECTED /
+    // WITHDRAWN, null when it was never submitted).
+    private UserResponse approver;
+    private String approvalStatus;
+    private UserResponse approvalRequestedBy;
+    private OffsetDateTime approvalRequestedAt;
 
     public TaskResponse(Task task) {
         this.id = task.getId();
@@ -48,6 +59,7 @@ public class TaskResponse {
         this.createdBy = task.getCreatedBy() != null ? new UserResponse(task.getCreatedBy()) : null;
         this.createdAt = task.getCreatedAt();
         this.updatedAt = task.getUpdatedAt();
+        this.approver = task.getApprover() != null ? new UserResponse(task.getApprover()) : null;
         // Mirrors database/init/01-init.sql's v_overdue_tasks view exactly
         // (due_date < today and not COMPLETED/CANCELLED) — computed here
         // instead of querying that view, since the inputs are already on
@@ -127,6 +139,20 @@ public class TaskResponse {
         return updatedAt;
     }
 
+    public long getTotalChecklistItems() {
+        return totalChecklistItems;
+    }
+
+    public long getCompletedChecklistItems() {
+        return completedChecklistItems;
+    }
+
+    // Set from one batched query across the whole task list (TaskService.toResponses).
+    public void setChecklistCounts(long total, long completed) {
+        this.totalChecklistItems = total;
+        this.completedChecklistItems = completed;
+    }
+
     public long getTotalSubtasks() {
         return totalSubtasks;
     }
@@ -162,6 +188,31 @@ public class TaskResponse {
     // actually keeping it Blocked, so the UI can say *what* to finish
     // rather than just that it's stuck. Same batched-query origin as
     // `blocked` itself.
+    public UserResponse getApprover() {
+        return approver;
+    }
+
+    public String getApprovalStatus() {
+        return approvalStatus;
+    }
+
+    public UserResponse getApprovalRequestedBy() {
+        return approvalRequestedBy;
+    }
+
+    public OffsetDateTime getApprovalRequestedAt() {
+        return approvalRequestedAt;
+    }
+
+    // From the newest approval row of this task, set from one batched query
+    // across the whole task list (TaskService.toResponses).
+    public void setApproval(TaskApproval approval) {
+        this.approvalStatus = approval != null ? approval.getDecision() : null;
+        this.approvalRequestedBy = approval != null && approval.getRequestedBy() != null
+                ? new UserResponse(approval.getRequestedBy()) : null;
+        this.approvalRequestedAt = approval != null ? approval.getRequestedAt() : null;
+    }
+
     public List<String> getBlockingTaskTitles() {
         return blockingTaskTitles;
     }

@@ -1561,8 +1561,8 @@ components:
       description: "`tasks.priority`. Defaults to `MEDIUM` if omitted on create."
     TaskStatus:
       type: string
-      enum: [TO_DO, IN_PROGRESS, IN_REVIEW, COMPLETED, CANCELLED]
-      description: "`tasks.status`. Defaults to `TO_DO` if omitted on create."
+      enum: [TODO, IN_PROGRESS, IN_REVIEW, COMPLETED, CANCELLED]
+      description: "`tasks.status`. Defaults to `TODO` if omitted on create."
     NotificationType:
       type: string
       enum:

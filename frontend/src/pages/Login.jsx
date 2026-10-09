@@ -40,7 +40,7 @@ export function Login() {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
-            <span className="text-muted text-[12px] font-semibold">Username</span>
+            <span className="text-muted text-[12px] font-semibold">Username or email</span>
             <input
               type="text"
               value={username}

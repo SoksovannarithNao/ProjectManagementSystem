@@ -1,7 +1,7 @@
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-const OPEN_STATUSES = new Set(['TO_DO', 'IN_PROGRESS', 'IN_REVIEW'])
+const OPEN_STATUSES = new Set(['TODO', 'IN_PROGRESS', 'IN_REVIEW'])
 
 function startOfDay(value) {
   const d = new Date(value)
@@ -57,9 +57,9 @@ export const PERIOD_OPTIONS = [
 ]
 
 const STATUS_META = [
-  { status: 'TO_DO', label: 'To Do', color: 'var(--text-muted)' },
+  { status: 'TODO', label: 'To Do', color: 'var(--text-muted)' },
   { status: 'IN_PROGRESS', label: 'In Progress', color: 'var(--status-info)' },
-  { status: 'IN_REVIEW', label: 'Review', color: 'var(--status-warning)' },
+  { status: 'IN_REVIEW', label: 'In Review', color: 'var(--status-warning)' },
   { status: 'COMPLETED', label: 'Completed', color: 'var(--status-success)' },
 ]
 
@@ -73,22 +73,22 @@ export function computeTaskOverview(tasks) {
 }
 
 const KANBAN_COLUMNS = [
-  { id: 'todo', title: 'To Do', status: 'TO_DO' },
+  { id: 'todo', title: 'To Do', status: 'TODO' },
   { id: 'inprogress', title: 'In Progress', status: 'IN_PROGRESS' },
-  { id: 'review', title: 'Review', status: 'IN_REVIEW' },
-  { id: 'done', title: 'Done', status: 'COMPLETED' },
+  { id: 'review', title: 'In Review', status: 'IN_REVIEW' },
+  { id: 'done', title: 'Completed', status: 'COMPLETED' },
 ]
 
 // "Blocked" is never a status a task actually holds — a task with an
-// incomplete dependency can only ever be TO_DO (or CANCELLED); see
+// incomplete dependency can only ever be TODO (or CANCELLED); see
 // trg_tasks_dependencies_status_gate in database/init/01-init.sql, which
 // refuses to let it become IN_PROGRESS/IN_REVIEW/COMPLETED at all. So this
-// is a filtered view over TO_DO tasks whose real, already-computed
+// is a filtered view over TODO tasks whose real, already-computed
 // `blocked` field (from task_dependencies via TaskResponse) is true, not a
 // 5th status. Opt-in only (`includeBlocked`) so Dashboard's own mini-board,
 // which calls this with no options, keeps its original 4 columns exactly
 // as before.
-const BLOCKED_COLUMN = { id: 'blocked', title: 'Blocked', status: 'TO_DO' }
+const BLOCKED_COLUMN = { id: 'blocked', title: 'Blocked', status: 'TODO' }
 
 export function groupTasksByStatus(tasks, { includeBlocked = false } = {}) {
   const list = tasks ?? []
@@ -100,11 +100,25 @@ export function groupTasksByStatus(tasks, { includeBlocked = false } = {}) {
     tasks: list.filter((t) => {
       if (t.status !== col.status) return false
       if (!includeBlocked) return true
-      // TO_DO is split two ways between the 'todo' and 'blocked' columns so
+      // TODO is split two ways between the 'todo' and 'blocked' columns so
       // a task appears in exactly one of them, never both.
       if (col.id === 'todo') return !t.blocked
       if (col.id === 'blocked') return Boolean(t.blocked)
       return true
     }),
   }))
+}
+
+// The same rows as computeTaskOverview, but from the counts the server
+// calculated (GET /api/dashboard/stats), so the dashboard and every other
+// client show the same numbers. `taskStats` = { total, todo, inProgress, inReview, completed, cancelled, overdue }.
+const OVERVIEW_FIELDS = { TODO: 'todo', IN_PROGRESS: 'inProgress', IN_REVIEW: 'inReview', COMPLETED: 'completed' }
+
+export function taskOverviewFromStats(taskStats) {
+  const total = taskStats?.total || 0
+  return STATUS_META.map(({ status, label, color }) => {
+    const count = taskStats?.[OVERVIEW_FIELDS[status]] ?? 0
+    const percent = total ? Math.round((count / total) * 100) : 0
+    return { key: status.toLowerCase(), label, count, percent, color }
+  })
 }

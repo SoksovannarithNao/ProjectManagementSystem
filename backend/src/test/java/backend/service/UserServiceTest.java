@@ -1,8 +1,11 @@
 package backend.service;
 
+import backend.dto.SelfProfileUpdateRequest;
 import backend.dto.UserCreateRequest;
 import backend.dto.UserResponse;
 import backend.dto.UserUpdateRequest;
+import backend.entity.Department;
+import backend.entity.Position;
 import backend.entity.Role;
 import backend.entity.User;
 import backend.exception.NotFoundException;
@@ -25,6 +28,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -207,6 +211,83 @@ class UserServiceTest {
     }
 
     @Test
+    void resolveLoginIdentifier_mapsAnEmailAddressToTheAccountsUsername() {
+        User user = person(5L, "mara.k", null);
+        when(userRepository.findByEmailIgnoreCase("Mara@Example.com")).thenReturn(Optional.of(user));
+
+        assertThat(userService.resolveLoginIdentifier("  Mara@Example.com ")).isEqualTo("mara.k");
+    }
+
+    @Test
+    void resolveLoginIdentifier_leavesAUsernameAlone() {
+        assertThat(userService.resolveLoginIdentifier("mara.k")).isEqualTo("mara.k");
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void resolveLoginIdentifier_keepsAnUnknownEmailSoTheNormalBadCredentialsPathRuns() {
+        when(userRepository.findByEmailIgnoreCase("nobody@example.com")).thenReturn(Optional.empty());
+
+        assertThat(userService.resolveLoginIdentifier("nobody@example.com")).isEqualTo("nobody@example.com");
+    }
+
+    @Test
+    void updateOwnProfile_letsAUserPickTheirOwnPositionAndDepartment() {
+        User me = person(7L, "me", null);
+        Position position = new Position();
+        position.setName("Engineer");
+        Department department = new Department();
+        department.setName("Platform");
+        when(userRepository.findByUsername("me")).thenReturn(Optional.of(me));
+        when(positionRepository.findById(3L)).thenReturn(Optional.of(position));
+        when(departmentRepository.findById(4L)).thenReturn(Optional.of(department));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SelfProfileUpdateRequest request = new SelfProfileUpdateRequest();
+        request.setFullName("Me Myself");
+        request.setEmail("me@example.com");
+        request.setPositionId(3L);
+        request.setDepartmentId(4L);
+
+        UserResponse response = userService.updateOwnProfile("me", request);
+
+        assertThat(response.getPositionName()).isEqualTo("Engineer");
+        assertThat(response.getDepartmentName()).isEqualTo("Platform");
+    }
+
+    @Test
+    void updateOwnProfile_clearsPositionAndDepartmentWhenNoneIsChosen() {
+        User me = person(7L, "me", null);
+        Position position = new Position();
+        position.setName("Engineer");
+        me.setPosition(position);
+        when(userRepository.findByUsername("me")).thenReturn(Optional.of(me));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SelfProfileUpdateRequest request = new SelfProfileUpdateRequest();
+        request.setFullName("Me Myself");
+        request.setEmail("me@example.com");
+
+        assertThat(userService.updateOwnProfile("me", request).getPositionName()).isNull();
+    }
+
+    @Test
+    void updateOwnProfile_rejectsAPositionThatIsNotInTheManagedList() {
+        User me = person(7L, "me", null);
+        when(userRepository.findByUsername("me")).thenReturn(Optional.of(me));
+        when(positionRepository.findById(99L)).thenReturn(Optional.empty());
+
+        SelfProfileUpdateRequest request = new SelfProfileUpdateRequest();
+        request.setFullName("Me Myself");
+        request.setEmail("me@example.com");
+        request.setPositionId(99L);
+
+        assertThatThrownBy(() -> userService.updateOwnProfile("me", request))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("Position not found");
+    }
+
+    @Test
     void getUserByUsername_isScopedTheSameWay() {
         User caller = person(1L, "caller", null);
         User stranger = person(3L, "stranger", null);
@@ -219,5 +300,15 @@ class UserServiceTest {
         assertThat(userService.getUserByUsername("teammate", "caller").getUsername()).isEqualTo("teammate");
         assertThatThrownBy(() -> userService.getUserByUsername("stranger", "caller"))
                 .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void aProfilePhotoOverFiveMegabytes_isRefused_eventhoughUploadsMayBeLarger() {
+        org.springframework.mock.web.MockMultipartFile big = new org.springframework.mock.web.MockMultipartFile(
+                "file", "me.png", "image/png", new byte[5 * 1024 * 1024 + 1]);
+
+        assertThatThrownBy(() -> userService.uploadOwnProfilePhoto("anyone", big))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("max 5MB");
     }
 }

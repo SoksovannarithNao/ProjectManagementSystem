@@ -45,7 +45,7 @@ export function toggleTaskCompletion(task) {
   return updateTask(
     task.id,
     taskResponseToRequest(task, {
-      status: completed ? 'COMPLETED' : 'TO_DO',
+      status: completed ? 'COMPLETED' : 'TODO',
       completedAt: completed ? new Date().toISOString() : null,
       progress: completed ? 100 : task.progress,
     })
@@ -63,7 +63,7 @@ export function toggleTaskCompletion(task) {
 // Doing -> Done; everyone else takes Doing -> In Review ("submit for review")
 // and then waits for an approver, so their control stops there.
 function nextWorkflowStatus(status, canApprove) {
-  if (status === 'TO_DO') return 'IN_PROGRESS'
+  if (status === 'TODO') return 'IN_PROGRESS'
   if (status === 'IN_PROGRESS') return canApprove ? 'COMPLETED' : 'IN_REVIEW'
   if (status === 'IN_REVIEW') return canApprove ? 'COMPLETED' : status
   return status
@@ -81,7 +81,7 @@ export function advanceTaskStatus(task, canApprove = true) {
     task.id,
     taskResponseToRequest(task, {
       status: next,
-      completedAt: next === 'COMPLETED' ? new Date().toISOString() : next === 'TO_DO' ? null : task.completedAt,
+      completedAt: next === 'COMPLETED' ? new Date().toISOString() : next === 'TODO' ? null : task.completedAt,
       progress: next === 'COMPLETED' ? 100 : task.progress,
     })
   )

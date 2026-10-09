@@ -7,6 +7,7 @@ import backend.entity.Task;
 import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.NotificationRepository;
+import backend.util.TextFormat;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -70,7 +71,9 @@ public class NotificationService {
     }
 
     // Called by TaskAssigneeService right after a new assignment is saved.
-    public void notifyTaskAssigned(Task task, User assignee) {
+    // The text names the task, its project, the due date and who assigned it,
+    // so the assignee can act without opening the task first.
+    public void notifyTaskAssigned(Task task, User assignee, User assignedBy) {
         if (!assignee.isTaskNotificationsEnabled()) {
             return;
         }
@@ -78,7 +81,9 @@ public class NotificationService {
         notification.setUser(assignee);
         notification.setType("TASK_ASSIGNED");
         notification.setTitle("New task assigned");
-        notification.setMessage("You were assigned to \"" + task.getTitle() + "\"");
+        notification.setMessage(assignedBy.getFullName() + " assigned you to \"" + task.getTitle()
+                + "\" in \"" + task.getProject().getName() + "\" — due "
+                + (task.getDueDate() != null ? task.getDueDate() : "no due date set"));
         notification.setProject(task.getProject());
         notification.setTask(task);
         notificationRepository.save(notification);
@@ -86,7 +91,7 @@ public class NotificationService {
 
     // Called by TaskService after a task's status actually changes.
     public void notifyTaskStatusChanged(Task task, List<User> assignees) {
-        String humanizedStatus = humanizeStatus(task.getStatus());
+        String humanizedStatus = TextFormat.humanizeEnum(task.getStatus());
         for (User assignee : assignees) {
             if (!assignee.isTaskNotificationsEnabled()) {
                 continue;
@@ -100,6 +105,51 @@ public class NotificationService {
             notification.setTask(task);
             notificationRepository.save(notification);
         }
+    }
+
+    // Called by TaskApprovalService when a task enters In Review (or an approver
+    // is named for a task that is already waiting): tells whoever may decide.
+    public void notifyApprovalRequested(Task task, User requester, List<User> approvers) {
+        String who = requester != null ? requester.getFullName() : "Someone";
+        for (User approver : approvers) {
+            if (!approver.isTaskNotificationsEnabled()) {
+                continue;
+            }
+            Notification notification = new Notification();
+            notification.setUser(approver);
+            notification.setType("APPROVAL_REQUESTED");
+            notification.setTitle("Approval requested");
+            notification.setMessage(who + " asked you to review \"" + task.getTitle()
+                    + "\" in \"" + task.getProject().getName() + "\"");
+            notification.setProject(task.getProject());
+            notification.setTask(task);
+            notificationRepository.save(notification);
+        }
+    }
+
+    // Called by TaskApprovalService when an approver decides: tells the person
+    // who asked for the review (not the approver themself).
+    public void notifyApprovalDecided(Task task, User requester, User decider, String decision, String comment) {
+        if (requester == null || requester.getId() == null || requester.getId().equals(decider.getId())
+                || !requester.isTaskNotificationsEnabled()) {
+            return;
+        }
+        String what = switch (decision) {
+            case "APPROVED" -> "approved";
+            case "CHANGES_REQUESTED" -> "asked for changes on";
+            default -> "rejected";
+        };
+        String message = decider.getFullName() + " " + what + " \"" + task.getTitle() + "\""
+                + (comment != null ? ": " + comment : "");
+        Notification notification = new Notification();
+        notification.setUser(requester);
+        notification.setType("APPROVAL_DECIDED");
+        notification.setTitle("APPROVED".equals(decision) ? "Task approved"
+                : "CHANGES_REQUESTED".equals(decision) ? "Changes requested" : "Task rejected");
+        notification.setMessage(message.length() <= 500 ? message : message.substring(0, 499) + "\u2026");
+        notification.setProject(task.getProject());
+        notification.setTask(task);
+        notificationRepository.save(notification);
     }
 
     // Called by ProjectMemberService.inviteMember right after a new/re-sent
@@ -136,16 +186,5 @@ public class NotificationService {
                 + " your invitation to join \"" + member.getProject().getName() + "\"");
         notification.setProject(member.getProject());
         notificationRepository.save(notification);
-    }
-
-    private String humanizeStatus(String status) {
-        if (status == null || status.isBlank()) return "";
-        StringBuilder result = new StringBuilder();
-        for (String word : status.toLowerCase().split("_")) {
-            if (word.isEmpty()) continue;
-            if (!result.isEmpty()) result.append(' ');
-            result.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
-        }
-        return result.toString();
     }
 }
