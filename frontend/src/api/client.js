@@ -32,18 +32,37 @@ export class ApiError extends Error {
   }
 }
 
+const NETWORK_ERROR_MESSAGE = 'Could not reach the server. Check your connection and try again.'
+const UNEXPECTED_RESPONSE_MESSAGE = 'The server sent an unexpected response. Please try again.'
+
+// fetch() rejects with the browser's own wording ("Failed to fetch",
+// "NetworkError when attempting...") when the server cannot be reached.
+async function send(url, init) {
+  try {
+    return await fetch(url, init)
+  } catch {
+    throw new ApiError(0, NETWORK_ERROR_MESSAGE)
+  }
+}
+
 async function handleResponse(response, skipAuth) {
   if (response.status === 204) return null
 
   const text = await response.text()
-  const data = text ? JSON.parse(text) : null
+  let data = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    // Not JSON (e.g. an HTML error page from the proxy while the backend is down).
+    if (response.ok) throw new ApiError(response.status, UNEXPECTED_RESPONSE_MESSAGE)
+  }
 
   if (!response.ok) {
     if (response.status === 401 && !skipAuth) {
       storeAuth(null)
       unauthorizedHandler?.()
     }
-    throw new ApiError(response.status, data?.message || response.statusText, data?.fieldErrors)
+    throw new ApiError(response.status, data?.message || response.statusText || UNEXPECTED_RESPONSE_MESSAGE, data?.fieldErrors)
   }
 
   return data
@@ -56,7 +75,7 @@ export async function apiFetch(path, { method = 'GET', body, skipAuth = false } 
     if (auth?.token) headers.Authorization = `Bearer ${auth.token}`
   }
 
-  const response = await fetch(`/api${path}`, {
+  const response = await send(`/api${path}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -73,7 +92,7 @@ export async function apiDownload(path) {
   const auth = getStoredAuth()
   if (auth?.token) headers.Authorization = `Bearer ${auth.token}`
 
-  const response = await fetch(`/api${path}`, { headers })
+  const response = await send(`/api${path}`, { headers })
   if (!response.ok) {
     if (response.status === 401) {
       storeAuth(null)
@@ -98,7 +117,7 @@ export async function apiUpload(path, formData, { method = 'PUT' } = {}) {
   const auth = getStoredAuth()
   if (auth?.token) headers.Authorization = `Bearer ${auth.token}`
 
-  const response = await fetch(`/api${path}`, {
+  const response = await send(`/api${path}`, {
     method,
     headers,
     body: formData,

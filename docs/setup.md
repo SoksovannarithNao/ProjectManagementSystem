@@ -188,6 +188,7 @@ Defaults work for local development; every variable has a fallback in `docker-co
 | `JWT_EXPIRATION_MS` | `3600000` (1 hour) | Token lifetime |
 | `OTP_EXPIRATION_MINUTES` / `OTP_MAX_ATTEMPTS` / `OTP_RESEND_COOLDOWN_SECONDS` | `10` / `5` / `60` | Registration code rules |
 | `SECURITY_LOG_LEVEL` | `INFO` | Spring Security log level (`DEBUG` for JWT troubleshooting) |
+| `DEADLINES_ENABLED` / `DEADLINES_CRON` / `DEADLINES_RUN_ON_STARTUP` | `true` / `0 0 8 * * *` / `true` | Deadline reminders and overdue notices: on/off, when they run (Spring cron, server time) and whether they also run once at startup. The first run on existing data creates a notice for every open overdue task |
 
 The frontend has **no** environment variables: it calls relative `/api/...` paths ([ADR-0010](adr/0010-relative-api-paths-and-proxy.md)).
 

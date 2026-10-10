@@ -1,13 +1,15 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link, NavLink, useParams } from 'react-router-dom'
-import { ArrowLeft, Users, Gauge, ChartGantt } from 'lucide-react'
+import { ArrowLeft, Users, Gauge, ChartGantt, ChartNoAxesGantt } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
+import { ErrorPage } from './ErrorPage'
 import { DelayedBadge } from '../components/DelayedBadge'
 import { TeamTasksView } from '../components/TeamTasksView'
 import { WorkloadTable } from '../components/WorkloadTable'
 import { TimelineView } from '../components/TimelineView'
+import { GanttChart } from '../components/GanttChart'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { useApi } from '../api/useApi'
 import { useAuth } from '../auth/AuthContext'
@@ -15,6 +17,7 @@ import { getProjectById } from '../api/projects'
 import { getTasksByProjectId } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getMilestonesByProjectId } from '../api/milestones'
+import { getAllTaskDependencies } from '../api/taskDependencies'
 import { getProjectWorkload } from '../api/teamViews'
 import { buildTaskAssigneeMap } from '../api/relations'
 
@@ -22,12 +25,13 @@ const TABS = [
   { view: 'team', label: 'Team Tasks', icon: Users, managersOnly: true },
   { view: 'workload', label: 'Workload', icon: Gauge, managersOnly: true },
   { view: 'timeline', label: 'Timeline', icon: ChartGantt, managersOnly: false },
+  { view: 'gantt', label: 'Gantt', icon: ChartNoAxesGantt, managersOnly: false },
 ]
 
-// The manager views of one project - Team Tasks, Workload and Timeline - behind
-// one tab bar (/projects/:id/team, /workload, /timeline). Team Tasks and
+// The views of one project - Team Tasks, Workload, Timeline and Gantt - behind
+// one tab bar (/projects/:id/team, /workload, /timeline, /gantt). Team Tasks and
 // Workload are for people who may assign tasks in the project (Owner, Team
-// Leader, Administrator); the Timeline is for every member.
+// Leader, Administrator); the Timeline and the Gantt chart are for every member.
 export function ProjectViews() {
   const { id, view } = useParams()
   const projectId = Number(id)
@@ -45,6 +49,8 @@ export function ProjectViews() {
   const { data: assignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const workloadFetcher = useCallback(() => (canManage ? getProjectWorkload(projectId) : Promise.resolve(null)), [projectId, canManage])
   const { data: workload, loading: workloadLoading, error: workloadError } = useApi(workloadFetcher)
+  const dependenciesFetcher = useCallback(() => (view === 'gantt' ? getAllTaskDependencies() : Promise.resolve(null)), [view])
+  const { data: dependencies, refetch: refetchDependencies } = useApi(dependenciesFetcher)
 
   const tasks = useMemo(() => tasksData ?? [], [tasksData])
   const milestones = useMemo(() => milestonesData ?? [], [milestonesData])
@@ -60,6 +66,7 @@ export function ProjectViews() {
   const afterChange = () => {
     refetchTasks()
     refetchAssignees()
+    refetchDependencies()
     setRefreshKey((k) => k + 1)
   }
 
@@ -75,10 +82,7 @@ export function ProjectViews() {
     return (
       <div>
         <TopBar title="Project" />
-        <EmptyState
-          title={projectError?.status === 404 ? 'Project not found' : 'Failed to load the project'}
-          subtitle={projectError?.status === 404 ? 'It may have been deleted, or you are not a member.' : projectError?.message}
-        />
+        <ErrorPage status={projectError?.status ?? 404} />
       </div>
     )
   }
@@ -142,6 +146,10 @@ export function ProjectViews() {
 
       {allowed && current.view === 'timeline' && (
         <TimelineView project={project} tasks={tasks} milestones={milestones} onOpenTask={setActiveTaskId} />
+      )}
+
+      {allowed && current.view === 'gantt' && (
+        <GanttChart project={project} tasks={tasks} dependencies={dependencies} onOpenTask={setActiveTaskId} />
       )}
 
       {activeTask && (

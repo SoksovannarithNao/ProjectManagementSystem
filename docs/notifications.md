@@ -4,7 +4,7 @@ In-app notifications only (no email, push or SMS apart from the registration cod
 
 ## 1. Notification types
 
-The `notifications.type` CHECK constraint allows 11 values. **Six are produced by the application today** (the approval pair since 2026-10-09).
+The `notifications.type` CHECK constraint allows 11 values. **Eight are produced by the application today** (the approval pair since 2026-10-09; the deadline reminder and the overdue notice since 2026-10-10).
 
 | Type | Produced? | Producer | Recipient |
 |---|---|---|---|
@@ -17,8 +17,8 @@ The `notifications.type` CHECK constraint allows 11 values. **Six are produced b
 | `COMMENT_ADDED` | ❌ | — (comments notify nobody) | — |
 | `PROJECT_UPDATED` | ❌ | — | — |
 | `MILESTONE_UPDATED` | ❌ | — | — |
-| `DEADLINE_REMINDER` | ❌ | — (no code or database function exists for it) | — |
-| `OVERDUE_TASK` | ⚠ | Only the database function `fn_generate_overdue_notifications()` can create it. The **seed script calls it once** (so demo data contains some); at runtime **nothing calls it** (no `@Scheduled` job, no `pg_cron`) | assignees of overdue tasks |
+| `DEADLINE_REMINDER` | ✅ | `DeadlineNotificationService.sendReminders`, run by `DeadlineScheduler` (see §8) | the assignees of the task and the project's active Owner; for a milestone or a project, the Owner |
+| `OVERDUE_TASK` | ✅ | `DeadlineNotificationService.sendOverdueNotices`, run by `DeadlineScheduler` (see §8). The seed script also calls `fn_generate_overdue_notifications()` once, so demo data contains older rows | the assignees of the overdue task and the project's active Owner |
 
 ## 2. Trigger conditions and content
 
@@ -30,6 +30,8 @@ The `notifications.type` CHECK constraint allows 11 values. **Six are produced b
 | `APPROVAL_DECIDED` | an approver approves, requests changes or rejects (or completes the task directly) | "Task approved" / "Changes requested" / "Task rejected" | `<approver> approved\|asked for changes on\|rejected "<task>"[: <comment>]` |
 | `TEAM_INVITATION` | a project invitation is created or re-sent | "Team invitation" | `<inviter name> invited you to join "<project name>"` |
 | `TEAM_INVITATION_RESPONDED` | the invitee accepts or declines (and the inviter still exists) | "Invitation accepted" / "Invitation declined" | `<invitee name> accepted|declined your invitation to join "<project name>"` |
+| `DEADLINE_REMINDER` | 3 days or 1 day before a task's or milestone's due date or a project's end date, while it is not finished | "Deadline approaching" | `"<task>" in "<project>" is due in 3 days (<yyyy-mm-dd>)` / `… is due tomorrow (<date>)`; `Milestone "<title>" in "<project>" is due …`; `Project "<name>" ends in 3 days (<date>)` |
+| `OVERDUE_TASK` | the day after a task's due date, while it is not Completed or Cancelled | "Task overdue" | `"<task>" in "<project>" was due on <yyyy-mm-dd> and is not yet completed` |
 
 Details worth knowing:
 
@@ -37,7 +39,7 @@ Details worth knowing:
 - `TASK_STATUS_CHANGED` goes to **all** assignees, **including the person who made the change** — the actor is not excluded.
 - The status-change notification is **not** sent when the status changes through the subtask auto-promotion (`SubtaskService.startTaskIfStillToDo` saves the task directly and does not call `NotificationService`).
 - Unassigning a task, deleting a task, comments, project edits and milestone edits create **no** notification.
-- `fn_generate_overdue_notifications()` (if it were called) inserts one `OVERDUE_TASK` notification per overdue task per current assignee, at most one per (user, task) per calendar day.
+- The database function `fn_generate_overdue_notifications()` is no longer used by the application (only the seed script calls it, and it reaches assignees only). The scheduled job in §8 replaced it.
 
 ## 3. Read / unread behaviour
 
@@ -61,7 +63,7 @@ Marking or deleting someone else's notification returns **404** (not 403), so a 
 
 ## 5. The preference switch
 
-`users.task_notifications_enabled` (default `true`; Settings page → Notifications; `PUT /api/users/me/preferences`). **Every one of the four producers checks it**, so a user who turns it off stops receiving task *and* invitation notifications.
+`users.task_notifications_enabled` (default `true`; Settings page → Notifications; `PUT /api/users/me/preferences`). **Every producer checks it** (the scheduled ones also skip accounts that are not `ACTIVE`), so a user who turns it off stops receiving task, approval, reminder, overdue *and* invitation notifications.
 
 This has a side effect on invitations: the notification is the only place the UI shows Accept/Decline, so an invitee with the switch off is never shown the invitation (see [users-and-projects.md](users-and-projects.md#43-accepting-or-declining)).
 
@@ -75,3 +77,18 @@ This has a side effect on invitations: the notification is the only place the UI
 ## 7. Seed data
 
 `02-seed.sql` inserts notifications so the bell has content on first run: invitation notifications, one `TASK_ASSIGNED` per seeded assignment, one `TASK_STATUS_CHANGED` per assignment on a non-`TODO` task, and — by calling `fn_generate_overdue_notifications()` once — `OVERDUE_TASK` rows. Read/unread flags on the generated ones are randomised (`random()`), and the seeded status messages print the raw status (for example `IN_PROGRESS`) whereas notifications created by the app print `In Progress`.
+
+## 8. Deadline reminders and overdue notices (since 2026-10-10)
+
+Created by `service/DeadlineNotificationService.java` and run by `config/DeadlineScheduler.java` (Spring `@Scheduled`): every day at **08:00 server time** and **once when the backend starts**, so a day missed while it was down is caught up. No schema change.
+
+| Rule | Detail |
+|---|---|
+| Reminders | **3 days and 1 day before** the due date of a task that is not Completed or Cancelled, the due date of a milestone that is not completed, and the end date of a project that is not Completed or Cancelled. A day that was missed is not made up afterwards (a "due in 3 days" notice two days late would be wrong) |
+| Overdue | A task that is not Completed or Cancelled and whose due date has passed (due on the 10th, overdue from the 11th). **Once** per person and due date, not every morning: the text carries no "days overdue", so it is the same every day and the duplicate check holds. If the due date is moved and passes again, a new notice follows |
+| Recipients | Task: every assignee and the project's active **Owner**. Milestone and project: the Owner. Each person once. Skipped: people who switched task notifications off, accounts that are not `ACTIVE`, a project with no active Owner (the assignees are still told) |
+| Never twice | A notification with the same type, text, person and item is not created again, so a restart, a second run or a manual run adds nothing. A reminder for a milestone or a project is stored with the project and no task |
+| Settings | `app.deadlines.enabled` (`DEADLINES_ENABLED`, default `true`), `app.deadlines.cron` (`DEADLINES_CRON`, default `0 0 8 * * *`, Spring's second-minute-hour-day-month-weekday), `app.deadlines.run-on-startup` (`DEADLINES_RUN_ON_STARTUP`, default `true`). The context test turns the scheduler off so it never writes to the test database |
+| Failure | An exception is logged (`Deadline notifications (…) failed`) and the next run tries again; it never stops the application. Each run logs `Deadline notifications (scheduled|startup): N created` |
+
+The first run on a database that already holds overdue work creates a notice for every open overdue task, for each assignee and the Owner (53 on the development data on 2026-10-10). A database loaded from `02-seed.sql` already has older `OVERDUE_TASK` rows, written by the SQL function with slightly different text (no project name), so the scheduler adds its own on top the first time.

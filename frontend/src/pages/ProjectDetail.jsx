@@ -13,18 +13,18 @@ import {
   Lock,
   Plus,
   X,
-  FolderKanban,
   SlidersHorizontal,
   ChevronRight,
   Gauge,
   ChartGantt,
+  ChartNoAxesGantt,
 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar, AvatarGroup } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { Skeleton } from '../components/ui/Skeleton'
-import { EmptyState } from '../components/ui/EmptyState'
+import { ErrorPage } from './ErrorPage'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { Dropdown } from '../components/ui/Dropdown'
 import { useToast } from '../components/ui/Toast'
@@ -287,29 +287,13 @@ export function ProjectDetail() {
     // The backend deliberately returns 404 for both "doesn't exist" and "you
     // don't have access" (see ProjectAccessGuard.assertAccess) so a caller
     // can't use this page to probe which projects exist — that case, and the
-    // no-error-yet case, get the same generic message. Anything else (a
-    // real 5xx/network failure) gets its own state with a retry action
-    // instead of being misreported as "not found".
-    const isRealError = projectError && projectError.status !== 404
+    // no-error-yet case, are shown as a 404. Anything else (a real 5xx/network
+    // failure) shows its own status with a retry action instead of being
+    // misreported as "not found".
     return (
       <div>
         <TopBar title="Project" />
-        <EmptyState
-          icon={isRealError ? AlertTriangle : FolderKanban}
-          title={isRealError ? 'Something went wrong' : 'Project not found'}
-          subtitle={
-            isRealError
-              ? projectError.message || 'Failed to load this project. Please try again.'
-              : "It may have been deleted, or you don't have access to it."
-          }
-          action={
-            isRealError && (
-              <button type="button" className="btn btn-secondary" onClick={refetch}>
-                Try again
-              </button>
-            )
-          }
-        />
+        <ErrorPage status={projectError?.status ?? 404} onRetry={refetch} />
       </div>
     )
   }
@@ -345,6 +329,9 @@ export function ProjectDetail() {
             )}
             <Link to={`/projects/${projectId}/timeline`} className="btn btn-secondary">
               <ChartGantt size={15} /> Timeline
+            </Link>
+            <Link to={`/projects/${projectId}/gantt`} className="btn btn-secondary">
+              <ChartNoAxesGantt size={15} /> Gantt
             </Link>
             {canEditProject && (
               <>

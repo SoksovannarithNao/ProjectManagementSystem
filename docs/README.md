@@ -46,12 +46,12 @@ Documentation for the **TaskFlow** task and project management system (React fro
 |---|---|
 | Project README, quick start | [../README.md](../README.md) |
 | Branching, pull requests, reviews | [../Contributing.md](../Contributing.md) |
-| The requirements the project is built against | [../assignment-brief.md](../assignment-brief.md) (the assignment; **Part B is the resolved specification** — roles, permissions, definitions, reports, acceptance criteria, open gaps), [../project-workflow.md](../project-workflow.md) (the user flows), [../Project_requirement_plan.md](../Project_requirement_plan.md) (detailed plan). [../Role_Requirment.md](../Role_Requirment.md) now holds only the team-responsibility areas |
+| The requirements the project is built against | [../assignment-brief.md](../assignment-brief.md) (the assignment; **Part B is the resolved specification** — roles, permissions, definitions, reports, acceptance criteria, open gaps), [../project-workflow.md](../project-workflow.md) (the user flows). [../Role_Requirment.md](../Role_Requirment.md) now holds only the team-responsibility areas |
 | Legacy machine-readable API contract (partial, not maintained) | [../api/openapi.yaml](../api/openapi.yaml); see [api-reference.md](api-reference.md#18-the-legacy-openapiyaml) |
 
 ## Where the old folder READMEs went
 
-The `README.md` files in `api/`, `backend/`, `frontend/` and `database/` were removed on 2026-10-08 and their content moved here, with out-of-date statements corrected (endpoint count 84 → 87, tests 60 → 67 and 30 → 33, work logs now implemented, 16 entities).
+The `README.md` files in `api/`, `backend/`, `frontend/` and `database/` were removed on 2026-10-08 and their content moved here, with out-of-date statements corrected (endpoint count 84 → 87, tests 60 → 67 and 30 → 33, work logs now implemented, 16 entities; later syncs on 2026-10-09 and 2026-10-10 brought the counts to 119 endpoints, 22 entities, 290 backend tests and 99 Playwright tests).
 
 | Old file and section | Now |
 |---|---|
