@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -14,7 +13,6 @@ import {
   UserCog,
   X,
 } from 'lucide-react'
-import { HelpModal } from '../components/HelpModal'
 import { useLayout } from './useLayout'
 import { useAuth } from '../auth/AuthContext'
 import { Logo } from '../components/ui/Logo'
@@ -52,7 +50,6 @@ export function Sidebar() {
     (item) => !item.needs || (item.anywhere ? canAny(...item.needs) : canSys(...item.needs))
   )
   const visibleAdmin = adminItems.filter((item) => canSys(...item.needs))
-  const [showHelp, setShowHelp] = useState(false)
 
   return (
     <>
@@ -122,14 +119,16 @@ export function Sidebar() {
             <Settings size={18} strokeWidth={2} />
             <span>Settings</span>
           </NavLink>
-          <button className={`${itemBase} ${itemInactive}`} onClick={() => setShowHelp(true)}>
+          <NavLink
+            to="/help"
+            className={({ isActive }) => `${itemBase} ${isActive ? itemActive : itemInactive}`}
+            onClick={closeMobileNav}
+          >
             <HelpCircle size={18} strokeWidth={2} />
             <span>Help &amp; Support</span>
-          </button>
+          </NavLink>
         </div>
       </aside>
-
-      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </>
   )
 }

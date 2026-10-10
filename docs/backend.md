@@ -160,7 +160,7 @@ Beyond the database gates (a task cannot become `COMPLETED` while a subtask is i
 - `ProjectMemberService.inviteMember` → `notifyTeamInvitation`: every new or re-sent invitation, to the invitee.
 - `ProjectMemberService.respondToInvitation` → `notifyInvitationResponded`: when the invitee accepts or declines, to whoever sent the invitation (`project_members.invited_by`). This "notify an Admin of a member's action" case did not exist anywhere before; it is new, not a repaired bug.
 
-Of the 9 `type` values the `notifications.type` `CHECK` allows, 4 are produced today. `COMMENT_ADDED` is not wired up (creating a comment notifies nobody). `DEADLINE_REMINDER` and `OVERDUE_TASK` are not triggered by any user action, so they need a scheduled job, not just another service call. `PROJECT_UPDATED` and `MILESTONE_UPDATED` would be straightforward (same pattern, hung off `ProjectService` / `MilestoneService`) but have not been added.
+Of the 11 `type` values the `notifications.type` `CHECK` allows, 8 are produced today: task assignment, status change, approval requested and decided, the invitation and its response, and — since 2026-10-10 — `DEADLINE_REMINDER` and `OVERDUE_TASK`. Those last two are not triggered by a user action: `DeadlineScheduler` runs `DeadlineNotificationService` every day at 08:00 and once at startup (3 days and 1 day before a task, milestone or project deadline, and when a task is overdue, to the assignees and the project Owner; at most once each — see [notifications.md](notifications.md#8-deadline-reminders-and-overdue-notices-since-2026-10-10)). `COMMENT_ADDED` is not wired up (creating a comment notifies nobody). `PROJECT_UPDATED` and `MILESTONE_UPDATED` would be straightforward (same pattern, hung off `ProjectService` / `MilestoneService`) but have not been added.
 
 ## Frontend integration
 
@@ -174,7 +174,7 @@ Known integration gaps: the activity log is per task only (`GET /api/activity-lo
 Backend project setup         done
 Spring Boot / Java 25         done
 Database connection           done (least-privilege role, ddl-auto=validate)
-JPA entities and repositories done (16 entities)
+JPA entities and repositories done (22 entities)
 Business REST APIs            done: 25 controllers, 119 endpoints (17 resources + auth + health + photos + work logs + permissions)
 DTOs (no raw entities in/out) done
 Bean Validation on requests   done
@@ -185,15 +185,16 @@ Authorization                 done (data-driven role x resource x action matrix,
 CORS, password hashing        done
 Login rate limiting           done (in-memory, 5 attempts / 15 min per IP+username)
 Least-privilege DB role       done
-Unit tests                    partial: 67 unit/context tests, no controller or repository tests; see testing.md
+Unit tests                    partial: 306 unit/context tests, no controller or repository tests; see testing.md
 File logging                  done (rotating backend/logs/log.txt)
-Notifications                 partial: 6 of 11 types produced
+Notifications                 partial: 8 of 11 types produced (comments, project and milestone updates are not)
+Deadline reminders, overdue   done (2026-10-10): @Scheduled daily 08:00 + at startup
 Attachments, checklists       done (2026-10-09)
 Self-service profile update   done (/me, /me/password, /me/photo, /me/preferences)
 Team invitations              done
 Subtasks and comments         done
 Position / Department lists   done
-Activity log (per task)       done; no project-wide feed
+Activity log                  done: task, project and recent feeds (time logs are not written)
 Task auto-promotion, Blocked  done
 Last-owner protection         done
 Time tracking (work logs)     done (added 2026-10-08)
@@ -204,13 +205,13 @@ Frontend/backend integration  done
 
 Roughly in priority order. The prioritised plan with reasoning is in [roadmap.md](roadmap.md) and the requirements audit in [checklist/](checklist/).
 
-1. Server-side report endpoints gated by `REPORT:GENERATE_REPORTS` (today only the page is gated).
-2. Pagination and search/filter on list endpoints (`GET /api/projects`, `/api/tasks`, and so on return everything).
-3. Entities and controllers for the remaining DB-only tables (`report_exports`, `kpi_snapshots`) and endpoints over the reporting views.
-4. A project-wide or per-user activity and audit feed.
+1. ~~Server-side report endpoints gated by `REPORT:GENERATE_REPORTS`~~ — done 2026-10-09 (`GET /api/reports/*`).
+2. Pagination and search/filter on list endpoints (`GET /api/projects`, `/api/tasks`, and so on return everything; the pages filter in the browser).
+3. PDF / Excel export, with entities for the remaining DB-only tables (`report_exports`, `kpi_snapshots`).
+4. ~~A project-wide activity feed~~ — done 2026-10-09; a per-user or administrator audit view remains.
 5. Broader test coverage: controller and integration tests, not only service and handler unit tests.
 6. Flyway now runs as a one-shot Compose service (`migrate`); wiring it into CI and a production deployment is still open (see [database.md](database.md#8-migrations-vs-the-init-script)).
-7. `COMMENT_ADDED`, deadline and overdue notifications (needs a scheduler).
+7. `COMMENT_ADDED`, `PROJECT_UPDATED` and `MILESTONE_UPDATED` notifications. (Deadline and overdue notifications were added on 2026-10-10.)
 8. A refresh-token flow: access tokens currently just expire (default 1 hour) with no renewal short of logging in again.
 
 ## Contributing

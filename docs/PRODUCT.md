@@ -2,7 +2,7 @@
 
 <!-- impeccable:product-schema 1 -->
 
-> Written from repository evidence ([overview.md](overview.md), [assignment-brief.md](../assignment-brief.md), [project-workflow.md](../project-workflow.md), [Project_requirement_plan.md](../Project_requirement_plan.md), the code) without a user interview. Anything marked **(inferred)** is a hypothesis to confirm, not a decision. Visual direction lives in [DESIGN.md](DESIGN.md), not here.
+> Written from repository evidence ([overview.md](overview.md), [assignment-brief.md](../assignment-brief.md), [project-workflow.md](../project-workflow.md), the code) without a user interview. Anything marked **(inferred)** is a hypothesis to confirm, not a decision. Visual direction lives in [DESIGN.md](DESIGN.md), not here.
 
 ## Platform
 
@@ -43,9 +43,9 @@ No claim of being faster, smarter or cheaper than other tools has been establish
 
 ## Capabilities and Constraints
 
-**Implemented:** self-registration with OTP, login (rate-limited), profile and theme (light, dark, system), projects and membership with invitations, milestones, tasks, subtasks, dependencies, assignment, comments, per-task activity, notifications (6 of 11 types), dashboard, task list with a My Tasks filter, Kanban, calendar (month/week/day), reports (charts), team page, and time tracking (estimated vs. logged hours, work-log entries and a start/stop timer on each task).
+**Implemented:** self-registration with OTP, login (rate-limited), profile and theme (light, dark, system), projects and membership with invitations, milestones, tasks, subtasks, dependencies, assignment, comments with replies, task, project and recent activity feeds, notifications (8 of 11 types, including deadline reminders and overdue notices from a daily scheduled job), the task approval workflow, checklist items and file attachments, the dashboard (project and task statistics, Delayed projects, recent activity), a task list with search, filters and sorts, Kanban, calendar (month/week/day), the project timeline, Gantt chart (a prototype), team tasks and workload views, Reports (overview charts, the five KPIs and the seven named reports), the team page, administration of users, roles and permissions, a Help & Support page, one error page for every error status (404, 403, 5xx, "cannot reach the server"), and time tracking (estimated vs. logged hours, work-log entries and a start/stop timer on each task).
 
-**In the requirements, not built** (see [roadmap.md](roadmap.md)): deadline reminders and overdue notifications, Gantt chart, named reports with PDF/Excel export, KPI calculation.
+**In the requirements, not built** (see [roadmap.md](roadmap.md)): auto-logout, PDF/Excel export of reports, editing a milestone and showing milestones on the calendar, moving Kanban cards, and a project completion date.
 
 **Constraints that future work must respect:**
 
@@ -63,7 +63,7 @@ No claim of being faster, smarter or cheaper than other tools has been establish
 
 ## Evidence on Hand
 
-- Real requirements and workflow definitions: [assignment-brief.md](../assignment-brief.md) (Part B is the resolved specification), [project-workflow.md](../project-workflow.md), [Project_requirement_plan.md](../Project_requirement_plan.md).
+- Real requirements and workflow definitions: [assignment-brief.md](../assignment-brief.md) (Part B is the resolved specification), [project-workflow.md](../project-workflow.md).
 - Working application with demo seed data (`database/init/02-seed.sql`).
 - Project documentation in this folder.
 - **Absent, so do not fabricate:** customer logos, testimonials, usage numbers, benchmarks, pricing, SLAs, compliance claims, or case studies.

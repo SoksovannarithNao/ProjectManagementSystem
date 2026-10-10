@@ -250,7 +250,7 @@ Softly rounded rectangles with hairline borders; pills for status and avatars.
 - **Password:** a live checklist beneath the field.
 
 ### Navigation
-- **Sidebar:** 224px, Card background, right border; logo mark and wordmark at top; seven primary items (Dashboard, Tasks, Projects, Calendar, Kanban Board, Team, Reports) with 18px icons and labels; an **Administration** group (Users, Roles & Permissions) under a small heading, shown only to someone holding `USER:VIEW` / `ROLE:VIEW`; Settings and Help & Support pinned to the bottom behind a divider. An item the user may not open is **absent**, not greyed out (Reports needs `REPORT:GENERATE_REPORTS`).
+- **Sidebar:** 224px, Card background, right border; logo mark and wordmark at top; seven primary items (Dashboard, Tasks, Projects, Calendar, Kanban Board, Team, Reports) with 18px icons and labels; an **Administration** group (Users, Roles & Permissions) under a small heading, shown only to someone holding `USER:VIEW` / `ROLE:VIEW`; Settings and Help & Support (both pages, not pop-ups) pinned to the bottom behind a divider. An item the user may not open is **absent**, not greyed out (Reports needs `REPORT:GENERATE_REPORTS`).
 - **Item:** 42px tall, 13.5px medium, 11px icon gap. Inactive is Muted with Faint icon; hover washes to Canvas; active is Charcoal fill, white text, active shadow.
 - **Mobile:** off-canvas below 1024px with a dimming scrim.
 - **Top bar:** page title and subtitle, search, notification bell with unread count, profile menu, and per-page actions.

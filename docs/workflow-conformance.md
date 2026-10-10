@@ -1,6 +1,6 @@
 # Workflow Conformance Test — 2026-10-08
 
-The running application tested against [project-workflow.md](../project-workflow.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). Sections 1–5 record the test **before any change** to the application, so the result could be trusted; section 6 records the re-test after the role-model migration (`V10`) done later the same day; section 7 records the re-test after change-plan batch 1 (2026-10-09); sections 8–11 record the later batches.
+The running application tested against [project-workflow.md](../project-workflow.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). Sections 1–5 record the test **before any change** to the application, so the result could be trusted; section 6 records the re-test after the role-model migration (`V10`) done later the same day; section 7 records the re-test after change-plan batch 1 (2026-10-09); sections 8–11 record the later batches; section 12 the scheduled reminders, section 13 the Gantt prototype and section 14 the error and help pages (all 2026-10-10).
 
 ## 1. How it was tested
 
@@ -183,3 +183,38 @@ After the reports and KPIs ([change-plan.md](change-plan.md) §5, 3c), deployed 
 | 32 Reports | PARTIAL | **PASS** | all seven named reports with their filters (project, assignee, status, priority, due dates, owner, group by, date range) and an explicit *Generate*; the endpoints refuse a Team Member with `403` and a stranger's project with `404` whatever the page shows. Export (PDF / Excel) is optional and still absent |
 
 **New totals (44 flows): PASS 33 · PARTIAL 6 · MISSING 5.** Backend tests **290/290** (265 + 25 new); Playwright **99/99** (86 + 13 new), twice in a row; ESLint clean. No test project or task is left behind (four projects left by failed first runs of the new spec were found and deleted).
+
+## 12. Re-test after the scheduled reminders and overdue notices (2026-10-10)
+
+After `DeadlineScheduler` / `DeadlineNotificationService` were deployed to the running stack (no schema change; outside the numbered batches), the backend log, the database and the API were checked, then the suites were run again.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 27 Deadline reminder | MISSING | **PASS** | a task due in 3 days produced a `DEADLINE_REMINDER` ("… is due in 3 days (2026-10-13)") for its Owner; milestones and projects ending in 3 or 1 days are covered by the unit tests (the live data had none); nothing is created for Completed / Cancelled work |
+| 28 Overdue detection | PARTIAL | **PASS** | the first run created 52 `OVERDUE_TASK` notices ("… was due on 2026-10-05 and is not yet completed") for the assignees and the project Owners of the 29 open overdue tasks; every recipient is an assignee or the active Owner (query: 0 others); no duplicate (user, type, task, text) |
+| 26 Notifications | PARTIAL | PARTIAL | 8 of 11 types are produced now; comment, project update and milestone update are not |
+
+Idempotency: the startup run logged `Deadline notifications (startup): 53 created`; after `docker compose restart backend` the next startup run logged `0 created`. A user (`pm.olivia`) sees them through `GET /api/notifications`. The 08:00 cron itself was not waited for; its expression is parsed at startup (a bad one would stop the application) and the same method runs at startup.
+
+**New totals (44 flows): PASS 35 · PARTIAL 5 · MISSING 4.** Backend tests **306/306** (290 + 16 new); Playwright **99/99** (30 s); ESLint clean. A `pg_dump` taken before the first run is kept in the session's scratch folder (`before-deadline-scheduler.dump`). The 53 notifications created on the development database are real output of the feature and were left in place.
+
+## 13. Re-test after the Gantt chart prototype (2026-10-10)
+
+After the project's *Gantt* tab (front end only; no backend or schema change) was deployed to the running stack, it was opened as the Project Manager and as a plain Team Member and checked with Playwright (`gantt.spec.js`, 4 cases) and by looking at screenshots of a five-task project with five dependencies.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| A8 Gantt | MISSING | **PASS** | a duration bar per task from its start to its due date on a week / month axis, the progress inside the bar, a today line, an arrow for each task dependency, a red arrow where a task is planned to start before its unfinished prerequisite is due, and the tasks that do not overlap a hovered bar fade; open to every member; a task opens in the usual panel |
+
+**New totals (44 flows): PASS 36 · PARTIAL 5 · MISSING 3** (A8 is optional; the remaining missing flows are the audit log, document management and auto-logout). Playwright **103/103** with `--workers=4`, twice in a row; ESLint clean. At the default 8 workers the suite is intermittently red with or without the new spec (see R-6 in the checklist); the failures seen were a `409` while a spec created a project and a UI timeout, and both pass when re-run alone.
+
+## 14. Re-test after the error page and the Help & Support page (2026-10-10)
+
+After `ErrorPage` and `Help` (front end only; no backend or schema change) were deployed to the running stack, they were checked with Playwright (`help-errors.spec.js`, 5 cases) and by looking at screenshots at 1360 and 390 px.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 35 Validation & errors | PASS | PASS | the brief's error cases now all end on a readable page or message: a mistyped address and a project that does not exist or is off limits show **404 Page not found** (before, an unknown address showed an empty screen); a refused page shows **403**; a server that cannot be reached shows **Cannot reach the server** (the api client's status `0`) and a proxy error page shows a readable sentence; 5xx and `0` offer *Try again*; every error page offers *Back to the dashboard*, *Go back* and *Help & Support* |
+| Help | pop-up modal | page | *Help & Support* is `/help`, linked from the sidebar, with the FAQ corrected against the app (password on the Profile page; people set their own position / department) and extended (approvals, reminders, schedule, troubleshooting) |
+
+No flow changes class: **PASS 36 · PARTIAL 5 · MISSING 3** as in §13. Playwright **108/108** with `--workers=4`, twice in a row; ESLint clean.

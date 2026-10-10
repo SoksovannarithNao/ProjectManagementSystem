@@ -12,8 +12,8 @@ Severity: **High** = breaks a stated security or data-isolation requirement · *
 |---|---|
 | Open defects and risks (section 2) | 12 (I-08, I-09, I-11 … I-18, I-20, I-21; I-01 … I-07 were fixed on 2026-10-06, I-10 and I-19 on 2026-10-08, I-22 on 2026-10-09) |
 | Cross-layer inconsistencies (section 3) | 3 open (X-01, X-02, X-03, X-05 and X-07 fixed or addressed; X-06 partly) |
-| Documentation drift (section 4) | 9 (5 corrected on 2026-10-06) |
-| Fixed (section 5) | 31 recorded |
+| Documentation drift (section 4) | 10 (5 corrected on 2026-10-06, D-08 and D-10 on 2026-10-10) |
+| Fixed (section 5) | 36 recorded |
 | In progress (section 6) | none found |
 | Planned (section 7) | 12 |
 
@@ -66,8 +66,9 @@ IDs I-01 … I-07 are intentionally absent: those defects are fixed and recorded
 | D-05 | root `README.md` | Test section said 2 unit-test classes and no controller tests; described task-dependency ordering as "application logic, not the DB" | **Corrected** |
 | D-06 | `frontend/README.md` | E2E coverage list was only `auth` and `projects`; routes table did not mention the *My Tasks* filter | **Corrected** |
 | D-07 | `database/README.md` | Said the seed has "~13 users, 6 projects" (it has 24 users, 10 projects); said new migrations should be `V7__*` (V7 and V8 exist); claimed `01-init.sql` and the migrations are equivalent (they have drifted — X-04) | **Corrected** |
-| D-08 | `.github/workflows/ci.yml`, `database/README.md` | Document the CI grant list drift already (X-05) but it remains | **Open** (code) |
+| D-08 | `.github/workflows/ci.yml`, `database/README.md` | Document the CI grant list drift already (X-05) but it remains | **Resolved** — the lists match (21 tables, re-checked 2026-10-10) |
 | D-09 | Code comments | See X-06 | **Open** |
+| D-10 | root `README.md`, `roadmap.md`, `backend.md`, `database.md`, `overview.md`, `PRODUCT.md`, `docs/checklist/*`, `assignment-brief.md` | Written before change-plan batches 1–3c and not fully updated: said project-scoped checks do not use the permission tables, the activity log is per task only, 4 notification types, 67 backend / 33 Playwright tests, 17 controllers, 15 entities, 22 tables, 17 granted tables, "no email login", "no named reports", "Flyway not run"; the checklist still listed finished items as open; `Project_requirement_plan.md` was linked from four files but no longer exists | **Corrected 2026-10-10** against the code (counts: 25 controllers, 119 endpoints, 22 entities, 24 tables, 290 backend and 99 Playwright tests) |
 
 ## 5. Fixed
 
@@ -105,10 +106,14 @@ IDs I-01 … I-07 are intentionally absent: those defects are fixed and recorded
 | F-30 | **Manager views** (change-plan 3b): server-calculated dashboard statistics, Delayed projects, Team Tasks, Team Workload (D-13), the project timeline, and a role picker / ownership transfer on the project page; `PUT /api/project-members/{id}` now enforces B3.7 / B3.9 (nobody changes their own role; a Team Leader only moves Team Members and Viewers) | 2026-10-09; `DashboardServiceTest`, `TeamViewsServiceTest`, `WorkloadClassifierTest`, `DerivedTest`, `ProjectMemberServiceTest`, `manager-views.spec.js` |
 | F-31 | **Flaky end-to-end specs**: `projects.spec.js` and `time-tracking.spec.js` opened "the first project card", which changes whenever a test creates or deletes a project (Postgres reuses freed rows). They open *Website Redesign* now | 2026-10-09; the specs |
 | F-32 | **KPIs and the seven named reports** (change-plan 3c): `GET /api/reports/*` calculated on the server and gated by `REPORT:GENERATE_REPORTS` (Administrator all projects; others only projects where they hold the permission; `403` / `404` otherwise), the approved D-12 formulas with "—" for an empty denominator, and a tab for each on the Reports page. This closes the "only the Reports page is gated" gap | 2026-10-09; `ReportServiceTest` (25), `reports.spec.js` (13) |
+| F-36 | **Error pages and a Help & Support page:** `ErrorPage` is one page for every error status (unknown address, `/error/:status`, the 403 guard, project pages that cannot load) in the existing `EmptyState` / `.btn` style, replacing three hand-written copies and the blank "not found" a mistyped address used to give; Help & Support is a page (`/help`) instead of a modal, with its FAQ corrected (the password is on the Profile page; people set their own position and department) and extended (approvals, reminders, schedule, troubleshooting) | 2026-10-10; `help-errors.spec.js` (5); screenshot-checked at 1360 and 390 px |
+| F-35 | **Gantt chart prototype** (checklist #38, optional): the project's *Gantt* tab (`/projects/:id/gantt`, every member) draws a duration bar per task on a week / month axis with progress, a today line and dependency arrows; an arrow is red when a task is planned to start before its unfinished prerequisite is due; hovering a bar fades the tasks that do not overlap it. Front end only (`GanttChart.jsx`, `ProjectViews.jsx`): it reads `/tasks` and `/task-dependencies` | 2026-10-10; `gantt.spec.js` (4); screenshot-checked |
+| F-34 | **Deadline reminders and overdue notices** (checklist #46, #47): `DeadlineScheduler` runs `DeadlineNotificationService` daily at 08:00 and once at startup — a reminder 3 days and 1 day before a task's or milestone's due date or a project's end date, and an overdue notice for an open task whose due date has passed; recipients are the assignees and the project Owner; each notification is created at most once (type + text + person + item); people with notifications off and inactive accounts are skipped. No schema change; the SQL function is no longer used by the app | 2026-10-10; `DeadlineNotificationServiceTest` (16); verified live: 53 created on the first run, 0 on the restart, no duplicates, no recipient outside assignee / Owner |
+| F-33 | **Friendly network errors:** `frontend/src/api/client.js` now sends every request through one `send` helper, so an unreachable server shows "Could not reach the server. Check your connection and try again." instead of the browser's "Failed to fetch", and a non-JSON reply (an HTML error page from the proxy while the backend is down) shows "The server sent an unexpected response. Please try again." instead of a `JSON.parse` message. Checklist item #64 | 2026-10-10; `client.js` (lint and build clean; no frontend unit test exists) |
 
 ## 6. In progress
 
-None found. The working tree contained only the new `docs/` folder when this was compiled. No open branch other than `appmod/java-upgrade-20261006031004` (the Java upgrade, already committed) was inspected for unmerged work; other local branches (`backend/*`, `database/*`, `Project/*`, `fronrtend/updateUI`) exist and their state was **not** reviewed.
+None found. On 2026-10-10 the working tree held only the documentation sync and the network-error fix (F-33); change-plan batches 1–3c are committed (`5cda340`). No open branch other than `appmod/java-upgrade-20261006031004` (the Java upgrade, already committed) was inspected for unmerged work; other local branches (`backend/*`, `database/*`, `Project/*`, `fronrtend/updateUI`) exist and their state was **not** reviewed.
 
 ## 7. Planned
 
@@ -116,16 +121,16 @@ Items the project's own documents list as future work (root `README.md` → *Fut
 
 1. A refresh-token flow.
 2. ~~Server-side report endpoints gated by `REPORT:GENERATE_REPORTS`.~~ Done 2026-10-09 (batch 3c).
-3. A scheduled job for overdue and deadline notifications.
-4. The remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `MILESTONE_UPDATED`, `DEADLINE_REMINDER`).
+3. ~~A scheduled job for overdue and deadline notifications.~~ Done 2026-10-10 (F-34).
+4. The remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `MILESTONE_UPDATED`).
 5. Pagination and search/filtering on list endpoints.
-6. Wiring Flyway into startup.
+6. Running Flyway in CI and a production deployment (Compose's `migrate` service runs it locally).
 7. ~~Entities/controllers for `checklist_items`, `attachments`, `work_logs`.~~ Done (work logs earlier; checklists and attachments on 2026-10-09).
-8. Endpoints over the reporting views, `report_exports`, `kpi_snapshots`.
+8. ~~Endpoints over the reporting views~~ (the reports are calculated in Java, 2026-10-09); PDF / Excel export with `report_exports` and `kpi_snapshots` remain.
 9. Broader automated tests; Playwright in CI.
 10. A deploy target for the CD pipeline.
-11. A project-wide or per-user activity/audit feed.
-12. Closing the CI/`03-app-role.sh` grant drift.
+11. ~~A project-wide activity feed~~ (done 2026-10-09); a per-user or administrator audit view remains.
+12. ~~Closing the CI/`03-app-role.sh` grant drift~~ — the lists match.
 
 ## 8. Known limitations (accepted or by design)
 
@@ -134,14 +139,14 @@ Items the project's own documents list as future work (root `README.md` → *Fut
 - **In-memory login limiter** (reset on restart, not shared across instances).
 - **No live updates:** data and notifications refresh on load and after the user's own actions.
 - **Single task assignee in the UI** although the API supports several.
-- **Authorization is code, not data:** adding a role or permission needs a code change.
-- **Flyway is not run by the application;** the init SQL is the schema.
-- **Notifications:** 6 of 11 types are produced.
+- **Authorization is data, with a fixed catalog:** an administrator edits which role holds which permission on which resource, but a new resource, action or system role needs a code change and a migration (G-06).
+- **Flyway is not run by the application;** the init SQL is the schema for a fresh volume and Compose's one-shot `migrate` service applies later migrations.
+- **Notifications:** 8 of 11 types are produced (no comment, project-update or milestone-update notice). Deadline and overdue notices are sent once, by a daily job at 08:00 and at startup: nothing is sent between runs, and a reminder day missed while the backend was down is not made up.
 - **Reports:** the KPIs and the seven named reports are calculated on the server; the *Overview* charts are still computed in the browser; no PDF / Excel export (optional).
 - **Profile photos and attachments live in the database** (portable, but they bloat the `users` and `attachment_contents` tables and every backup; at most 10 MB x 25 files per task or project).
 - **Uploads are not virus-scanned and the upload endpoint has no rate limit of its own** (it needs a signed-in member with `ATTACHMENT:CREATE`; size, count and type are limited). A scanner and a per-user upload limit are the next hardening steps.
 - **Seed data and development secrets** are for development only.
-- **Responsive layout** has not been audited screen by screen.
+- **Responsive layout** was audited at 390, 768, 1024 and 1360 px on 2026-10-08; no later audit is recorded for the screens added since (approvals, reports, timeline, team views).
 - **Each e2e run leaves a few `activity_logs` rows** (task created/deleted, subtask added/deleted for tasks the tests create and delete). They are detached from any task (`task_id` NULL) so no screen or endpoint shows them; there is no API to remove activity entries.
 
 ## 9. Technical debt

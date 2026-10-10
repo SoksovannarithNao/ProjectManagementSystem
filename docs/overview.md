@@ -6,11 +6,11 @@
 
 **TaskFlow** (the name shown in the UI and in the OTP email) is a full-stack **task and project management web application**. People register, create projects, build a team, break work into milestones, tasks and subtasks, assign it, track its progress, and discuss it in comments.
 
-The application is built to the requirements in [assignment-brief.md](../assignment-brief.md) (the assignment; its Part B is the resolved specification) and [project-workflow.md](../project-workflow.md) (the user flows), with [Project_requirement_plan.md](../Project_requirement_plan.md) as the detailed plan. The team areas — Frontend, Backend, API, Database — are described in [Contributing.md](../Contributing.md).
+The application is built to the requirements in [assignment-brief.md](../assignment-brief.md) (the assignment; its Part B is the resolved specification) and [project-workflow.md](../project-workflow.md) (the user flows). The team areas — Frontend, Backend, API, Database — are described in [Contributing.md](../Contributing.md).
 
 **In scope and implemented:** authentication with self-registration, project-level authorization, projects, project membership and invitations, milestones, tasks, subtasks, task dependencies, comments, per-task activity history, notifications, a dashboard, Kanban board, calendar, reports charts, profile and settings.
 
-**In the requirements but not implemented** (see [roadmap.md](roadmap.md)): deadline reminders, a Gantt chart, named reports with PDF/Excel export, KPI calculation.
+**In the requirements but not implemented** (see [roadmap.md](roadmap.md)): auto-logout and PDF/Excel export of the reports.
 
 ## 2. Main functionality
 
@@ -61,7 +61,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 │   └── e2e/               Playwright specs
 ├── database/
 │   ├── init/              01-init.sql (schema), 02-seed.sql (demo data), 03-app-role.sh
-│   ├── taskmanager/       Flyway project (migrations V1–V8) — not run by the app
+│   ├── taskmanager/       Flyway project (migrations V1–V13) — applied by the Compose `migrate` service, not by the app
 │   └── verify_invariants.sql
 ├── api/                   openapi.yaml (partly out of date — see issues.md)
 ├── docs/                  this documentation
@@ -80,16 +80,20 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Profile, password change, photo, theme and notification preference | Done |
 | Project CRUD, auto-generated project code | Done |
 | Project membership, invitations, accept/decline, member search | Done |
-| Milestones | Partial — add/delete in the UI; update exists only in the API |
+| Milestones | Partial — add/delete in the UI; update exists only in the API; not on the calendar |
 | Tasks, subtasks, dependencies, assignment | Done |
 | Comments | Partial — replies work; no notification |
-| Per-task activity feed | Done (per task only) |
-| Notifications | Partial — 6 of 11 types are produced |
-| Dashboard, Kanban, Calendar | Partial — see [roadmap.md](roadmap.md) |
-| Reports | Partial — charts only, no export |
+| Activity feed (task, project, recent) | Done (2026-10-09); time logs are not written |
+| Notifications | Partial — 8 of 11 types are produced (comments, project and milestone updates are not) |
+| Dashboard, project timeline, team tasks, workload | Done (2026-10-09) |
+| Kanban, Calendar | Partial — cards cannot be moved; no milestones on the calendar (see [roadmap.md](roadmap.md)) |
+| Task approval workflow | Done (2026-10-09) |
+| Reports and KPIs | Done (2026-10-09) — overview charts, five KPIs, seven named reports; no PDF / Excel export |
+| Error page for every status, Help & Support page | Done (2026-10-10) — `pages/ErrorPage.jsx`, `pages/Help.jsx` |
 | Attachments, work logs, checklist items | Done (work logs earlier; attachments and checklists 2026-10-09) |
-| Deadline reminders, overdue notifications | Not started (a database function exists; nothing calls it) |
-| Gantt chart, KPI calculation | Not started |
+| Deadline reminders, overdue notifications | Done (2026-10-10) — a daily scheduled job |
+| Gantt chart prototype | Done (2026-10-10) |
+| Auto-logout | Not started |
 
 ## 6. Where to read next
 

@@ -16,6 +16,8 @@ import { Reports } from './pages/Reports'
 import { Team } from './pages/Team'
 import { Profile } from './pages/Profile'
 import { Settings } from './pages/Settings'
+import { Help } from './pages/Help'
+import { ErrorPage } from './pages/ErrorPage'
 import { UsersAdmin } from './pages/admin/UsersAdmin'
 import { RolesPermissions } from './pages/admin/RolesPermissions'
 
@@ -46,6 +48,9 @@ function App() {
           </Route>
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/help" element={<Help />} />
+          <Route path="/error/:status" element={<ErrorPage />} />
+          <Route path="*" element={<ErrorPage status={404} />} />
         </Route>
       </Route>
     </Routes>

@@ -6,7 +6,82 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
-## 2026-10-09 (batch 3c) — Change-plan batch 3c: the five KPIs and the seven named reports (uncommitted)
+## 2026-10-10 (error pages) — One error page for every status; Help & Support as a page (uncommitted)
+
+Front end only; no backend or schema change. Deployed and screenshot-checked at 1360 and 390 px.
+
+**Added**
+- `pages/ErrorPage.jsx`: one page for every error status, in the existing `EmptyState` / `.btn` style. Shown for an unknown address (a catch-all route; before, a mistyped URL gave an empty screen), at `/error/:status`, by the permission guard (403), and by the project pages when a project cannot load. It says "Error <status> · <meaning>" and offers *Back to the dashboard*, *Go back*, *Help & Support* and, only for failures that may pass (status `0` = server unreachable, and 5xx), *Try again*. Statuses: 0, 400, 401, 403, 404, 429, 500, 502 / 503 / 504; anything else gets a generic message.
+- `pages/Help.jsx` at `/help`: the Help & Support FAQ as a page of its own (four sections plus "Still stuck?"), linked from the sidebar.
+- `help-errors.spec.js` (5 Playwright cases).
+
+**Changed**
+- `RequirePermission`, `ProjectDetail` and `ProjectViews` use `ErrorPage` instead of their own copies of the same inline message (the 403 wording is unchanged, so the existing test still passes).
+- The sidebar's Help & Support is a link like Settings. **Removed** `components/HelpModal.jsx`, which nothing used any more.
+- FAQ answers corrected: the password is changed on the **Profile** page (the modal said Settings), and people set their own position and department (the modal said only a Team Admin can). New answers: approvals, deadline reminders, where to see the schedule, what the error messages mean.
+
+**Tests:** Playwright 103 → **108**, 108/108 twice with `--workers=4`; ESLint clean; backend unchanged at 306.
+
+**Docs:** `frontend.md`, `README.md`, `DESIGN.md`, `testing.md`, `issues.md` (F-36), `roadmap.md`, `overview.md`, `PRODUCT.md`, `workflow-conformance.md` (§14), checklist. A final sweep also corrected `testing.md` against the real counts: `ProjectMemberServiceTest` 25 → 30, `roles-permissions.spec.js` 11 → 10, the missing `time-tracking.spec.js` row added (the e2e table now sums to 108 and the backend table to 306), and its "verified on" date.
+
+---
+
+## 2026-10-10 (gantt) — Gantt chart prototype (uncommitted)
+
+Closes the last item in `docs/checklist/not_done.md` (#38, optional): nothing in the requirements audit is missing any more (17 items are built but incomplete, see `partially_done.md`). Front end only; no backend or schema change. Deployed and screenshot-checked.
+
+**Added**
+- `GanttChart.jsx` and a *Gantt* tab on the project views (`/projects/:id/gantt`, open to every member, with a link beside *Timeline* on the project page): one duration bar per task from its start to its due date on a week or month time axis, the task's progress inside the bar, a today line, and an arrow for each task dependency from the prerequisite's end to the dependent task's start. An arrow is red when a task is planned to start before its unfinished prerequisite is due; hovering a bar fades the tasks that do not overlap it. A bar opens the usual task panel.
+- `gantt.spec.js` (4 Playwright cases).
+
+**Found on the way**
+- Both task dates are required (`NOT NULL` in the database and in the API), so a task without dates cannot exist; the first draft listed "unscheduled" tasks and that handling was removed.
+- The Playwright suite is intermittently red at the default 8 workers on this machine, with or without the new spec (a `409` on project creation once, a UI timeout once; both pass alone). It is 103/103 with `--workers=4`, twice. Not investigated further; see R-6.
+
+**Tests:** Playwright 99 → **103**; backend unchanged at 306.
+
+**Docs:** checklist (`done.md` 51 → 52, `not_done.md` now empty), `frontend.md`, `testing.md`, `README.md`, `roadmap.md`, `overview.md`, `PRODUCT.md`, `issues.md` (F-35), `change-plan.md`, `workflow-conformance.md` (§13), `assignment-brief.md`.
+
+---
+
+## 2026-10-10 (scheduler) — Deadline reminders and overdue notices (uncommitted)
+
+Closes the last two required items in the checklist (#46, #47): a daily job now sends the deadline reminders and the overdue notices that the brief (B9) and the workflow (§27, §28) ask for. No schema change; deployed and verified live.
+
+**Added**
+- `DeadlineScheduler` (`config/`, Spring `@Scheduled`): runs every day at 08:00 server time and once when the backend starts, so a day missed while it was down is caught up. Settings `app.deadlines.enabled`, `app.deadlines.cron`, `app.deadlines.run-on-startup` (`DEADLINES_ENABLED`, `DEADLINES_CRON`, `DEADLINES_RUN_ON_STARTUP`). A failure is logged and never stops the application.
+- `DeadlineNotificationService`: a `DEADLINE_REMINDER` **3 days and 1 day before** the due date of an open task or milestone and the end date of an open project; an `OVERDUE_TASK` for an open task past its due date, **once** per person and due date. Recipients: the task's assignees and the project's active Owner (milestones and projects: the Owner); people with task notifications off and accounts that are not `ACTIVE` are skipped. A notification with the same type, text, person and item is never created twice.
+- Repository queries for open tasks / milestones / projects by date, assignees by task ids, and two `exists…Message` checks on notifications.
+
+**Changed**
+- `BackendApplicationTests` starts with `app.deadlines.enabled=false`, so the context test never writes notifications into its database.
+- The SQL function `fn_generate_overdue_notifications()` is no longer used by the application (the seed script still calls it once). The Java job replaced it because the function reached assignees only, ignored the notification preference and repeated every day.
+
+**Tests:** backend 290 → **306** (`DeadlineNotificationServiceTest`, 16); Playwright 99/99.
+
+**Verified live:** first startup run created 53 notifications on the development data (52 overdue, 1 reminder), the next startup run created 0, no duplicates, every recipient an assignee or the Owner. The first run on a database with overdue work creates a notice for each of its open overdue tasks.
+
+**Docs:** `notifications.md` (new §8), `backend.md`, `database.md`, `frontend.md`, `README.md`, `setup.md`, `roadmap.md`, `overview.md`, `PRODUCT.md`, `issues.md` (F-34), `change-plan.md`, `testing.md`, `workflow-conformance.md` (§12), ADR-0007, `assignment-brief.md` (B9, G-14), checklist.
+
+---
+
+## 2026-10-10 — Documentation synchronised with the code; friendly network errors (uncommitted)
+
+A re-check of every document against the code found the checklist and several descriptive pages still showing the state before change-plan batches 1–3c. No schema or backend change.
+
+**Fixed**
+- **Network errors (checklist #64):** `frontend/src/api/client.js` routes every request through one `send` helper. An unreachable server now reads "Could not reach the server. Check your connection and try again." (an `ApiError` with status `0`) instead of "Failed to fetch", and a reply that is not JSON, such as a proxy's HTML error page while the backend is down, reads "The server sent an unexpected response. Please try again." instead of a `JSON.parse` message. Lint and build are clean; there is no frontend unit test for it.
+
+**Docs**
+- `docs/checklist/`: finished items moved into `done.md` (26 → 49), `partially_done.md` (33 → 17) and `not_done.md` (10 → 3) now list only what is open; the totals still add up to the audit's 69 items. Corrected rows that contradicted the code (login by e-mail, the assignment notification, project and task search and filters, the activity log, role assignment, the "friendly network error" row); fixed the test counts in the risks (R-6, R-7), R-3 and R-10.
+- `README.md`: roles and the permission matrix, the approval workflow, notifications, activity log, resource table, endpoint paths, controller and entity counts, test counts (290 backend, 99 Playwright), Flyway, and *Future Enhancements* brought up to date.
+- `roadmap.md`, `overview.md`, `PRODUCT.md`, `backend.md`, `database.md` (24 tables, 24 triggers, 21 granted tables, the Compose `migrate` service), `frontend.md`, `testing.md`, `issues.md` (D-08, D-10, F-33), `assignment-brief.md` (batch 3c, 198 grants).
+- Removed the links to `Project_requirement_plan.md`, which no longer exists, and the "(uncommitted)" label from entries that are in commits `67d8730`, `4198041` and `5cda340`.
+- `workflow-conformance.md` is a dated test log and was left as written.
+
+---
+
+## 2026-10-09 (batch 3c) — Change-plan batch 3c: the five KPIs and the seven named reports
 
 Implements sub-batch 3c of [change-plan.md](change-plan.md) ([assignment-brief.md](../assignment-brief.md) B8, D-12; workflow flows 31 and 32). No schema change. Deployed and verified live.
 
@@ -27,7 +102,7 @@ Implements sub-batch 3c of [change-plan.md](change-plan.md) ([assignment-brief.m
 
 ---
 
-## 2026-10-09 (batch 3b) — Change-plan batch 3b: manager views (uncommitted)
+## 2026-10-09 (batch 3b) — Change-plan batch 3b: manager views
 
 Implements sub-batch 3b of [change-plan.md](change-plan.md) (assignment-brief.md Part A, B1.3, B3.7, B3.9, D-06, D-13; workflow flows 5, 22, 30, A5). No schema change. Deployed and verified live.
 
@@ -49,7 +124,7 @@ Implements sub-batch 3b of [change-plan.md](change-plan.md) (assignment-brief.md
 
 ---
 
-## 2026-10-09 (batch 3a) — Change-plan batch 3a: attachments, checklists, comment replies, project activity (uncommitted)
+## 2026-10-09 (batch 3a) — Change-plan batch 3a: attachments, checklists, comment replies, project activity
 
 Implements sub-batch 3a of [change-plan.md](change-plan.md) ([assignment-brief.md](../assignment-brief.md) B1.5/B1.6, B3.4, B10, D-07, D-17). Deployed after a `pg_dump`; `V13` tried and re-run on a restored copy, and a fresh database built from `01-init.sql` + `02-seed.sql` matched the migrated copy.
 
@@ -71,7 +146,7 @@ Implements sub-batch 3a of [change-plan.md](change-plan.md) ([assignment-brief.m
 
 ---
 
-## 2026-10-09 (batch 2) — Change-plan batch 2: the task approval workflow (uncommitted)
+## 2026-10-09 (batch 2) — Change-plan batch 2: the task approval workflow
 
 Implements Batch 2 of [change-plan.md](change-plan.md) ([assignment-brief.md](../assignment-brief.md) B3.8, project-workflow A6, D-05). Deployed after a `pg_dump`, with `V12` first tried (and re-run) on a restored copy of the live database; verified live.
 
@@ -95,7 +170,7 @@ Implements Batch 2 of [change-plan.md](change-plan.md) ([assignment-brief.md](..
 
 ---
 
-## 2026-10-09 (batch 1) — Change-plan batch 1: seven quick fixes, `TODO` rename (uncommitted)
+## 2026-10-09 (batch 1) — Change-plan batch 1: seven quick fixes, `TODO` rename
 
 Implements Batch 1 of [change-plan.md](change-plan.md). Deployed to the running stack after a `pg_dump`, with `V11` first tried (and re-run) on a copy of the live database; verified live.
 
@@ -116,7 +191,7 @@ Implements Batch 1 of [change-plan.md](change-plan.md). Deployed to the running 
 
 ---
 
-## 2026-10-08 (roles v10) — Two-level roles implemented: system roles and project roles (uncommitted)
+## 2026-10-08 (roles v10) — Two-level roles implemented: system roles and project roles
 
 Implements [ADR-0015](adr/0015-two-level-roles-system-and-project.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). The earlier four-role model (`TEAM_LEADER` and `TEAM_MEMBER` as system roles) is replaced.
 
@@ -142,13 +217,13 @@ Implements [ADR-0015](adr/0015-two-level-roles-system-and-project.md) and the ap
 
 ---
 
-## 2026-10-08 (test) — Live workflow conformance test; no code changed (uncommitted)
+## 2026-10-08 (test) — Live workflow conformance test; no code changed
 
 The running application was tested against [project-workflow.md](../project-workflow.md) and the approved specification: 79 API checks, a UI sweep of 10 screens and a source check. Result: of 44 application flows **12 pass, 22 are partial, 10 are missing**. Full table and the ranked differences: [workflow-conformance.md](workflow-conformance.md). Also found: unknown API paths return `500` instead of `404`; the UI says "Done"/"Review" where the specification says Completed/In Review. One clean-up mistake of mine (orphaned test rows) was repaired; two older orphaned test notifications still break `GET /api/notifications` for two seed users and await permission to delete.
 
 ---
 
-## 2026-10-08 (specification) — Requirements resolved on paper; no code changed (uncommitted)
+## 2026-10-08 (specification) — Requirements resolved on paper; no code changed
 
 The assignment and the project workflow disagreed with each other in 18 places and left many rules undefined. They were resolved **before any further code**, and the project owner approved 18 decisions (D-01 … D-18).
 
@@ -166,7 +241,7 @@ The assignment and the project workflow disagreed with each other in 18 places a
 
 ---
 
-## 2026-10-08 (latest) — Four roles, seven permissions and a real permission matrix (uncommitted)
+## 2026-10-08 (latest) — Four roles, seven permissions and a real permission matrix
 
 Brings the application in line with `Role_Requirment.md`: Administrator, Project Manager, Team Leader and Team Member, the permissions View / Create / Edit / Delete / Assign / Approve / Generate Reports, and a Role & Permission and a User & Role screen. Decision record: [ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md) (partly supersedes ADR-0002).
 
@@ -204,7 +279,7 @@ Brings the application in line with `Role_Requirment.md`: Administrator, Project
 
 ---
 
-## 2026-10-08 (later) — Folder READMEs merged into `docs/`, requirements checklist (uncommitted)
+## 2026-10-08 (later) — Folder READMEs merged into `docs/`, requirements checklist
 
 **Changed (documentation structure)**
 - **Removed** `api/README.md`, `backend/README.md`, `frontend/README.md` and `database/README.md`. `docs/` is now the only place for project documentation; the team no longer has to update a README and `api/openapi.yaml` alongside the code, only the matching `docs/` page.
@@ -221,7 +296,7 @@ Brings the application in line with `Role_Requirment.md`: Administrator, Project
 
 ---
 
-## 2026-10-08 — Time tracking, accessibility and mobile pass (uncommitted)
+## 2026-10-08 — Time tracking, accessibility and mobile pass
 
 **Added**
 - **Time tracking:** `WorkLog` entity, `/api/work-logs` (list by task, create, delete), `TaskResponse.actualHours`, and a *Time tracking* section in the task panel with estimated-vs-logged summary, a persistent start/stop timer, a manual entry form and an entry list; `1h 30m / 13h` chips on task rows and board cards. The estimate field now accepts hours, minutes or 8-hour days. `WorkLogServiceTest` (7) and Playwright `time-tracking.spec.js` (3). See [tasks.md](tasks.md#time-tracking-estimated-vs-actual).
@@ -233,7 +308,7 @@ Brings the application in line with `Role_Requirment.md`: Administrator, Project
 
 ---
 
-## 2026-10-06 (later) — Security and permission fixes (uncommitted)
+## 2026-10-06 (later) — Security and permission fixes
 
 **Fixed (security)**
 - **User lookups are scoped:** `GET /api/users/{id}` and `/api/users/username/{username}` return a user only to an administrator, the user themself, or someone sharing an active project; everyone else gets the same `404` as for a missing user. *(was I-01)*

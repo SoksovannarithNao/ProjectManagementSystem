@@ -167,7 +167,7 @@ Delivery followed §2 except the backup and migration, which a change without sc
 
 | Item | Detail |
 |---|---|
-| Scheduled reminders and overdue notices | A scheduled job: 3 days and 1 day before a deadline, and when overdue; to the assignee and the project Owner. The generator function exists in the database but nothing runs it |
+| Scheduled reminders and overdue notices | **Done 2026-10-10** (outside the numbered batches). A Spring `@Scheduled` job: 3 days and 1 day before a deadline, and when overdue; to the assignee and the project Owner. Unit-tested (16) and verified live |
 | Remaining notification types | Comment, project update, milestone update, member added/removed; recipients per D-10 |
 | Auto-logout (prototype) | Inactivity warning, then sign-out; the timeout value is still to be chosen |
 
@@ -181,7 +181,7 @@ Delivery followed §2 except the backup and migration, which a change without sc
 
 Not acceptance criteria. Build only if wanted; if shown they are labelled "Optional feature demonstration".
 
-Kanban drag-to-move (same status rules as §15) · report export to PDF/Excel · Gantt chart prototype · document management · audit log (B10) · @mentions (undefined in both sources).
+Kanban drag-to-move (same status rules as §15) · report export to PDF/Excel · ~~Gantt chart prototype~~ (built 2026-10-10, outside the batches) · document management · audit log (B10) · @mentions (undefined in both sources).
 
 ## 7. Batch 5 — Housekeeping (3 left)
 

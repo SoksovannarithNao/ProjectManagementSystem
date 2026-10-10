@@ -327,7 +327,7 @@ Part A (everything above) is the assignment text as received. Part B resolves it
 - **Where Part B differs from Part A, Part B governs**, and the difference is listed in section B0.
 - **Wording convention.** *REQUIRED* = Part A says "must". *OPTIONAL* = Part A says "can" or "prototype". *UNDEFINED* = no source says. *OUT OF SCOPE* = explicitly excluded (nothing is, today).
 - **`D-nn`** marks a rule this specification had to choose because a source leaves it open. All are collected in section B13.2. D-01 to D-18 were all approved by the project owner on 2026-10-08.
-- **"Current implementation"** notes describe the application as it is on 2026-10-09 (after change-plan batches 1, 2, 3a and 3b). They are information, not requirements.
+- **"Current implementation"** notes describe the application as it is on 2026-10-09 (after change-plan batches 1, 2, 3a, 3b and 3c). They are information, not requirements.
 
 **Outline of Part B** (the 13 headings the specification must contain)
 
@@ -429,7 +429,7 @@ Classification of every feature named in only one source or marked inconsistentl
 | Session management + auto-logout prototype | REQUIRED | Part A *Security & Sessions* (now A3) | token expires after one hour, no warning or auto-logout |
 | Task dependencies and ordering rules | REQUIRED | Part A *Task Dependencies* (now A4) | done (database rules + UI) |
 | Project Timeline | REQUIRED | Part A *Projects*; no workflow (now A5) | done (2026-10-09, `/projects/:id/timeline`) |
-| Gantt chart prototype | OPTIONAL | Part A "can"; listed in the Overview and the team-responsibilities file but in no function list | missing |
+| Gantt chart prototype | OPTIONAL | Part A "can"; listed in the Overview and the team-responsibilities file but in no function list | built 2026-10-10 (project *Gantt* tab) |
 | Kanban board (view by status) | REQUIRED | Part A | done |
 | Kanban moving cards between columns | OPTIONAL | Part A "can … as a prototype" | missing (cards open the panel) |
 | Calendar (tasks, due dates, milestones) | REQUIRED | Part A; at least one of day/week/month, all three is the target | month view; tasks only |
@@ -442,7 +442,7 @@ Classification of every feature named in only one source or marked inconsistentl
 | Task discussion (threads) | OPTIONAL | Part A "can" | same as above |
 | @mentions | UNDEFINED | in neither source; requested for notifications only | missing |
 | Notifications (7 kinds) | REQUIRED | Part A | 3 of 7 produced |
-| Deadline reminders, overdue notifications | REQUIRED | Part A | database function exists, nothing runs it |
+| Deadline reminders, overdue notifications | REQUIRED | Part A | built 2026-10-10: a daily `@Scheduled` job (08:00 and at startup) |
 | Time tracking, work logs | OPTIONAL | Part A "can … as a prototype"; work-log fields are listed as "must" if it is built | done |
 | Team workload | REQUIRED | Part A | done (2026-10-09: `/projects/:id/workload`, the dashboard card; the Reports page chart stays) |
 | KPIs (five) | REQUIRED | Part A | done (2026-10-09: `GET /api/reports/kpis`, the *KPIs* tab) |
@@ -810,8 +810,8 @@ Part A requires seven kinds (task assignment, status change, comment, project up
 | Task status changed | **pending** (D-10) | none | yes (recipients as built) |
 | Comment added | "the people involved" — **pending** who (D-10) | workflow §24 | type exists, not produced |
 | Mention | **UNDEFINED** — mentions are in neither source | — | no |
-| Deadline approaching (3 days and 1 day before; task, milestone, project) | the assignee and the project's `OWNER` | workflow §27 | no |
-| Deadline passed / task overdue | the assignee and the project's `OWNER` | Part A, workflow §28 | generator exists, never run |
+| Deadline approaching (3 days and 1 day before; task, milestone, project) | the assignee and the project's `OWNER` | workflow §27 | yes (2026-10-10) |
+| Deadline passed / task overdue | the assignee and the project's `OWNER` | Part A, workflow §28 | yes (2026-10-10), once per person and due date |
 | Approval requested | the designated approver; otherwise everyone who may approve — **pending** (D-10) | this spec | yes (2026-10-09) |
 | Approval completed | the person who requested — **pending** (D-10) | this spec | yes (2026-10-09) |
 | Project updated | **pending** (D-10) | Part A names it | no |
@@ -899,13 +899,13 @@ Remain optional; none is acceptance criteria. If shown in the demo they are labe
 
 ### B13.1 Differences between this specification and the application
 
-Status after the role-model migration `V10` (2026-10-08) and change-plan batches 1, 2, 3a and 3b (2026-10-09). These are implementation gaps, not reasons to change the requirements.
+Status after the role-model migration `V10` (2026-10-08) and change-plan batches 1, 2, 3a, 3b and 3c (2026-10-09). These are implementation gaps, not reasons to change the requirements.
 
 | # | Area | Status | Detail |
 |---|---|---|---|
 | G-01 | System roles | **Resolved** | `ADMINISTRATOR`, `PROJECT_MANAGER`, `USER`; `TEAM_LEADER` / `TEAM_MEMBER` retired; new accounts are `USER` |
 | G-02 | Project roles | **Resolved** | `OWNER`, `ADMIN`, `MEMBER`, `VIEWER`; exactly one `OWNER` (deferred trigger + `ProjectOwnership`) |
-| G-03 | Permission tables | Resolved earlier | `permissions` / `role_permissions` are used (163 grants, resource × action, editable by an administrator) |
+| G-03 | Permission tables | Resolved earlier | `permissions` / `role_permissions` are used (198 grants after `V13`, resource × action, editable by an administrator) |
 | G-04 | Matrix | **Resolved** | `V10` matrix = B3.4–B3.6; reports through the project roles |
 | G-05 | Team Members create tasks | **Resolved** | refused (`403`) |
 | G-06 | New roles | Open | cannot be created from the UI; the API can add a bare role with no grants (D-14) |
@@ -916,7 +916,7 @@ Status after the role-model migration `V10` (2026-10-08) and change-plan batches
 | G-11 | Status name | **Resolved** | stored `TODO` since `V11` (2026-10-09) |
 | G-12 | Ownership transfer | **Resolved** | `PUT /api/project-members/{id}` with role `OWNER`, one step; previous owner becomes `ADMIN` |
 | G-13 | Administrator creating for others | **Resolved** | the named manager must be able to own projects; becomes the owner |
-| G-14 | Missing features | Open | Gantt, audit log, @mentions, auto-logout, deadline reminders, Kanban moving, report export (B1.4) |
+| G-14 | Missing features | Open | audit log, @mentions, auto-logout, Kanban moving, report export (B1.4). (Deadline reminders, overdue notices and the Gantt prototype were built 2026-10-10.) |
 | G-19 | Dashboard statistics, Delayed, Team Tasks, Workload, Timeline, role / ownership UI | **Resolved** | built 2026-10-09 (change-plan 3b); see D-13 |
 | G-18 | Checklists, attachments, comment replies, project / comment / file activity | **Resolved** | built 2026-10-09 (`V13`, change-plan 3a); see D-07 and D-17 |
 | G-15 | A project with a single owner could not be deleted | **Resolved** | the owner check is deferred and skipped for a project being deleted |

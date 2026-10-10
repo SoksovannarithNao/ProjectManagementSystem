@@ -20,7 +20,7 @@ Notifications must tell the right person about an event: someone assigned to a t
 
 - **Database triggers** — not chosen (above).
 - **Event bus / async queue** — not present; notifications are written synchronously in the same transaction *(by code reading)*.
-- **A scheduled job** for deadline and overdue reminders — **not built**. The database function `fn_generate_overdue_notifications()` exists but nothing calls it at runtime; its absence leaves `OVERDUE_TASK` and `DEADLINE_REMINDER` effectively unimplemented.
+- **A scheduled job** for deadline and overdue reminders — **built 2026-10-10** as a Spring `@Scheduled` job (`DeadlineScheduler` → `DeadlineNotificationService`), in the same application-created style as the other notifications rather than extending the database function: the function reached assignees only, ignored the notification preference and repeated every day. The function is no longer used by the application.
 
 ## Consequences
 
