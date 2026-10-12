@@ -27,7 +27,7 @@ Requirements: users register with basic information and log in with credentials.
 - Registration works end to end offline.
 - `OtpService.verify` must be `@Transactional(noRollbackFor = IllegalArgumentException.class)`, otherwise the failed-attempt counter would be rolled back by the very exception that reports the failure (a documented gotcha).
 - Pending accounts reserve their username/email indefinitely (issue I-14); the resend/verify endpoints reveal whether a username exists (issue I-08).
-- Login by email is not supported although the schema comment says login should accept "Username or Email" (issue X-02).
+- Login accepts the e-mail address as well as the username since 2026-10-09 (`UserService.resolveLoginIdentifier`, issue X-02).
 - There is no forgot-password flow.
 - Not covered by automated tests.
 

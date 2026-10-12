@@ -24,7 +24,7 @@ The header of `V5__project_scoped_authorization.sql` records the failure: every 
 ## Alternatives considered
 
 - **Keep four global roles** (the requirement document's literal model) — rejected by migration `V5`: unworkable for new users (stated above). The roles `PROJECT_MANAGER`, `TEAM_LEADER`, `TEAM_MEMBER` were deleted from the database.
-- **A data-driven permission matrix** (`permissions` + `role_permissions`) — the tables were built and still exist but are **not consulted** by any code; `../database.md` calls them "vestigial for anything project-scoped" and notes a resource-scoped matrix as a possible future step. Hard-coded checks were chosen for simplicity *(inferred)*.
+- **A data-driven permission matrix** (`permissions` + `role_permissions`) — the tables were built but were **not consulted** by any code when this was decided; hard-coded checks were chosen for simplicity *(inferred)*. *Update 2026-10-08: the matrix was then made authoritative, see [ADR-0014](0014-requirement-roles-and-permission-matrix.md).*
 - **Per-user permission overrides** — explicitly avoided: the `role_permissions` comment says "deliberately role-level only — no per-user override table".
 
 ## Consequences

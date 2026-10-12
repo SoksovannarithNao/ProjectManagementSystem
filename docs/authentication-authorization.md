@@ -36,6 +36,7 @@ Details:
 - **No token, bad token or expired token** → `401` with an **empty body** (produced by Spring Security's filter, before the exception handler) and a `WWW-Authenticate: Bearer` header **(verified live)**.
 - **Logout is client-side only.** The frontend deletes `taskflow.auth` (`AuthContext.logout`); there is no logout endpoint and no token revocation. A `401` on any authenticated call also logs the user out (`api/client.js`).
 - **No refresh tokens.** When the token expires the user must log in again.
+- **Auto-logout (since 2026-10-12).** After **15 minutes without activity** (mouse, keyboard, wheel, scroll or touch, in this or any other open tab) a *Still there?* dialog counts down **60 seconds** (*Stay signed in* / *Sign out now*); when it runs out the app clears `taskflow.auth` and the login page says it was for inactivity. `auth/IdleLogout.jsx`, limits in `auth/idleTimeout.js`. It is only the browser forgetting the token, like a manual logout: the token stays valid on the server until it expires (default 1 hour).
 - **A deactivated account's token is rejected immediately** (fixed 2026-10-06). While every JWT is decoded, `ActiveAccountJwtValidator` looks up the account's *current* status (one small status-only query per request) and returns `401` if the account is missing or not `ACTIVE` — **verified live**: a token that worked returned `401` right after the account was set to `SUSPENDED`, and worked again after it was reactivated (`permissions.spec.js`). Before the fix a token stayed valid until it expired.
 
 ### 1.2 Self-registration with email verification
@@ -117,7 +118,7 @@ A person has exactly one system role and one project role in each project they b
 | Viewer | project role `VIEWER` (not named in the assignment; kept for read-only participants) |
 | everyone else | system role `USER` (the default for every new account) |
 
-The `roles` table holds all seven (`scope` = `SYSTEM` or `PROJECT`; `roles.project_role` names the project role a project row stands for). **Permissions** (`permissions` table): `VIEW`, `CREATE`, `EDIT`, `DELETE`, `ASSIGN`, `APPROVE`, `GENERATE_REPORTS`. **Grants** (`role_permissions`): one row per *(role, permission, resource, scope)*; resources `PROJECT`, `MILESTONE`, `MEMBER`, `TASK`, `TASK_STATUS`, `SUBTASK`, `COMMENT`, `WORK_LOG`, `REPORT`, `USER`, `ROLE`, `LOOKUP`; scope `SYSTEM` (anywhere) or `PROJECT` (inside a project where the user holds that project role).
+The `roles` table holds all seven (`scope` = `SYSTEM` or `PROJECT`; `roles.project_role` names the project role a project row stands for). **Permissions** (`permissions` table): `VIEW`, `CREATE`, `EDIT`, `DELETE`, `ASSIGN`, `APPROVE`, `GENERATE_REPORTS`. **Grants** (`role_permissions`): one row per *(role, permission, resource, scope)*; the 14 resources `PROJECT`, `MILESTONE`, `MEMBER`, `TASK`, `TASK_STATUS`, `SUBTASK`, `COMMENT`, `WORK_LOG`, `ATTACHMENT`, `CHECKLIST_ITEM`, `REPORT`, `USER`, `ROLE`, `LOOKUP`; scope `SYSTEM` (anywhere) or `PROJECT` (inside a project where the user holds that project role).
 
 **Decision chain** (`ProjectAccessGuard` → `PermissionService`): the account must be `ACTIVE` → `ADMINISTRATOR` is allowed everywhere and bypasses membership → a **system-level** action needs the matching system grant → a **project-level** action needs an `ACTIVE` membership and is allowed by the **project role's** grants → ownership/assignment restrictions (section 5.2). **A system role never widens a project role**: it holds only system-scope grants, so a Project Manager who is only a `VIEWER` of a project can only read it. A non-member asking for a project gets `404`; everything else refused is `403` with a message that says what is missing.
 
@@ -153,7 +154,7 @@ Regex: `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$`. Message: *"Pas
 
 Applied to: self-registration (`RegisterRequest`), changing your own password (`ChangePasswordRequest.newPassword`), administrator account creation (`UserCreateRequest`), administrator password reset (`UserService.updateUser`, only when a password is supplied). **Not** applied to login — an old or seeded password must still work.
 
-UI: Register, Profile → Password, and the *Invite Member* dialog show a live checklist (`components/ui/PasswordChecklist.jsx`); a failed client check names the missing rules (`describePasswordProblem`); a backend `fieldErrors` message is surfaced by `passwordErrorMessage`.
+UI: Register, Profile → Password, and the administrator's *Add member* dialog show a live checklist (`components/ui/PasswordChecklist.jsx`); a failed client check names the missing rules (`describePasswordProblem`); a backend `fieldErrors` message is surfaced by `passwordErrorMessage`.
 
 Storage: BCrypt (`BCryptPasswordEncoder`, default strength). Passwords are never returned in any response. Changing your own password requires the **current** password (`"Current password is incorrect"`, 400).
 
@@ -189,7 +190,7 @@ A **`PENDING`** or **`DECLINED`** membership grants nothing: every visibility ch
 
 ### 5.2 Project-scope matrix
 
-These are the `role_permissions` rows with `scope = PROJECT` seeded by `V10` and `V13` (the matrix is 198 rows) (the Administrator holds all 98 grants; "—" = not granted). `V10` is also the source of the unit test `PermissionServiceTest`, which checks every role × resource × action × scope.
+These are the `role_permissions` rows with `scope = PROJECT` seeded by `V10` and `V13` (the whole matrix is 198 rows; the Administrator holds 98 of them, "—" = not granted). `PermissionServiceTest` checks every role × resource × action × scope.
 
 | Resource | Owner (`OWNER`) | Team Leader (`ADMIN`) | Team Member (`MEMBER`) | Viewer |
 |---|---|---|---|---|
@@ -252,7 +253,7 @@ The database dependency/subtask/date triggers apply regardless of role.
 
 | Action | Who | Where |
 |---|---|---|
-| Create, update, delete any user | `USER:CREATE/EDIT/DELETE` (Administrator) | `UserController`; UI: *Add member* creates an account with a temporary password and an optional system role (default Team Member) |
+| Create, update, delete any user | `USER:CREATE/EDIT/DELETE` (Administrator) | `UserController`; UI: *Add member* creates an account with a temporary password and an optional system role (default `USER`) |
 | Give an account a system role | `USER:ASSIGN` (Administrator) | `PUT /api/users/{id}/role`; UI: *Administration → Users*. Refused for the project-only roles, for demoting the last Administrator, and for moving a person who owns a project to `USER` |
 | List users | everyone, **scoped**: an administrator sees all; others see themselves plus people who share an active project with them | `UserService.getAllUsers` |
 | Look up one user by id or username | **scoped** — an administrator, the user themself, or someone who shares an active project with them; anyone else gets `404` | `UserService.assertCanView` |
@@ -268,6 +269,6 @@ Any account — including an administrator's — cannot be set to `INACTIVE`/`SU
 ## 7. Frontend authorization
 
 - `auth/AuthContext.jsx` holds `token`, `username`, `role`, `profile`, `permissions`, `loading`. On load it restores `taskflow.auth` from `localStorage`, fetches the profile and `GET /api/users/me/permissions`; if that fails it logs out. It exposes `can(resource, action, projectId)`, `canSys(resource, action)`, `canAny(resource, action)`, `isAdministrator` and `refreshProfile()` (called after the user's own role or the matrix changes).
-- `auth/ProtectedRoute.jsx` redirects unauthenticated visitors to `/login`; `auth/RequirePermission.jsx` shows "You do not have access to this page" for a route the role may not open (Reports, Administration).
+- `auth/ProtectedRoute.jsx` redirects unauthenticated visitors to `/login`; `auth/RequirePermission.jsx` shows the 403 error page (`pages/ErrorPage.jsx`) for a route the role may not open (Reports, Administration).
 - `api/permissions.js` turns the server's `RESOURCE:ACTION` list into those helpers. **It contains no role names or rules** — what the server says is what the UI shows. It is advisory: the server checks every request.
 - Controls the user cannot use are **hidden, not disabled** (task edit/delete, status choices, "New Project", the Reports and Administration links, comment box, subtask and time controls, invite role picker).

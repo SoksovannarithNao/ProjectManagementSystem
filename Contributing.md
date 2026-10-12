@@ -65,8 +65,9 @@ In practice: get `database/erd-design` and the initial schema branches merged in
    git push -u origin <area>/<task-description>
    ```
 4. Open a Pull Request **into `dev`** (not `main`). Link the related GitHub Issue.
-5. Get at least one teammate to review and approve before merging.
-6. Delete the branch after merging (GitHub offers a button right after merge — use it).
+5. Update the page under [docs/](docs/README.md) that describes what you changed, and add a [changelog](docs/changelog.md) entry, in the same pull request (see [Keeping the documentation current](docs/README.md#keeping-the-documentation-current)).
+6. Get at least one teammate to review and approve before merging.
+7. Delete the branch after merging (GitHub offers a button right after merge — use it).
 
 ## Promoting `dev` → `main`
 

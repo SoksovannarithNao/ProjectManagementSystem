@@ -35,16 +35,17 @@ src/main/java/backend/
 ├── BackendApplication.java    # Application entry point
 ├── controller/                # 25 REST controllers: bind and validate requests, delegate to services
 ├── service/                   # Business logic, transaction boundaries, DTO <-> entity mapping
-├── entity/                    # 18 JPA entities, one per table that has backend code
+├── entity/                    # 22 JPA entities, one per table that has backend code
 ├── repository/                # Spring Data JPA repositories
 ├── dto/                       # Request/response shapes; no controller binds or returns a raw entity
 ├── security/                  # Resource and Action enums, PermissionChecker (the @permissions bean used in @PreAuthorize)
 ├── exception/                 # NotFoundException, ConflictException, TooManyRequestsException + GlobalExceptionHandler (@RestControllerAdvice)
-├── config/                    # SecurityConfig (JWT, CORS, method security), JwtSecretGuard, ActiveAccountJwtValidator
-└── util/                      # TextFormat
+├── config/                    # SecurityConfig (JWT, CORS, method security), JwtSecretGuard, ActiveAccountJwtValidator, DeadlineScheduler
+└── util/                      # TextFormat, Derived (delayed / overdue), WorkloadClassifier, FileTypeGuard (attachment types)
 
 src/main/resources/
-└── application.properties     # Application configuration
+├── application.properties     # Application configuration
+└── logback-spring.xml         # Logs to the rotating file only (console stays quiet)
 
 src/test/java/backend/         # Tests (see testing.md)
 ```
@@ -69,7 +70,7 @@ The complete endpoint-by-endpoint reference (all 119 endpoints, permissions, req
 | Subtasks | `/api/subtasks` | `SUBTASK:CREATE/EDIT/DELETE` in the parent task's project (not Viewer) |
 | Comments | `/api/comments` | Read: any active member. Create: `COMMENT:CREATE`. Edit: author only. Delete: author, or `COMMENT:DELETE` (Project Manager, Team Leader) |
 | Work logs | `/api/work-logs` | Time tracking. Read: any active member. Create: `WORK_LOG:CREATE`, for themselves. Delete: author, or `WORK_LOG:DELETE` (Project Manager, Team Leader). See [tasks.md](tasks.md#time-tracking-estimated-vs-actual) |
-| Activity logs | `/api/activity-logs` | Read-only `GET /task/{taskId}`. Written internally by other services, never posted to directly |
+| Activity logs | `/api/activity-logs` | Read-only: `GET /task/{taskId}`, `/project/{projectId}` and `/recent`. Written internally by other services, never posted to directly |
 | Project members | `/api/project-members` | Direct add (`MEMBER:CREATE`), update (`MEMBER:EDIT`), delete (`MEMBER:DELETE`); setting a member's role to `OWNER` is the ownership transfer and needs `PROJECT:ASSIGN`; nobody is added or invited as `OWNER`. Invitation sub-endpoints: see [Team invitations](#team-invitations) |
 | Task assignees | `/api/task-assignees` | Write operations: `TASK:ASSIGN` |
 | Task dependencies | `/api/task-dependencies` | Write operations: `TASK:ASSIGN` |
@@ -123,11 +124,11 @@ Configured in `config/SecurityConfig.java`. The rules in full: [authentication-a
 
 The backend connects to the schema owned by [database/init/01-init.sql](../database/init/01-init.sql). 22 of its 24 tables have JPA entities and controllers or services: `users`, `roles`, `permissions`, `role_permissions`, `positions`, `departments`, `otp_verifications`, `projects`, `project_members`, `milestones`, `tasks`, `subtasks`, `comments`, `task_assignees`, `task_dependencies`, `notifications`, `activity_logs`, `work_logs`, `task_approvals`, `checklist_items`, `attachments`, `attachment_contents`. The other 2 (`report_exports`, `kpi_snapshots`) have none yet. `spring.jpa.hibernate.ddl-auto=validate` makes Hibernate check the mappings on startup and never alter the schema. Schema, seed data, triggers and migrations: [database.md](database.md).
 
-**Connects as a least-privileged role, not the superuser.** `database/init/03-app-role.sh` creates `taskmanager_app` (`SELECT`/`INSERT`/`UPDATE`/`DELETE` on the 17 read-write tables above (plus `SELECT` on `permissions`), plus `USAGE` on the sequences behind their identity primary keys; no `SUPERUSER`, `CREATEDB` or `CREATEROLE`, so it cannot touch other tables or change the schema). The backend connects as that role by default (`SPRING_DATASOURCE_USERNAME` / `PASSWORD`, `TASKMANAGER_APP_PASSWORD` in `.env.example` and `docker-compose.yml`) and does not reuse the `POSTGRES_USER` superuser, which stays reserved for container initialization and migrations. Giving a new table an entity means adding a matching `GRANT` line to that script (and to the equivalent step in `.github/workflows/ci.yml`). Grants only take effect on a fresh volume (`docker compose down -v && docker compose up -d`); on an existing database apply the `GRANT` once by hand. Forgetting this produces a runtime `permission denied for table …` and a `500` on any endpoint that reads the table (this happened with `work_logs`).
+**Connects as a least-privileged role, not the superuser.** `database/init/03-app-role.sh` creates `taskmanager_app` (`SELECT`/`INSERT`/`UPDATE`/`DELETE` on the 21 read-write tables above (plus `SELECT` on `permissions`), plus `USAGE` on the sequences behind their identity primary keys; no `SUPERUSER`, `CREATEDB` or `CREATEROLE`, so it cannot touch other tables or change the schema). The backend connects as that role by default (`SPRING_DATASOURCE_USERNAME` / `PASSWORD`, `TASKMANAGER_APP_PASSWORD` in `.env.example` and `docker-compose.yml`) and does not reuse the `POSTGRES_USER` superuser, which stays reserved for container initialization and migrations. Giving a new table an entity means adding a matching `GRANT` line to that script (and to the equivalent step in `.github/workflows/ci.yml`). Grants only take effect on a fresh volume (`docker compose down -v && docker compose up -d`); on an existing database apply the `GRANT` once by hand. Forgetting this produces a runtime `permission denied for table …` and a `500` on any endpoint that reads the table (this happened with `work_logs`).
 
 ## Logging
 
-Errors and notable events are written to a rotating file (`backend/logs/log.txt`) as well as the console, configured with `logging.*` properties in `application.properties` (Spring Boot's default Logback setup, no separate config file). Rotation: 10 MB per file, 14 days of history, 100 MB total cap.
+Errors and notable events are written to a rotating file (`backend/logs/log.txt`). The console is deliberately quiet: `src/main/resources/logback-spring.xml` overrides Spring Boot's default (which logs to both) so that only the file appender is attached, which keeps `docker compose logs backend` short. The file's pattern and rotation come from the `logging.*` properties in `application.properties`: 10 MB per file, 14 days of history, 100 MB total cap.
 
 `GlobalExceptionHandler` logs every handled failure path, not only unhandled ones: `WARN` for not-found, validation failures, database constraint violations, access-denied, failed logins and rate-limited logins (429); `ERROR` with the full stack trace for anything unexpected (500s). SQL statements (`spring.jpa.show-sql=true`) land in the same file. Spring Security's own logger defaults to `INFO`; set `SECURITY_LOG_LEVEL=DEBUG` locally for verbose JWT and role troubleshooting, but not generally, because it is noisy.
 
@@ -158,15 +159,16 @@ Beyond the database gates (a task cannot become `COMPLETED` while a subtask is i
 - `TaskAssigneeService.createTaskAssignee` → `notifyTaskAssigned`: every new assignment.
 - `TaskService.updateTask` → `notifyTaskStatusChanged`: only when `status` actually changed (compared before and after `applyRequest`), to every current assignee.
 - `ProjectMemberService.inviteMember` → `notifyTeamInvitation`: every new or re-sent invitation, to the invitee.
+- `CommentService.createComment` → `UpdateNotificationService.notifyCommentAdded`: a comment or reply tells the task's assignees, the project's Owner and Team Leaders and, for a reply, the author of the comment it answers. `ProjectService.updateProject` → `notifyProjectUpdated` (the assignees of the project's tasks plus the Owner and Team Leaders) and `MilestoneService.updateMilestone` → `notifyMilestoneUpdated` (the assignees of the milestone's linked tasks plus the Owner and Team Leaders), only when something changed. Never the person who acted; the full rules are in [notifications.md](notifications.md#9-comments-project-updates-and-milestone-updates-since-2026-10-12).
 - `ProjectMemberService.respondToInvitation` → `notifyInvitationResponded`: when the invitee accepts or declines, to whoever sent the invitation (`project_members.invited_by`). This "notify an Admin of a member's action" case did not exist anywhere before; it is new, not a repaired bug.
 
-Of the 11 `type` values the `notifications.type` `CHECK` allows, 8 are produced today: task assignment, status change, approval requested and decided, the invitation and its response, and — since 2026-10-10 — `DEADLINE_REMINDER` and `OVERDUE_TASK`. Those last two are not triggered by a user action: `DeadlineScheduler` runs `DeadlineNotificationService` every day at 08:00 and once at startup (3 days and 1 day before a task, milestone or project deadline, and when a task is overdue, to the assignees and the project Owner; at most once each — see [notifications.md](notifications.md#8-deadline-reminders-and-overdue-notices-since-2026-10-10)). `COMMENT_ADDED` is not wired up (creating a comment notifies nobody). `PROJECT_UPDATED` and `MILESTONE_UPDATED` would be straightforward (same pattern, hung off `ProjectService` / `MilestoneService`) but have not been added.
+Of the 11 `type` values the `notifications.type` `CHECK` allows, all 11 are produced today: task assignment, status change, approval requested and decided, the invitation and its response, and — since 2026-10-10 — `DEADLINE_REMINDER` and `OVERDUE_TASK`. Those last two are not triggered by a user action: `DeadlineScheduler` runs `DeadlineNotificationService` every day at 08:00 and once at startup (3 days and 1 day before a task, milestone or project deadline, and when a task is overdue, to the assignees and the project Owner; at most once each — see [notifications.md](notifications.md#8-deadline-reminders-and-overdue-notices-since-2026-10-10)). `COMMENT_ADDED`, `PROJECT_UPDATED` and `MILESTONE_UPDATED` (since 2026-10-12, `UpdateNotificationService`: see below) complete the set.
 
 ## Frontend integration
 
 The React frontend ([frontend.md](frontend.md)) calls this API directly for every page. It uses relative `/api/...` paths: nginx reverse-proxies them to this backend in the Docker build ([frontend/nginx.conf](../frontend/nginx.conf)), and a matching Vite dev-server proxy does the same for `npm run dev`, so neither environment needs CORS or a hardcoded backend URL. `app.cors.allowed-origins` remains as a fallback for any direct cross-origin call.
 
-Known integration gaps: the activity log is per task only (`GET /api/activity-logs/task/{taskId}`, shown in the task panel's Activity section), with no project-wide or per-user feed; and comments do not trigger a `COMMENT_ADDED` notification.
+Known integration gaps: there is no per-user or cross-project audit view of the activity log (the API serves a task feed, a project feed and a recent-activity list, shown in the task panel, on the project page and on the dashboard).
 
 ## Current status
 
@@ -185,9 +187,9 @@ Authorization                 done (data-driven role x resource x action matrix,
 CORS, password hashing        done
 Login rate limiting           done (in-memory, 5 attempts / 15 min per IP+username)
 Least-privilege DB role       done
-Unit tests                    partial: 306 unit/context tests, no controller or repository tests; see testing.md
+Unit tests                    partial: 328 unit/context tests, no controller or repository tests; see testing.md
 File logging                  done (rotating backend/logs/log.txt)
-Notifications                 partial: 8 of 11 types produced (comments, project and milestone updates are not)
+Notifications                 done: all 11 types produced (comments, project and milestone updates since 2026-10-12)
 Deadline reminders, overdue   done (2026-10-10): @Scheduled daily 08:00 + at startup
 Attachments, checklists       done (2026-10-09)
 Self-service profile update   done (/me, /me/password, /me/photo, /me/preferences)
@@ -211,7 +213,7 @@ Roughly in priority order. The prioritised plan with reasoning is in [roadmap.md
 4. ~~A project-wide activity feed~~ — done 2026-10-09; a per-user or administrator audit view remains.
 5. Broader test coverage: controller and integration tests, not only service and handler unit tests.
 6. Flyway now runs as a one-shot Compose service (`migrate`); wiring it into CI and a production deployment is still open (see [database.md](database.md#8-migrations-vs-the-init-script)).
-7. `COMMENT_ADDED`, `PROJECT_UPDATED` and `MILESTONE_UPDATED` notifications. (Deadline and overdue notifications were added on 2026-10-10.)
+7. ~~`COMMENT_ADDED`, `PROJECT_UPDATED` and `MILESTONE_UPDATED` notifications~~ — done 2026-10-12 (deadline and overdue notifications on 2026-10-10).
 8. A refresh-token flow: access tokens currently just expire (default 1 hour) with no renewal short of logging in again.
 
 ## Contributing

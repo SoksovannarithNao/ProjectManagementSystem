@@ -1,6 +1,6 @@
 # Project Overview
 
-> Verified against the repository on **2026-10-06** (branch `appmod/java-upgrade-20261006031004`, based on `dev`). Everything here was confirmed in the code, the database scripts, the running application, or an existing project document. Where something could not be confirmed it is marked **Unknown / Needs clarification**.
+> First verified against the repository on **2026-10-06**; last brought in line with the code on **2026-10-12**. Everything here was confirmed in the code, the database scripts, the running application, or an existing project document. Where something could not be confirmed it is marked **Unknown / Needs clarification**.
 
 ## 1. Purpose and scope
 
@@ -8,9 +8,9 @@
 
 The application is built to the requirements in [assignment-brief.md](../assignment-brief.md) (the assignment; its Part B is the resolved specification) and [project-workflow.md](../project-workflow.md) (the user flows). The team areas — Frontend, Backend, API, Database — are described in [Contributing.md](../Contributing.md).
 
-**In scope and implemented:** authentication with self-registration, project-level authorization, projects, project membership and invitations, milestones, tasks, subtasks, task dependencies, comments, per-task activity history, notifications, a dashboard, Kanban board, calendar, reports charts, profile and settings.
+**In scope and implemented:** authentication with self-registration, a two-level role model with an editable permission matrix, projects, project membership and invitations, milestones, tasks, subtasks, checklists, attachments, task dependencies, comments, time tracking, the task approval workflow, task / project / recent activity feeds, notifications with deadline reminders, a dashboard, Kanban board, calendar, project team / workload / timeline / Gantt views, server-side KPIs and the seven named reports, administration (users, roles and permissions), profile, settings, a Help page and error pages.
 
-**In the requirements but not implemented** (see [roadmap.md](roadmap.md)): auto-logout and PDF/Excel export of the reports.
+**In the requirements but not implemented** (see [roadmap.md](roadmap.md)): PDF/Excel export of the reports.
 
 ## 2. Main functionality
 
@@ -20,9 +20,10 @@ The application is built to the requirements in [assignment-brief.md](../assignm
 | Projects | Create a project (auto-generated code `PRJ-####`), edit it, change its status, delete it (owners only) | [users-and-projects.md](users-and-projects.md) |
 | Teams | Invite people to a project, accept or decline invitations, remove members, see pending invitations | [users-and-projects.md](users-and-projects.md) |
 | Milestones | Add and delete milestones with due dates; progress is derived from tasks | [tasks.md](tasks.md) |
-| Tasks | Create, edit, delete, assign, set priority/dates, advance status, add subtasks, dependencies and comments, see activity | [tasks.md](tasks.md) |
-| Views | Dashboard, Tasks (grouped by project, with a *My Tasks* filter), Kanban, Calendar (month/week/day), Reports, Team | [architecture.md](architecture.md#34-frontend-pages-and-routes) |
-| Notifications | A bell with unread count: task assigned, task status changed, team invitation (with Accept/Decline), invitation response | [notifications.md](notifications.md) |
+| Tasks | Create, edit, delete, assign, set priority/dates, advance status, submit for approval, add subtasks, checklist items, attachments, dependencies, comments and time logs, see activity | [tasks.md](tasks.md) |
+| Views | Dashboard, Tasks (grouped by project, with a *My Tasks* filter), Kanban, Calendar (month/week/day), Reports (KPIs and seven reports), Team, and per project: team tasks, workload, timeline and Gantt | [architecture.md](architecture.md#34-frontend-pages-and-routes) |
+| Administration | Give accounts a system role; edit the role × resource × action permission matrix | [authentication-authorization.md](authentication-authorization.md) |
+| Notifications | A bell with unread count: task assigned, status changed, approval requested / decided, team invitation (with Accept/Decline) and its response, deadline reminders, overdue notices | [notifications.md](notifications.md) |
 
 ## 3. Technology stack
 
@@ -33,11 +34,11 @@ Versions are taken from `backend/pom.xml`, `frontend/package.json`, `docker-comp
 | Backend | Java **25**, Spring Boot **4.0.8** (Web MVC, Data JPA, Security, OAuth2 Resource Server, Validation, Mail), Hibernate, `jjwt` **0.12.6**, PostgreSQL JDBC driver, Maven Wrapper **3.9.16** |
 | Database | PostgreSQL **18** (`postgres:18-alpine`); schema from hand-written SQL, `spring.jpa.hibernate.ddl-auto=validate` |
 | Frontend | React **19.2**, React Router **7.18**, Vite **8.2**, Tailwind CSS **4.3**, Recharts **3.10**, lucide-react |
-| Testing | JUnit 5 + Mockito + Spring test starters (backend); Playwright **1.63** (frontend end-to-end) |
-| Infrastructure | Docker Compose (`postgres`, `mailpit`, `backend`, `frontend`), nginx (serves the built frontend and proxies `/api/`), GitHub Actions (CI and CD) |
+| Testing | JUnit 5 + Mockito + Spring test starters (backend); Vitest **4.1** (frontend unit tests); Playwright **1.63** (frontend end-to-end) |
+| Infrastructure | Docker Compose (`postgres`, the one-shot Flyway `migrate`, `mailpit`, `backend`, `frontend`), nginx (serves the built frontend and proxies `/api/`), GitHub Actions (CI and CD) |
 | Local email | Mailpit — an SMTP catcher; nothing leaves the machine |
 
-Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/springdoc, Spring Actuator, Flyway as an application dependency, Redux/React Query, a frontend unit-test runner, JaCoCo.
+Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/springdoc, Spring Actuator, Flyway as an application dependency, Redux/React Query, JaCoCo.
 
 ## 4. Project structure
 
@@ -48,20 +49,21 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 │       ├── controller/    25 REST controllers (119 endpoints)
 │       ├── service/       business rules, transactions, ProjectAccessGuard
 │       ├── repository/    Spring Data JPA repositories
-│       ├── entity/        15 JPA entities
+│       ├── entity/        22 JPA entities
 │       ├── dto/           request/response objects, PasswordPolicy
+│       ├── security/      Resource and Action enums, PermissionChecker
 │       ├── exception/     GlobalExceptionHandler, NotFoundException, ConflictException, TooManyRequestsException
-│       ├── config/        SecurityConfig, JwtSecretGuard
-│       └── util/          TextFormat
+│       ├── config/        SecurityConfig, JwtSecretGuard, ActiveAccountJwtValidator, DeadlineScheduler
+│       └── util/          TextFormat, Derived, WorkloadClassifier, FileTypeGuard
 ├── frontend/              React app
-│   ├── src/pages/         one file per screen (13)
+│   ├── src/pages/         one file per screen (18, including the two under admin/)
 │   ├── src/components/    shared components; components/ui/ = primitives
 │   ├── src/api/           fetch client + one module per backend resource
 │   ├── src/auth|data|theme|layout/   context providers and the app shell
 │   └── e2e/               Playwright specs
 ├── database/
-│   ├── init/              01-init.sql (schema), 02-seed.sql (demo data), 03-app-role.sh
-│   ├── taskmanager/       Flyway project (migrations V1–V13) — applied by the Compose `migrate` service, not by the app
+│   ├── init/              01-init.sql (schema), 02-seed.sql (demo data), 03-app-role.sh, 04-flyway-baseline.sql
+│   ├── taskmanager/       Flyway project (migrations V1–V14) — applied by the Compose `migrate` service, not by the app
 │   └── verify_invariants.sql
 ├── api/                   openapi.yaml (partly out of date — see issues.md)
 ├── docs/                  this documentation
@@ -80,20 +82,21 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Profile, password change, photo, theme and notification preference | Done |
 | Project CRUD, auto-generated project code | Done |
 | Project membership, invitations, accept/decline, member search | Done |
-| Milestones | Partial — add/delete in the UI; update exists only in the API; not on the calendar |
+| Milestones | Done (2026-10-12) — add, edit and delete in the UI; shown on the calendar; the task forms have no milestone picker |
 | Tasks, subtasks, dependencies, assignment | Done |
 | Comments | Partial — replies work; no notification |
 | Activity feed (task, project, recent) | Done (2026-10-09); time logs are not written |
-| Notifications | Partial — 8 of 11 types are produced (comments, project and milestone updates are not) |
+| Notifications | Done (2026-10-12) — all 11 types are produced, including comments, project updates and milestone updates |
 | Dashboard, project timeline, team tasks, workload | Done (2026-10-09) |
-| Kanban, Calendar | Partial — cards cannot be moved; no milestones on the calendar (see [roadmap.md](roadmap.md)) |
+| Kanban | Partial — cards cannot be moved (see [roadmap.md](roadmap.md)) |
+| Calendar | Done (2026-10-12) — month, week and day views of task due dates and milestones |
 | Task approval workflow | Done (2026-10-09) |
 | Reports and KPIs | Done (2026-10-09) — overview charts, five KPIs, seven named reports; no PDF / Excel export |
 | Error page for every status, Help & Support page | Done (2026-10-10) — `pages/ErrorPage.jsx`, `pages/Help.jsx` |
 | Attachments, work logs, checklist items | Done (work logs earlier; attachments and checklists 2026-10-09) |
 | Deadline reminders, overdue notifications | Done (2026-10-10) — a daily scheduled job |
 | Gantt chart prototype | Done (2026-10-10) |
-| Auto-logout | Not started |
+| Auto-logout | Done (2026-10-12) — 15 idle minutes, a 60-second warning, then sign-out (browser-side) |
 
 ## 6. Where to read next
 

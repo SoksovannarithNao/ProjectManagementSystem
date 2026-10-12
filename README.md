@@ -13,13 +13,13 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 - **Subtask/task status rules**: a task can't be marked `COMPLETED` while it has an incomplete subtask; touching a subtask on a still-To-Do task auto-promotes it to In Progress (skipped if the task is itself blocked by an incomplete dependency) — see [Task & Subtask Rules](docs/backend.md#task--subtask-rules)
 - **Database-enforced business rules**: auto-managed timestamps, date-range validation (task/milestone due dates constrained to their project's dates), case-insensitive username/email uniqueness, task-dependency ordering (a task can't go active while a dependency is incomplete, checked from both directions), assignment integrity (assignee must be an active project member), task/milestone/project consistency, and project/milestone/task progress auto-derived from completion (writable but not authoritative — recomputed on every relevant change)
 - **Role-level permissions**: the `permissions` / `role_permissions` matrix (seven actions — View, Create, Edit, Delete, Assign, Approve, Generate Reports — over each resource, for both the system and the project roles) is what the backend enforces, cached and re-read when an administrator saves the grid in *Administration → Roles & Permissions* (see [docs/database.md](docs/database.md#13-authorization-and-permissions) and [ADR-0014](docs/adr/0014-requirement-roles-and-permission-matrix.md))
-- **Overdue detection**: a `v_overdue_tasks` view plus a `fn_generate_overdue_notifications()` DB function feed the overdue state, and a daily scheduled job (`DeadlineScheduler`, 08:00 and at startup) sends the **deadline reminders** (3 and 1 days before) and **overdue notices** to the assignees and the project Owner, at most once each — see [docs/notifications.md](docs/notifications.md#8-deadline-reminders-and-overdue-notices-since-2026-10-10); overdue/blocked state is also surfaced directly on tasks in the UI (an "N overdue tasks" badge on the project detail page, a lock icon + tooltip naming the blocking task)
-- **Frontend UI** (React, wired to the live backend API): login, self-registration + OTP verification, dashboard (project and task statistics, Delayed projects, recent activity, manager workload), Kanban board, calendar, project list with search, filters and sort, a full project detail page (status/priority/dates/manager/progress, a filterable task list with an Add Task action, members with a role picker, milestones, attachments, activity, plus team-tasks, workload, timeline and Gantt views), task list, team view, Reports (overview charts, the five KPIs and the seven named reports), administration (users, roles and permissions), profile, and settings (including a light/dark theme switcher) — all fetching real data, with working sort/search/filter and create/edit/delete flows (not just reads)
+- **Overdue detection**: a `v_overdue_tasks` view plus a `fn_generate_overdue_notifications()` DB function feed the overdue state, and a daily scheduled job (`DeadlineScheduler`, 08:00 and at startup) sends the **deadline reminders** (3 and 1 days before) and **overdue notices** to the assignees and the project Owner, at most once each — see [docs/notifications.md](docs/notifications.md#8-deadline-reminders-and-overdue-notices-since-2026-10-10); overdue/blocked state is also surfaced directly on tasks in the UI (an "N overdue tasks" badge on the project detail page, a lock icon + tooltip naming the blocking task), and an open task due today or within 3 days carries a "Due today / tomorrow / in N days" flag (`dueSoon`, calculated on the server)
+- **Frontend UI** (React, wired to the live backend API): login, self-registration + OTP verification, dashboard (project and task statistics, Delayed projects, recent activity, manager workload), Kanban board, calendar (task due dates and milestones; month, week and day), project list with search, filters and sort, a full project detail page (status/priority/dates/manager/progress/completion date, a filterable task list with an Add Task action, members with a role picker, milestones you can add, edit and delete, attachments, activity, plus team-tasks, workload, timeline and Gantt views), task list (with Today / Upcoming / In Progress / Completed / Overdue quick views), team view, Reports (overview charts, the five KPIs and the seven named reports), administration (users, roles and permissions), profile, and settings (including a light/dark theme switcher) — all fetching real data, with working sort/search/filter and create/edit/delete flows (not just reads)
 - **Task workflow**: a task's status advances one stage per click (To Do → In Progress → In Review → Completed) and never silently reopens a finished task. Entering review opens an **approval request**: a Team Leader or the Owner (or a designated approver) approves it, requests changes or rejects it with a comment, and nobody approves their own work except the Owner — see [docs/tasks.md](docs/tasks.md)
-- **Notifications**: real per-user notifications (not mocked) — created automatically on task assignment (naming the assigner, project and due date), task status change, approval requests and decisions, deadline reminders, overdue notices and project invitations/responses, with a read/unread bell dropdown in the UI — see [Notifications](docs/notifications.md). Comments, project updates and milestone updates are not produced yet
+- **Notifications**: real per-user notifications (not mocked) — created automatically on task assignment (naming the assigner, project and due date), task status change, approval requests and decisions, deadline reminders, overdue notices and project invitations/responses, with a read/unread bell dropdown in the UI — see [Notifications](docs/notifications.md). Comments and replies, project edits and milestone edits notify the people with work in them (assignees plus the project's Owner and Team Leaders, never the person who acted)
 - **Activity log**: a history feed (who did what, when) per task, per project and a recent-activity list for the dashboard — project, task, subtask, milestone, comment, file and approval events are written internally by the services, not directly postable
 - **Self-service account settings**: any authenticated user can update their own profile, password, and photo (`PUT /api/users/me`, `/me/password`, `/me/photo`) without needing an Administrator
-- **Backend file logging**: errors and security/business events (validation failures, access-denied, failed logins, unhandled exceptions) are written to a rotating log file (`backend/logs/log.txt`), not just the console — see [Logging](docs/backend.md#logging)
+- **Backend file logging**: errors and security/business events (validation failures, access-denied, failed logins, unhandled exceptions) are written to a rotating log file (`backend/logs/log.txt`); the console stays quiet (`logback-spring.xml` logs to the file only) — see [Logging](docs/backend.md#logging)
 
 ## Table of Contents
 
@@ -84,9 +84,10 @@ backend/src/main/java/backend/
 ├── entity/                    # JPA entities (22 of the schema's 24 tables mapped; `report_exports` and `kpi_snapshots` are not)
 ├── repository/                # Spring Data JPA repositories
 ├── dto/                       # Request/response DTOs — no controller binds/returns raw entities
-├── exception/                 # NotFoundException + GlobalExceptionHandler (@RestControllerAdvice)
-├── util/                      # TextFormat — shared humanize/formatting helpers
-└── config/                    # SecurityConfig — JWT, CORS, method security
+├── security/                  # Resource and Action enums, PermissionChecker (the @permissions bean used in @PreAuthorize)
+├── exception/                 # NotFoundException, ConflictException, TooManyRequestsException + GlobalExceptionHandler (@RestControllerAdvice)
+├── util/                      # TextFormat, Derived (delayed/overdue), WorkloadClassifier, FileTypeGuard (attachment types)
+└── config/                    # SecurityConfig (JWT, CORS, method security), JwtSecretGuard, ActiveAccountJwtValidator, DeadlineScheduler
 ```
 
 ### Frontend Architecture
@@ -100,11 +101,14 @@ frontend/src/
 │                        # Profile, Settings, Help (Help & Support), ErrorPage (404, 403, 500 … for every error status),
 │                        # admin/UsersAdmin, admin/RolesPermissions
 ├── components/          # Shared components (ProjectCard, StatCard, TaskDetailPanel, TaskFormModal, NewProjectModal,
-│                        # AddMemberModal, AddLookupModal)
-├── components/ui/       # Presentational primitives (Avatar, Badge, DonutChart, ProgressBar, ProgressRing, LookupSelect,
-│                        # Modal, Dropdown, ConfirmDialog, Toast, Skeleton, EmptyState)
+│                        # AddMemberModal, AddProjectMemberModal, AddLookupModal, TimeTracking, ChecklistSection,
+│                        # AttachmentsSection, ApprovalChip, DelayedBadge, ProjectActivity, TeamTasksView, WorkloadTable,
+│                        # TimelineView, GanttChart, MilestoneFormModal, DueSoonBadge) and components/reports/ (the Reports tabs)
+├── components/ui/       # Presentational primitives (Avatar, Badge, ProgressBar, ProgressRing, LookupSelect, Modal,
+│                        # Dropdown, ConfirmDialog, Toast, Skeleton, EmptyState, Logo, PasswordChecklist, TimeChip,
+│                        # useDirtyForm)
 ├── layout/              # App shell — Sidebar, TopBar (search/filter/notifications bell), layout state (React Context)
-├── auth/                # AuthContext (JWT/login/logout/refreshProfile) + ProtectedRoute
+├── auth/                # AuthContext (JWT/login/logout/refreshProfile/permissions), ProtectedRoute, RequirePermission, IdleLogout (inactivity warning and sign-out)
 ├── theme/               # ThemeContext (light/dark/system preference, persisted per-user)
 ├── api/                 # Fetch client + one file per backend resource (projects, tasks, subtasks, comments, milestones,
 │                        # taskAssignees, taskDependencies, projectMembers, users, roles, positions, departments,
@@ -122,7 +126,7 @@ frontend/e2e/            # Playwright end-to-end specs — see docs/frontend.md#
 3. **DTOs on every endpoint, not raw entities** — prevents leaking fields like `passwordHash` through nested associations (e.g. a project's `manager`), and decouples the API shape from the JPA entity graph.
 4. **Schema owned by hand-written SQL, not Hibernate** — `ddl-auto=validate`, so the app fails fast if entities drift from the real schema instead of silently auto-migrating.
 5. **Business rules pushed into the database via triggers** where they're cross-row (cycle prevention and ordering on task dependencies, date-range checks, assignee/project-membership integrity, task/milestone/project consistency, project/milestone progress kept in sync with task completion) — Java-level validation only covers what's expressible per-request (Bean Validation). Each `RAISE EXCEPTION` explicitly sets `ERRCODE = '23514'` (check_violation) — without it, Postgres's default error code isn't in the SQLSTATE class Hibernate treats as a constraint violation, so the error would fall through to a generic unhandled 500 instead of a clean 400 with the actual reason. Full list: [docs/database.md](docs/database.md#5-triggers-and-functions).
-6. **Notifications are created by application code, not database triggers** (`NotificationService`, called from `TaskAssigneeService`, `TaskService`, `TaskApprovalService` and `ProjectMemberService`) — unlike the cross-row rules above, "who should be notified" already requires looking up related rows (assignees) that the service layer has on hand anyway, and keeping it in Java keeps the notification text/type logic in one reusable place instead of duplicated PL/pgSQL.
+6. **Notifications are created by application code, not database triggers** (`NotificationService`, called from `TaskAssigneeService`, `TaskService`, `TaskApprovalService` and `ProjectMemberService`; `UpdateNotificationService`, called from `CommentService`, `ProjectService` and `MilestoneService`; `DeadlineNotificationService`, run by a daily job) — unlike the cross-row rules above, "who should be notified" already requires looking up related rows (assignees) that the service layer has on hand anyway, and keeping it in Java keeps the notification text/type logic in one reusable place instead of duplicated PL/pgSQL.
 7. **First use of `Authentication` as a controller parameter** (`UserController.updateOwnProfile`, `NotificationController`) — every other endpoint operates on an explicit `{id}` path variable; self-service endpoints instead resolve "who is this?" from `authentication.getName()` (the JWT's `sub` claim), so a user can only ever act on their own row.
 8. **Frontend calls the backend via relative `/api/...` paths, not an absolute URL** — nginx already reverse-proxies `/api/` to the backend container in the Docker build ([frontend/nginx.conf](frontend/nginx.conf)), and a matching Vite dev-server proxy (`frontend/vite.config.js`) makes the same code work under `npm run dev`. No frontend env var for the API base URL is needed.
 9. **A subtask touch can promote its parent task, but never demote or complete it** — checking a box on a still-To-Do task's subtask auto-promotes the task to In Progress (a clear "work has started" signal), but nothing ever auto-completes a task just because every subtask is done, and unchecking a subtask never reverts the parent — task status stays otherwise entirely manual, so a user's own explicit status change is never second-guessed. See [Task & Subtask Rules](docs/backend.md#task--subtask-rules).
@@ -155,6 +159,8 @@ Running the full stack via Docker Compose (`docker compose up -d --build`, see [
 | POSTGRES_DB | Database name | taskmanager |
 | POSTGRES_PORT | Host port for Postgres | 5432 |
 | TASKMANAGER_APP_PASSWORD | Password for `taskmanager_app`, the least-privileged role the backend actually connects as (see [docs/database.md](docs/database.md#7-least-privilege-application-role)) | (long random string — change in every real deployment) |
+| JWT_SECRET | HMAC signing key for JWTs, passed to the backend container (also in the backend table below) | (long random string — change in every real deployment) |
+| CORS_ALLOWED_ORIGINS | Allowed browser origins, passed to the backend container | http://localhost:5173,http://localhost:80 |
 | BACKEND_PORT | Host port for the backend container | 8080 |
 | FRONTEND_PORT | Host port for the frontend container | 5173 |
 | MAIL_HOST / MAIL_PORT | SMTP server for the registration OTP email | mailpit / 1025 (docker-compose default) |
@@ -181,7 +187,7 @@ Frontend has no `.env` of its own — it calls the backend via relative `/api/..
 
 ## Database Migrations
 
-Schema currently lives in [database/init/01-init.sql](database/init/01-init.sql), applied automatically by Postgres (`docker-entrypoint-initdb.d`) the first time the container's data volume is created, or manually via `psql -f database/init/01-init.sql`. A parallel Flyway project ([database/taskmanager/](database/taskmanager/)) tracks the same schema as versioned migrations (`V1__initial_schema.sql` … `V13__attachments_checklists.sql`), which the Compose `migrate` service applies to a database that already exists — see [docs/database.md](docs/database.md#8-migrations-vs-the-init-script). [database/verify_invariants.sql](database/verify_invariants.sql) has a standalone set of zero-rows-expected sanity checks for the business rules below.
+Schema currently lives in [database/init/01-init.sql](database/init/01-init.sql), applied automatically by Postgres (`docker-entrypoint-initdb.d`) the first time the container's data volume is created, or manually via `psql -f database/init/01-init.sql`. A parallel Flyway project ([database/taskmanager/](database/taskmanager/)) tracks the same schema as versioned migrations (`V1__initial_schema.sql` … `V14__project_completed_at.sql`), which the Compose `migrate` service applies to a database that already exists — see [docs/database.md](docs/database.md#8-migrations-vs-the-init-script). [database/verify_invariants.sql](database/verify_invariants.sql) has a standalone set of zero-rows-expected sanity checks for the business rules below.
 
 Main tables: `roles`, `permissions`, `role_permissions`, `positions`, `departments`, `users`, `otp_verifications`, `projects`, `project_members`, `milestones`, `tasks`, `task_assignees`, `task_dependencies`, `subtasks`, `checklist_items`, `comments`, `attachments`, `work_logs`, `notifications`, `activity_logs`, `report_exports`, `kpi_snapshots` (22 total, plus `task_approvals` and `attachment_contents` from V12 and V13) — plus derived reporting views (`v_overdue_tasks`, `v_project_status_summary`, `v_task_completion_by_project`, `v_team_performance`, `v_team_workload`).
 
@@ -227,7 +233,7 @@ Both services build as Docker images ([backend/Dockerfile](backend/Dockerfile), 
 
 CI/CD is GitHub Actions:
 
-- [ci.yml](.github/workflows/ci.yml) — every PR into `dev`/`main`: frontend lint + build (the Playwright E2E suite exists but isn't wired into this job yet — see [docs/frontend.md](docs/frontend.md#testing)); backend job loads `database/init/*.sql` into a throwaway Postgres instance, runs `database/verify_invariants.sql` and fails the build if any check returns rows, then runs `mvn verify`; plus a Docker build check for both images.
+- [ci.yml](.github/workflows/ci.yml) — every PR into `dev`/`main`: frontend lint, unit tests (Vitest) and build; backend job loads `database/init/*.sql` into a throwaway Postgres instance, runs `database/verify_invariants.sql` and fails the build if any check returns rows, then runs `mvn verify`; an `e2e` job that starts the whole stack with `docker compose up --build` on a fresh runner and runs the Playwright suite against it (see [docs/testing.md](docs/testing.md)); plus a Docker build check for both images.
 - [cd.yml](.github/workflows/cd.yml) — on push to `dev`/`main` (i.e. after a merge): builds and pushes both images to GitHub Container Registry (`ghcr.io`) — `main` → tag `latest`, `dev` → tag `dev`.
 
 There's no automated deploy step yet (a commented-out SSH-deploy example sits in `cd.yml`) — getting the built images onto wherever the demo actually runs is still manual.
@@ -300,9 +306,9 @@ All `GET` endpoints require only a valid token, further scoped to the caller's o
 
 | Code | Meaning |
 |---|---|
-| 200 | OK (reads, updates) |
-| 201 | Created (all `POST` endpoints) |
-| 204 | No Content (all `DELETE` endpoints) |
+| 200 | OK (reads, updates, and the action `POST`s: `login`, `verify-otp`, `resend-otp`, invitation `accept`/`decline`, the approval `decision`) |
+| 201 | Created (every `POST` that creates a row, including `register` and the approval `submit`) |
+| 204 | No Content (all `DELETE` endpoints and `POST /api/notifications/read-all`) |
 | 400 | Validation failure or a database constraint/trigger violation |
 | 401 | Missing/invalid token, or bad login credentials |
 | 403 | Authenticated but not authorized for this action |
@@ -416,7 +422,7 @@ Data models as returned by the API (full column-level detail, including tables w
 
 **Notification**
 - id: Long
-- type: String — 11 values are allowed; eight are created by *application* code today (TASK_ASSIGNED, TASK_STATUS_CHANGED, the two approval types, TEAM_INVITATION, TEAM_INVITATION_RESPONDED, and — from the daily scheduled job — DEADLINE_REMINDER and OVERDUE_TASK; see [docs/notifications.md](docs/notifications.md)). COMMENT_ADDED, PROJECT_UPDATED and MILESTONE_UPDATED are not produced
+- type: String — 11 values are allowed and all are created by *application* code today (TASK_ASSIGNED, TASK_STATUS_CHANGED, the two approval types, TEAM_INVITATION, TEAM_INVITATION_RESPONDED, COMMENT_ADDED, PROJECT_UPDATED, MILESTONE_UPDATED, and — from the daily scheduled job — DEADLINE_REMINDER and OVERDUE_TASK; see [docs/notifications.md](docs/notifications.md))
 - title, message: String
 - project: Project (optional), task: Task (optional) — what the notification is about, if anything
 - read: boolean
@@ -443,7 +449,9 @@ Data models as returned by the API (full column-level detail, including tables w
 17. The backend connects to Postgres as a dedicated least-privileged role (`taskmanager_app`), not the superuser — see [docs/database.md](docs/database.md#7-least-privilege-application-role).
 18. A startup check warns (doesn't fail, since there's no profile system or real deploy target yet) if `JWT_SECRET` is left at its built-in development default.
 
-Not yet implemented: refresh tokens, and an idle-timeout auto-logout (see [Future Enhancements](#future-enhancements)).
+19. Auto-logout after inactivity: 15 minutes without any mouse, keyboard, scroll or touch activity in any open tab shows a 60-second countdown (*Stay signed in* / *Sign out now*), then signs the user out and the login page says why. It is a browser-side convenience: the token itself stays valid on the server until it expires.
+
+Not yet implemented: refresh tokens and server-side token revocation (see [Future Enhancements](#future-enhancements)).
 
 ## Testing the API
 
@@ -459,7 +467,7 @@ curl http://localhost:8080/api/projects -H "Authorization: Bearer $TOKEN"
 
 Or just log into the frontend directly at http://localhost:5173 with any seeded `ACTIVE` username (e.g. `admin.system`, `pm.olivia`) and password `DevPassword123!`.
 
-Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgres matching the schema — currently 306 tests across 29 classes — the Spring context load, the exception handler, the services (users, projects, members, tasks, approvals, milestones, comments, attachments, checklists, reports, team views, activity log, work logs), the permission matrix itself and the JWT validator; service logic is covered with mocked repositories, there are no controller or repository integration tests yet). Automated frontend tests: `cd frontend && npm run test:e2e` — a Playwright end-to-end suite (108 tests across the `auth`, `projects`, `project-team`, `team`, `permissions`, `time-tracking`, `roles-permissions`, `batch1`, `approvals`, `collaboration`, `manager-views`, `reports`, `gantt` and `help-errors` specs; run with `npx playwright test --workers=4`, since the default 8 workers are intermittently flaky) that drives the real app against the real backend (requires `docker compose up -d` first); see [docs/frontend.md](docs/frontend.md#testing). No frontend unit-test runner is wired into `package.json` yet, and the E2E suite isn't wired into CI. Full inventory, regression-test map and coverage gaps: [docs/testing.md](docs/testing.md).
+Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgres matching the schema — currently 328 tests across 30 classes — the Spring context load, the exception handler, the services (users, projects, members, tasks, approvals, milestones, comments, attachments, checklists, reports, team views, activity log, work logs), the permission matrix itself and the JWT validator; service logic is covered with mocked repositories, there are no controller or repository integration tests yet). Automated frontend tests: `cd frontend && npm run test:e2e` — a Playwright end-to-end suite (145 tests across the `auth`, `registration`, `smoke`, `core-workflow`, `projects`, `project-team`, `team`, `permissions`, `time-tracking`, `roles-permissions`, `batch1`, `approvals`, `collaboration`, `manager-views`, `reports`, `gantt`, `help-errors`, `quick-wins` and `idle-and-updates` specs; run with `npx playwright test --workers=4`, since the default 8 workers are intermittently flaky) that drives the real app against the real backend (requires `docker compose up -d` first); see [docs/frontend.md](docs/frontend.md#testing). Frontend unit tests: `cd frontend && npm test` (Vitest, 128 tests for the pure logic in `src/api` and `src/auth`, no browser or backend needed). Lint, the unit tests, the backend tests and the whole Playwright suite all run in CI. Every test case with its steps and expected result: [docs/test-cases.md](docs/test-cases.md). Full inventory, regression-test map and coverage gaps: [docs/testing.md](docs/testing.md).
 
 ## Troubleshooting
 
@@ -488,14 +496,13 @@ See [Contributing.md](Contributing.md) and [Role_Requirment.md](Role_Requirment.
 ## Future Enhancements
 
 - A refresh-token flow — access tokens currently just expire with no renewal path short of logging in again.
-- The remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `MILESTONE_UPDATED`) — `TASK_ASSIGNED`, `TASK_STATUS_CHANGED`, the two approval types, `TEAM_INVITATION`, `TEAM_INVITATION_RESPONDED`, `DEADLINE_REMINDER` and `OVERDUE_TASK` are wired up in application code so far; comments don't notify anyone yet even though the feature itself is built.
-- An idle-timeout auto-logout with a warning (the token currently just expires after one hour).
+- Notifications for a member being added or removed, and for deleting a project or milestone (the 11 allowed types are all produced; D-10 leaves these cases pending).
 - Server-side pagination, search and filtering on list endpoints — filtering today runs in the browser over the lists the server already scoped to the caller.
 - Run Flyway in CI and in a production deployment (locally the Compose `migrate` service applies new migrations; a fresh volume is still built from the plain-SQL `docker-entrypoint-initdb.d` scripts plus a baseline row).
 - PDF / Excel export of the reports, and entities for the remaining DB-only tables `report_exports` and `kpi_snapshots` (the KPIs and the seven reports themselves are calculated live by `GET /api/reports/*`).
-- Editing a milestone, showing milestones on the calendar, moving Kanban cards between columns, editing time logs and writing them to the activity feed, and a project completion date.
+- Moving Kanban cards between columns, editing time logs and writing them to the activity feed.
 - Administrator-defined extra system roles (the three built-in system roles and four project roles can have their grants edited, but not be added to).
-- Broader automated test coverage (backend controller/integration tests; wire the existing Playwright E2E suite into CI and expand its coverage — see [docs/frontend.md](docs/frontend.md#testing)).
+- Broader automated test coverage (backend controller/integration tests; more Playwright coverage for Settings, Kanban and Profile — see [docs/testing.md](docs/testing.md)).
 - An actual deploy target for the CD pipeline's built images (currently build-and-push only).
 - A per-user or administrator audit view — the activity log API serves a task feed, a project feed and a recent-activity list (`/api/activity-logs/task/{id}`, `/project/{id}`, `/recent`), but no cross-project audit screen.
 - Keep `database/init/03-app-role.sh` and `.github/workflows/ci.yml`'s duplicated grant list in step by hand — they match today (21 read-write tables), but nothing enforces it (see [docs/database.md](docs/database.md#7-least-privilege-application-role)).

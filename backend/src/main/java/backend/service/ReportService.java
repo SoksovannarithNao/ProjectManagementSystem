@@ -436,7 +436,7 @@ public class ReportService {
         boolean delayed = Derived.isProjectDelayed(p.getStatus(), p.getEndDate(), today);
         return new ProjectRow(p.getId(), p.getProjectCode(), p.getName(), p.getStatus(), p.getPriority(),
                 p.getManager() != null ? new UserResponse(p.getManager()) : null, p.getStartDate(), p.getEndDate(),
-                p.getProgress(), delayed, delayed ? Derived.daysLate(p.getEndDate(), today) : 0);
+                p.getProgress(), delayed, delayed ? Derived.daysLate(p.getEndDate(), today) : 0, p.getCompletedAt());
     }
 
     private static TaskCounts counts(List<Task> tasks, LocalDate today) {

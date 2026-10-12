@@ -11,6 +11,7 @@ flowchart LR
     Nginx -->|"/api/* proxy"| API["backend container<br/>Spring Boot :8080"]
     API -->|"JDBC as taskmanager_app"| PG[("postgres container<br/>PostgreSQL 18")]
     API -->|"SMTP :1025"| Mailpit["mailpit container<br/>(local OTP mail catcher)"]
+    Migrate["migrate container<br/>(one-shot Flyway)"] -->|"applies new migrations, then exits"| PG
 ```
 
 Defined in `docker-compose.yml`:
@@ -18,8 +19,9 @@ Defined in `docker-compose.yml`:
 | Service | Image / build | Host port | Notes |
 |---|---|---|---|
 | `postgres` | `postgres:18-alpine` | `${POSTGRES_PORT:-5432}` | Runs everything in `database/init/` on first start of an empty volume (`pgdata`) |
+| `migrate` | `flyway/flyway:11` | none | One-shot: applies `database/taskmanager/migrations` to the database (baseline 8) and exits; the backend waits for it to succeed. Uses the `postgres` superuser because migrations change the schema |
 | `mailpit` | `axllent/mailpit:latest` | `1025` (SMTP), `8025` (web UI) | |
-| `backend` | `./backend` (multi-stage: Maven build, Temurin 25 JRE, runs as non-root user `spring`) | `${BACKEND_PORT:-8080}` | Waits for `postgres` and `mailpit` to be healthy; log file mounted at `./backend/logs` |
+| `backend` | `./backend` (multi-stage: Maven build, Temurin 25 JRE, runs as non-root user `spring`) | `${BACKEND_PORT:-8080}` | Waits for `postgres` and `mailpit` to be healthy and for `migrate` to complete; log file mounted at `./backend/logs` |
 | `frontend` | `./frontend` (multi-stage: `npm run build`, then nginx) | `${FRONTEND_PORT:-5173}` → container port 80 | Waits for `backend` to be healthy |
 
 The backend and frontend containers hold a **built copy** of the code. Changing source does not change a running container until the image is rebuilt (see [setup.md](setup.md)).
@@ -63,14 +65,20 @@ Errors from any layer are turned into JSON by `exception/GlobalExceptionHandler`
 | `RoleService`, `RolePermissionService`, `PositionService`, `DepartmentService` | Role list, the role × resource × action matrix and its guarded editing, and the two org-wide lookup lists |
 | `ProjectService` | Project CRUD, project-code generation, manager handling |
 | `ProjectMemberService` | Membership, invitations (invite / accept / decline), pending count, invitable-user search |
-| `ProjectAccessGuard`, `PermissionService` | **The single authorization entry point**: `ProjectAccessGuard.assertCan / assertSystemCan / assertAccess` answer through `PermissionService`, an in-memory snapshot of the `role_permissions` table ([ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md)) |
+| `ProjectAccessGuard`, `PermissionService`, `ProjectOwnership` | **The single authorization entry point**: `ProjectAccessGuard.assertCan / assertSystemCan / assertAccess` answer through `PermissionService`, an in-memory snapshot of the `role_permissions` table ([ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md)); `ProjectOwnership` is the one place that moves a project's single `OWNER` ([ADR-0015](adr/0015-two-level-roles-system-and-project.md)) |
 | `MilestoneService` | Milestone CRUD |
-| `TaskService` | Task CRUD, visibility scoping, status/priority/due-date change logging, "blocked" and subtask counts on responses |
+| `TaskService` | Task CRUD, visibility scoping, status/priority/due-date change logging, "blocked", subtask and `actualHours` figures on responses |
+| `TaskApprovalService` | The approval workflow: submit for review, decide (approve / request changes / reject), the named approver, the approver's inbox |
 | `TaskAssigneeService`, `TaskDependencyService` | Assignment and dependencies |
-| `SubtaskService` | Subtasks and the To Do → In Progress auto-promotion |
+| `SubtaskService`, `ChecklistItemService` | Subtasks (and the To Do → In Progress auto-promotion) and checklist items |
 | `CommentService` | Comments |
+| `AttachmentService` | File attachments on tasks and projects (bytes in `attachment_contents`, types checked by `util/FileTypeGuard`) |
+| `WorkLogService` | Time tracking: work logs behind a task's `actualHours` |
 | `NotificationService` | Creates notifications and serves the caller's own |
-| `ActivityLogService` | Writes and reads the per-task activity feed |
+| `DeadlineNotificationService` | Deadline reminders and overdue notices; started by `config/DeadlineScheduler` (daily at 08:00 and at startup) |
+| `ActivityLogService` | Writes and reads the task, project and recent activity feeds |
+| `DashboardService`, `TeamViewsService` | Dashboard statistics; the team-tasks and workload views (`util/Derived`, `util/WorkloadClassifier`) |
+| `ReportService` | The five KPIs and the seven named reports, scoped by `REPORT:GENERATE_REPORTS` |
 
 ### 2.3 Major module relationships
 
@@ -124,11 +132,11 @@ BrowserRouter
                └─ App     routes
 ```
 
-`App.jsx` defines the routes. Everything except `/login`, `/register` and `/verify-otp` sits behind `auth/ProtectedRoute`, which redirects to `/login` (remembering the original location). Authenticated pages render inside `layout/AppLayout` (sidebar + page).
+`App.jsx` defines the routes. Everything except `/login`, `/register` and `/verify-otp` sits behind `auth/ProtectedRoute`, which redirects to `/login` (remembering the original location). Authenticated pages render inside `layout/AppLayout` (sidebar + page). `/reports`, `/admin/users` and `/admin/roles` are additionally wrapped in `auth/RequirePermission`, which shows the 403 error page when the matrix does not grant the action. `layout/AppLayout` also mounts `auth/IdleLogout`, the inactivity warning and automatic sign-out.
 
 ### 3.2 Data access
 
-- `api/client.js` — `apiFetch(path, { method, body, skipAuth })` adds `Authorization: Bearer <token>` (token read from `localStorage`, key `taskflow.auth`), sends JSON, and throws an `ApiError(status, message, fieldErrors)`. A `401` on an authenticated call clears the stored auth and triggers logout. `apiUpload` does the same for multipart uploads.
+- `api/client.js` — `apiFetch(path, { method, body, skipAuth })` adds `Authorization: Bearer <token>` (token read from `localStorage`, key `taskflow.auth`), sends JSON, and throws an `ApiError(status, message, fieldErrors)`. A `401` on an authenticated call clears the stored auth and triggers logout. `apiUpload` does the same for multipart uploads and `apiDownload` fetches a file with the token (attachments).
 - `api/<resource>.js` — one small module per backend resource (`projects.js`, `tasks.js`, `projectMembers.js`, …). They are thin wrappers over `apiFetch`.
 - `api/useApi.js` — a minimal fetch-on-mount hook returning `{ data, loading, error, refetch }`. It refetches when the `fetcher` function identity changes, so callers wrap fetchers in `useCallback`. There is no React Query/SWR; mutations call `refetch()` afterwards.
 - Derived data helpers: `api/stats.js` (dashboard/report/Kanban grouping), `api/relations.js` (id → users maps, the caller's role per project), `api/format.js`, `api/validation.js` (password rules, mirrored from the backend), `api/permissions.js`.
@@ -142,14 +150,18 @@ The UI no longer carries its own copy of the rules. After login `AuthContext` lo
 | Route | Page | Purpose |
 |---|---|---|
 | `/login`, `/register`, `/verify-otp` | `Login`, `Register`, `VerifyOtp` | Public. Registration shows a live password checklist; OTP page has a 60 s resend cooldown |
-| `/` | `Dashboard` | Task overview by status, top projects, activity chart |
-| `/tasks` | `Tasks` | Tasks grouped by project then status; search, filter (priority, project, *My Tasks*), sort; create/edit/delete; expandable subtasks |
-| `/projects`, `/projects/:id` | `Projects`, `ProjectDetail` | Project cards; detail with status/priority, tasks, members (add member), milestones |
-| `/kanban` | `Kanban` | Columns To Do, In Progress, Review, Done, plus a computed Blocked column |
-| `/calendar` | `Calendar` | Month / Week / Day views of tasks |
+| `/` | `Dashboard` | Project and task statistics (from `GET /api/dashboard/stats`), due and overdue tasks, project cards, *Delayed projects*, recent activity and, for people who can assign tasks, team workload |
+| `/tasks` | `Tasks` | Tasks grouped by project then status; search, filter (status, priority, assignee, due date, project, *My Tasks*), sort, quick views (Today, Upcoming, In Progress, Completed, Overdue); create/edit/delete; expandable subtasks; *Awaiting your approval* at the top |
+| `/projects`, `/projects/:id` | `Projects`, `ProjectDetail` | Project cards; detail with status/priority, completion date, tasks, members (role picker, ownership transfer), milestones (add, edit, delete), attachments, activity |
+| `/projects/:id/:view` | `ProjectViews` | `team`, `workload`, `timeline` or `gantt` for one project |
+| `/kanban` | `Kanban` | Columns To Do, In Progress, In Review, a computed Blocked column, and Completed |
+| `/calendar` | `Calendar` | Month / Week / Day views of task due dates and milestones |
 | `/team` | `Team` | Directory, per-member projects, invite to a project, remove from a project, position/department |
-| `/reports` | `Reports` | Stat cards and charts (completion over time, project progress, productivity, workload) |
+| `/reports` | `Reports` | Needs `REPORT:GENERATE_REPORTS`. Tabs: Overview charts, KPIs and the seven named reports (data from `GET /api/reports/*`) |
+| `/admin/users`, `/admin/roles` | `UsersAdmin`, `RolesPermissions` | Administration: system role per account (`USER:VIEW`), and the role × resource × action grid (`ROLE:VIEW`) |
 | `/profile`, `/settings` | `Profile`, `Settings` | Personal info, password, photo; theme and notification preference |
+| `/help` | `Help` | Help & Support (static FAQ) |
+| `/error/:status`, any unknown path | `ErrorPage` | One page for every error status (404 for unknown paths, 403 from the permission guard) |
 
 The task detail panel (`components/TaskDetailPanel.jsx`) is a right-hand drawer with subtasks, comments, dependencies and the activity feed. New Task and New Project use the same drawer layout (`TaskFormModal`, `NewProjectModal`); editing uses a centered modal.
 

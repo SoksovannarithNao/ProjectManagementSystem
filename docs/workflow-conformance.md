@@ -1,6 +1,15 @@
 # Workflow Conformance Test — 2026-10-08
 
-The running application tested against [project-workflow.md](../project-workflow.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). Sections 1–5 record the test **before any change** to the application, so the result could be trusted; section 6 records the re-test after the role-model migration (`V10`) done later the same day; section 7 records the re-test after change-plan batch 1 (2026-10-09); sections 8–11 record the later batches; section 12 the scheduled reminders, section 13 the Gantt prototype and section 14 the error and help pages (all 2026-10-10).
+The running application tested against [project-workflow.md](../project-workflow.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). Sections 1–5 record the test **before any change** to the application, so the result could be trusted; section 6 records the re-test after the role-model migration (`V10`) done later the same day; section 7 records the re-test after change-plan batch 1 (2026-10-09); sections 8–11 record the later batches; section 12 the scheduled reminders, section 13 the Gantt prototype and section 14 the error and help pages (all 2026-10-10), section 15 the quick-wins batch and section 16 the auto-logout and notifications batch (both 2026-10-12).
+
+**Where things stand now (44 flows, derived on 2026-10-12 by applying the "After" columns of §6–§16 to the table in §2): PASS 40 · PARTIAL 2 · MISSING 2.** The tables in §2–§5 below are the starting point and are kept as the record of that first test; they are not the current state. What is still not a PASS:
+
+| § | Flow | Class | Why |
+|---|---|---|---|
+| 4 | Role & permission | REQUIRED | The grid is editable, but roles cannot be created (D-14) |
+| 19 | Kanban board | REQUIRED / OPTIONAL | Cards cannot be dragged between columns |
+| A7 | Audit log | OPTIONAL | Per-task and per-project feeds only |
+| A9 | Document management | OPTIONAL | Not built |
 
 ## 1. How it was tested
 
@@ -218,3 +227,42 @@ After `ErrorPage` and `Help` (front end only; no backend or schema change) were 
 | Help | pop-up modal | page | *Help & Support* is `/help`, linked from the sidebar, with the FAQ corrected against the app (password on the Profile page; people set their own position / department) and extended (approvals, reminders, schedule, troubleshooting) |
 
 No flow changes class: **PASS 36 · PARTIAL 5 · MISSING 3** as in §13. Playwright **108/108** with `--workers=4`, twice in a row; ESLint clean.
+
+
+## 15. Re-test after the quick wins (2026-10-12)
+
+After migration `V14` and the front-end changes (milestone editing, milestones on the calendar, the Tasks quick views, the near-deadline flag and the project completion date) were deployed to the running stack, the flows were played through the API and the browser (`quick-wins.spec.js`, 3 API and 4 UI cases) and the suites were run again. The live database was backed up first; `V14` applied cleanly and gave the one project that was already Completed its last update time as completion date, without moving `updated_at`.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 20 Calendar | PARTIAL | **PASS** | the month, week and day views list milestones on their due dates beside the tasks (a flag chip announced as "Milestone"); a milestone due today appears in the month and the day view |
+| 21 My Tasks | PARTIAL | **PASS** | a quick-view bar above the task groups: All, Today, Upcoming, In Progress, Completed, Overdue, each with a count, combined with the My Tasks toggle; checked with tasks due today, tomorrow, in ten days and five days ago |
+| 18 Milestones | PASS | PASS | the project page now edits a milestone (title, description, due date, status); completing one with a linked open task shows a warning and leaves the task untouched (D-08) |
+| Core workflow, last step: Complete Project (with a date) | not a numbered flow | done | `projects.completed_at` is stamped when the status becomes Completed, kept while the project is edited, cleared on reopening, returned by the same `PUT`, shown on the project page and in the Project and Project Status reports |
+
+The near-deadline flag (`dueSoon`, the brief's "Tasks Near Deadline") is new in the task responses and the Tasks, Kanban, task panel and dashboard views; it belongs to flows 12 and 28, which stay PASS.
+
+**New totals (44 flows): PASS 38 · PARTIAL 3 · MISSING 3** (the partial flows are Role & permission, Kanban and Notifications; the missing ones are auto-logout and the optional audit log and document management). Backend tests **308/308** (306 + 2 new); Playwright **115/115** (108 + 7 new), twice in a row with `--workers=4`; ESLint clean; `verify_invariants.sql` returns no rows on the live database and on a database built from the init scripts, and `V14` is idempotent when run a second time. No test project, task or milestone is left behind.
+
+
+## 16. Re-test after auto-logout and the missing notifications (2026-10-12)
+
+After `IdleLogout` and `UpdateNotificationService` were deployed to the running stack (no schema change), the flows were played through the browser and the API (`idle-and-updates.spec.js`: 5 auto-logout cases using Playwright's fake clock, 6 notification cases) and the suites were run again.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| A3 Session & auto-logout | MISSING | **PASS** | after 15 minutes without activity a *Still there?* dialog counts down 60 seconds; *Stay signed in* restarts the clock, activity before the warning (in this or another tab) restarts it, *Sign out now* signs out at once, and when the minute runs out the session is cleared and the login page says why. Browser-side: the token is not revoked on the server |
+| 26 Notifications | PARTIAL | **PASS** | all 11 allowed types are produced now. A comment reaches the task's assignees, the Owner and the Team Leader (not the author); a reply also reaches the parent comment's author; editing or completing a project tells the assignees of its tasks and the leaders; editing or completing a milestone tells the assignees of its linked tasks and the leaders; nothing is sent for a save that changes nothing. Member added / removed stays pending in D-10 |
+
+**New totals (44 flows): PASS 40 · PARTIAL 2 · MISSING 2** (the partial flows are Role & permission and Kanban; the missing ones are the optional audit log and document management). Backend tests **326/326** (308 + 18 new); Playwright **126/126** (115 + 11 new), twice in a row with `--workers=4`; ESLint clean. No test project, task or notification is left behind (deleting the throw-away project removes its notifications).
+
+## 17. Re-test after the testing and CI batch (2026-10-12)
+
+No flow changed state, but one defect turned up while the whole suite was run on a freshly built stack, and the core flow is now a single automated test.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| Project creation (create a project, `PRJ-####` code) | PASS | **PASS** | two simultaneous creates could pick the same code and one got a `409` the user never caused (2 of 8 parallel creates failed). A transaction-scoped database lock now makes them take turns; 30 of 30 parallel creates succeeded. F-39 |
+| 69 Core workflow (project → team → milestone → task → approval → completion) | PASS (steps tested separately) | **PASS** | `core-workflow.spec.js` walks the whole flow in one test and checks the project page at the end; registration is covered by `registration.spec.js` |
+
+**Totals unchanged (44 flows): PASS 40 · PARTIAL 2 · MISSING 2.** Backend tests **328/328**; frontend unit tests **128/128** (new); Playwright **145/145** (126 + 19 new), also on a freshly built stack with an empty database; ESLint clean. The case-by-case list is in [test-cases.md](test-cases.md).

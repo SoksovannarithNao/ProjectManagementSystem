@@ -37,6 +37,22 @@ class DerivedTest {
     }
 
     @Test
+    void aTaskIsDueSoonFromTodayUntilThreeDaysAhead() {
+        assertThat(Derived.isTaskDueSoon("TODO", TODAY, TODAY)).as("due today").isTrue();
+        assertThat(Derived.isTaskDueSoon("IN_PROGRESS", TODAY.plusDays(1), TODAY)).isTrue();
+        assertThat(Derived.isTaskDueSoon("IN_REVIEW", TODAY.plusDays(3), TODAY)).as("the last day of the window").isTrue();
+        assertThat(Derived.isTaskDueSoon("TODO", TODAY.plusDays(4), TODAY)).as("one day too far").isFalse();
+    }
+
+    @Test
+    void aTaskIsNotDueSoon_whenOverdue_finishedOrWithoutADate() {
+        assertThat(Derived.isTaskDueSoon("TODO", TODAY.minusDays(1), TODAY)).as("overdue is its own state").isFalse();
+        assertThat(Derived.isTaskDueSoon("COMPLETED", TODAY.plusDays(1), TODAY)).isFalse();
+        assertThat(Derived.isTaskDueSoon("CANCELLED", TODAY.plusDays(1), TODAY)).isFalse();
+        assertThat(Derived.isTaskDueSoon("TODO", null, TODAY)).isFalse();
+    }
+
+    @Test
     void daysLateCountsCalendarDays_andIsZeroBeforeTheDate() {
         assertThat(Derived.daysLate(LocalDate.of(2026, 10, 1), TODAY)).isEqualTo(10);
         assertThat(Derived.daysLate(TODAY, TODAY)).isZero();

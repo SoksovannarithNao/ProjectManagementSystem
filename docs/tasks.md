@@ -1,6 +1,6 @@
 # Task Management
 
-Tasks, milestones, subtasks, dependencies, assignment, comments and activity history. Code: `TaskService`, `MilestoneService`, `SubtaskService`, `TaskAssigneeService`, `TaskDependencyService`, `CommentService`, `ActivityLogService`; UI: `pages/Tasks.jsx`, `Kanban.jsx`, `Calendar.jsx`, `ProjectDetail.jsx`, `components/TaskFormModal.jsx`, `TaskDetailPanel.jsx`. Database rules are in [database.md](database.md#5-triggers-and-functions).
+Tasks, milestones, subtasks, checklists, attachments, dependencies, assignment, approval, comments, time tracking and activity history. Code: `TaskService`, `TaskApprovalService`, `MilestoneService`, `SubtaskService`, `ChecklistItemService`, `AttachmentService`, `TaskAssigneeService`, `TaskDependencyService`, `CommentService`, `WorkLogService`, `ActivityLogService`; UI: `pages/Tasks.jsx`, `Kanban.jsx`, `Calendar.jsx`, `ProjectDetail.jsx`, `components/TaskFormModal.jsx`, `TaskDetailPanel.jsx`. Database rules are in [database.md](database.md#5-triggers-and-functions).
 
 ## 1. Task structure
 
@@ -22,7 +22,7 @@ A task **always belongs to exactly one project** (`tasks.project_id NOT NULL`, `
 | `createdBy` | user | Always the caller on create (a client-supplied `createdById` is honoured only for a system administrator) |
 | `createdAt`, `updatedAt` | timestamps | database-maintained |
 
-Computed in `TaskResponse` (not stored): `overdue` (due date before today and status not `COMPLETED`/`CANCELLED` — the same definition as view `v_overdue_tasks`), `totalSubtasks`, `completedSubtasks`, `blocked`, `blockingTaskTitles`.
+Computed in `TaskResponse` (not stored): `overdue` (due date before today and status not `COMPLETED`/`CANCELLED` — the same definition as view `v_overdue_tasks`), `dueSoon` (not `COMPLETED`/`CANCELLED` and due today or within the next 3 days, `Derived.isTaskDueSoon`; the UI shows it as a *Due today / tomorrow / in N days* badge; an overdue task is never also due soon), `totalSubtasks`, `completedSubtasks`, `blocked`, `blockingTaskTitles`.
 
 ## 2. Status and priority
 
@@ -71,11 +71,13 @@ The sidebar entry and page are named **Tasks** (renamed from "My Tasks" on 2026-
 - It needs no backend change: `GET /api/task-assignees` already returns every assignment in the caller's projects, scoped like every other read.
 - A user with no assignments (for example the seeded `admin.system`) sees the empty state "No tasks match your search/filters".
 
-Page behaviour: search matches title, description and project name; search also matches assignee names, priority, status and due date; filters are **status** (multi-select), **priority** (multi-select), **assignee** (or *Unassigned*), **due date** (*Overdue*, *Due today*, *Due in the next 7 days*, *No due date*), project and My Tasks, all combined with AND; sort is *Due date*, *Latest*, *Priority*, *Progress*, *Status* or *Title (A–Z)*. They run in the browser over the tasks the server already limited to the caller. There is no "today / upcoming" grouping. Fully complete projects sink to the bottom.
+Page behaviour: search matches title, description and project name; search also matches assignee names, priority, status and due date; filters are **status** (multi-select), **priority** (multi-select), **assignee** (or *Unassigned*), **due date** (*Overdue*, *Due today*, *Due in the next 7 days*, *No due date*), project and My Tasks, all combined with AND; sort is *Due date*, *Latest*, *Priority*, *Progress*, *Status* or *Title (A–Z)*. They run in the browser over the tasks the server already limited to the caller. Fully complete projects sink to the bottom.
+
+**Quick views** (since 2026-10-12, the brief's *My Tasks* groups): a bar above the list with **All, Today, Upcoming, In Progress, Completed and Overdue**, each showing how many tasks it holds. A view narrows what the search and the filters (including *My Tasks*) already leave, so *My Tasks* + *Today* is "my tasks due today". *Today* = open tasks due today, *Upcoming* = open tasks due after today, *In Progress* = status In Progress, *Completed* = status Completed, *Overdue* = the server's `overdue` flag; "open" means not Completed or Cancelled. Selecting a view does not count toward the "Filter (N)" badge, and *All* shows everything again.
 
 ## 4a. Permissions summary
 
-See the full matrix in [authentication-authorization.md](authentication-authorization.md#52-permission-matrix). In short: Project Managers and Team Leaders (`OWNER`/`ADMIN`) do everything, including **approving** a task as completed; a Team Member (`MEMBER`) creates tasks and edits subtasks/comments; an **assigned** user may change only `status`/`progress` of that task, and may move it to *In Review* but not to *Completed*; `VIEWER` is read-only — it cannot add comments or subtasks, nor change a task even if assigned to it (changed 2026-10-06).
+See the full matrix in [authentication-authorization.md](authentication-authorization.md#52-project-scope-matrix). In short: Project Managers and Team Leaders (`OWNER`/`ADMIN`) do everything, including **approving** a task as completed; a Team Member (`MEMBER`) does **not** create or delete tasks, but works on subtasks, checklist items, comments, files and time; an **assigned** user may change only `status`/`progress` of that task, and may move it to *In Review* but not to *Completed*; `VIEWER` is read-only — it cannot add comments or subtasks, nor change a task even if assigned to it (changed 2026-10-06).
 
 ## 5. Subtasks
 
@@ -104,8 +106,8 @@ Table `comments`: `message` (required, ≤ 4000), `task`, `user`, optional `pare
 | Edit | the author only |
 | Delete | the author, or a holder of `COMMENT:DELETE` (Project Manager, Team Leader, administrator) |
 | UI | add, edit own, delete, and **reply** (task panel): replies are nested under their comment and the composer shows "Replying to …" |
-| Notification | **none** — `COMMENT_ADDED` exists as an allowed type but no code creates it |
-| Activity | **none** — `COMMENT_ADDED` is allowed in `activity_logs.action` but is never written |
+| Notification | `COMMENT_ADDED` (since 2026-10-12): the task's assignees, the project's Owner and Team Leaders and, for a reply, the author of the comment it answers; never the author ([notifications.md](notifications.md#9-comments-project-updates-and-milestone-updates-since-2026-10-12)) |
+| Activity | `COMMENT_ADDED` is written to the task feed (`CommentService`) |
 | Reply validation | the parent comment must exist and belong to the same task (`400 "The comment you are replying to belongs to another task"`, since 2026-10-09) |
 | Deleting a comment with replies | database `ON DELETE CASCADE` removes the replies |
 
@@ -127,30 +129,35 @@ Surfacing: `TaskResponse.blocked` and `blockingTaskTitles` (names of the unfinis
 
 Table `milestones`: `title` (≤ 200, required), `description`, `dueDate` (required), `status` (`PENDING`, `IN_PROGRESS`, `COMPLETED`), `progress`.
 
-- Create / update / delete: `MILESTONE:CREATE/EDIT/DELETE` (Project Manager, Team Leader, administrator) (moving a milestone to another project via update also needs the right on the target project — changed 2026-10-06). The project page lets you **add** (title + due date) and **delete**; **editing a milestone exists only in the API**.
+- Create / update / delete: `MILESTONE:CREATE/EDIT/DELETE` (Project Manager, Team Leader, administrator) (moving a milestone to another project via update also needs the right on the target project — changed 2026-10-06). The project page lets you **add** (title + due date), **edit** (title, description, due date and status, in a form; since 2026-10-12) and **delete**. Completing a milestone while linked tasks are still open is allowed (D-08): the form warns, and the tasks are not changed.
 - `dueDate` must fall within the project's start and end dates (trigger).
 - `progress` is derived like a project's (completed ÷ non-cancelled tasks linked to it); `status` is **not** derived — it stays whatever was set.
-- Calendar does not show milestones; the milestone selector is absent from the task forms.
+- The Calendar shows milestones on their due dates beside the tasks (since 2026-10-12); the milestone selector is absent from the task forms (the API accepts `milestoneId`).
 
 ## 9. Activity and history
 
-`GET /api/activity-logs/task/{taskId}` returns the task's feed, newest first. The task panel's Activity section shows it and refreshes after changes.
+Three read-only feeds, all newest first: `GET /api/activity-logs/task/{taskId}` (the task panel's Activity section, refreshed after changes), `GET /api/activity-logs/project/{projectId}` (the *Activity* card on the project page) and `GET /api/activity-logs/recent` (the dashboard's *Recent activity*, across the caller's projects).
 
-Events actually written by code (`ActivityLogService.record`):
+Events written by code (`ActivityLogService.record` for a task, `recordProjectEvent` for the project itself):
 
 | Action | Written when |
 |---|---|
 | `TASK_CREATED` | a task is created ("Task created") |
-| `TASK_STATUS_CHANGED` | status changes ("Status changed from To Do to In Progress"); also by the subtask auto-promotion |
+| `TASK_STATUS_CHANGED` | status changes ("Status changed from To Do to In Progress"); also by the subtask auto-promotion and the approval workflow |
 | `TASK_PRIORITY_CHANGED` | priority changes |
 | `TASK_DUE_DATE_CHANGED` | due date changes |
 | `TASK_ASSIGNED` / `TASK_UNASSIGNED` | assignment added / removed |
 | `SUBTASK_ADDED` / `SUBTASK_COMPLETED` / `SUBTASK_DELETED` | subtask events |
-| `TASK_DELETED` | a task is deleted — written with **no task link** (only the project), so it is **not returned by any endpoint** (the only read is per task) |
+| `COMMENT_ADDED` | a comment or reply is added |
+| `FILE_UPLOADED` | a file is attached to a task or to the project |
+| `TASK_APPROVAL_REQUESTED` / `TASK_APPROVED` / `TASK_CHANGES_REQUESTED` / `TASK_REJECTED` / `TASK_APPROVER_SET` | the approval workflow |
+| `PROJECT_CREATED` / `PROJECT_UPDATED` / `PROJECT_COMPLETED` | project events (no task link) |
+| `MILESTONE_CREATED` / `MILESTONE_COMPLETED` | milestone events (no task link) |
+| `TASK_DELETED` | a task is deleted — written with **no task link** (only the project), so it appears in the project and recent feeds but never in a task's own feed |
 
-Allowed by the database `CHECK` but **never written**: `PROJECT_CREATED`, `PROJECT_UPDATED`, `PROJECT_COMPLETED`, `TASK_COMPLETED`, `COMMENT_ADDED`, `FILE_UPLOADED`, `MILESTONE_CREATED`, `MILESTONE_COMPLETED`. There is no project-wide or per-user feed and no generic audit interceptor. Entries are written inside the same transaction as the change.
+Allowed by the database `CHECK` but **never written**: `TASK_COMPLETED` (a completion is recorded as `TASK_APPROVED` and `TASK_STATUS_CHANGED`). There is no per-user feed and no generic audit interceptor. Entries are written inside the same transaction as the change.
 
-Changes to title, description, dates other than due date, estimated hours, project and milestone are not logged.
+Changes to title, description, dates other than due date, estimated hours, project and milestone are not logged, and neither are time logs.
 
 ## 10. Task rules at a glance
 
@@ -181,4 +188,4 @@ Implements the "Estimated Time / Actual Time" part of the assignment (Time Track
 - **Deleting** — the author, or a holder of `WORK_LOG:DELETE` (Project Manager, Team Leader, administrator), can delete an entry. There is no edit; delete and log again.
 - **Display** — the panel shows `logged / estimated`, a progress bar and the time left, or in the danger colour how far over the estimate the task is. Task rows and board cards show a small `1h 30m / 13h` chip (danger colour once over).
 
-Not covered: logging does not write to the task's activity history, because `activity_logs.action` has a `CHECK` list with no work-log value (adding one needs a schema migration); the workload view (`v_team_workload`) still has no API or screen, so per-person actual hours are not shown anywhere yet.
+Not covered: logging does not write to the task's activity history, because `activity_logs.action` has a `CHECK` list with no work-log value (adding one needs a schema migration). Per-person actual hours do appear in the project *Workload* view and the Workload report (`actualHours`, calculated by `TeamViewsService`); the SQL view `v_team_workload` itself is not read by the application.

@@ -1,8 +1,8 @@
 # API Reference
 
-All **119 endpoints** exposed by the 25 controllers in `backend/src/main/java/backend/controller/`, derived directly from the code (the original 84 were checked against the running application on 2026-10-06; the three work-log endpoints and the four permission endpoints were added and checked on 2026-10-08). **This page is the single source of truth for the API.** The folder `api/` also holds `openapi.yaml`, an older machine-readable contract that documents only 57 of the 87 endpoints and still uses removed role names; it is no longer maintained (see [section 18](#18-the-legacy-openapiyaml)). The former `api/README.md` was removed and its content now lives in [section 2](#2-conventions) below.
+All **119 endpoints** exposed by the 25 controllers in `backend/src/main/java/backend/controller/`, derived directly from the code (the original 84 were checked against the running application on 2026-10-06; the later ones were added and checked as they were built, and on 2026-10-12 every `@GetMapping` / `@PostMapping` / `@PutMapping` / `@DeleteMapping` was matched against this page: none is missing). **This page is the single source of truth for the API.** The folder `api/` also holds `openapi.yaml`, an older machine-readable contract that documents only 57 of the 119 endpoints and still uses removed role names; it is no longer maintained (see [section 18](#18-the-legacy-openapiyaml)). The former `api/README.md` was removed and its content now lives in [section 2](#2-conventions) below.
 
-Contents: [1 Getting started](#1-getting-started) · [2 Conventions](#2-conventions) · [3 Auth](#3-auth) · [4 Users](#4-users) · [5 Roles, positions, departments](#5-roles-positions-departments) · [6 Projects](#6-projects) · [7 Project members and invitations](#7-project-members-and-invitations) · [8 Milestones](#8-milestones) · [9 Tasks](#9-tasks) · [10 Assignees](#10-task-assignees) · [11 Dependencies](#11-task-dependencies) · [12 Subtasks](#12-subtasks) · [13 Comments](#13-comments) · [13b Work logs](#13b-work-logs-time-tracking) · [14 Activity](#14-activity-logs) · [15 Notifications](#15-notifications) · [16 Photos and health](#16-photos-and-health) · [17 Errors](#17-error-responses-and-status-codes) · [18 Legacy openapi.yaml](#18-the-legacy-openapiyaml)
+Contents: [1 Getting started](#1-getting-started) · [2 Conventions](#2-conventions) · [3 Auth](#3-auth) · [4 Users](#4-users) · [5 Roles, positions, departments](#5-roles-positions-departments) · [6 Projects](#6-projects) · [7 Project members and invitations](#7-project-members-and-invitations) · [8 Milestones](#8-milestones) · [9 Tasks](#9-tasks) · [9b Task approval](#9b-task-approval) · [10 Assignees](#10-task-assignees) · [11 Dependencies](#11-task-dependencies) · [12 Subtasks](#12-subtasks) · [12b Checklist items](#12b-checklist-items) · [12c Attachments](#12c-attachments) · [13 Comments](#13-comments) · [13b Work logs](#13b-work-logs-time-tracking) · [13c Dashboard and manager views](#13c-dashboard-and-manager-views) · [13d KPIs and reports](#13d-kpis-and-reports) · [14 Activity](#14-activity-logs) · [15 Notifications](#15-notifications) · [16 Photos and health](#16-photos-and-health) · [17 Errors](#17-error-responses-and-status-codes) · [18 Legacy openapi.yaml](#18-the-legacy-openapiyaml)
 
 ## 1. Getting started
 
@@ -65,7 +65,7 @@ Which role holds which grant is data (`role_permissions`) and can be edited by a
 - **Correct HTTP status codes.** Every create returns `201 Created`, every delete `204 No Content`, and a missing row returns a clean `404` JSON body (`{"status":404,"error":"Not Found","message":"..."}`) from `GlobalExceptionHandler`, a real `@RestControllerAdvice`. A path that no controller serves (a mistyped URL) also answers `404 "Resource not found"`; it used to answer `500` and log a stack trace (fixed 2026-10-09). The one exception is `POST /api/notifications/read-all`, which returns `204`: it is a `POST` that changes existing rows rather than creating one.
 - **Every response is a DTO, never a raw JPA entity.** `UserResponse` never includes a password field of any kind, and wherever a user, project or task appears nested inside another resource (`Project.manager`, `ProjectMember.user`, `TaskAssignee.user`, `Task.createdBy`) it is the same `UserResponse` / `ProjectResponse` DTO, not the entity.
 - **Passwords are hashed.** `POST /api/users`, `PUT /api/users/{id}` and `PUT /api/users/me` accept a plaintext `password` and BCrypt-hash it server-side (`UserService`, through Spring Security's `PasswordEncoder`).
-- **Authorization is a role × resource × action matrix, project-scoped.** System-wide actions (users, roles, the matrix, positions/departments, creating a project) use `@PreAuthorize("@permissions.require(...)")`; everything else is checked in service code against the grants of the caller's system role plus the role they hold in *that* project (`OWNER` / `ADMIN` / `MEMBER` / `VIEWER`). `PUT /api/tasks/{id}` is the ownership-scoped exception on top: a holder of `TASK:EDIT` can edit any task in full, anyone else can call it only for a task they are assigned to (`403` otherwise) and then only `status` and `progress` take effect; completing a task needs `TASK:APPROVE`. Per-resource policy: [backend.md](backend.md#security); the matrix: [authentication-authorization.md](authentication-authorization.md#52-permission-matrix).
+- **Authorization is a role × resource × action matrix, project-scoped.** System-wide actions (users, roles, the matrix, positions/departments, creating a project) use `@PreAuthorize("@permissions.require(...)")`; everything else is checked in service code against the grants of the caller's system role plus the role they hold in *that* project (`OWNER` / `ADMIN` / `MEMBER` / `VIEWER`). `PUT /api/tasks/{id}` is the ownership-scoped exception on top: a holder of `TASK:EDIT` can edit any task in full, anyone else can call it only for a task they are assigned to (`403` otherwise) and then only `status` and `progress` take effect; completing a task needs `TASK:APPROVE`. Per-resource policy: [backend.md](backend.md#security); the matrix: [authentication-authorization.md](authentication-authorization.md#52-project-scope-matrix).
 - **Login rate limiting.** `POST /api/auth/login` returns `429 Too Many Requests` after 5 failed attempts within 15 minutes for the same `remoteAddr:<what was typed>` key (a username or an e-mail address, counted separately; in-memory, resets on restart; a successful login clears the counter).
 - **Self-registration is a separate public flow.** `POST /api/auth/register` creates a `PENDING_VERIFICATION` account and emails an OTP (Mailpit locally); `POST /api/auth/verify-otp` activates it, `POST /api/auth/resend-otp` re-sends the code, and `login` rejects an unverified account.
 - **`GET /api/photos/{token}` is the one endpoint with no auth at all, on purpose.** An `<img>` tag cannot send a bearer token, so profile photos are served by an unguessable per-upload token instead of the user's id.
@@ -87,7 +87,7 @@ Controller: `AuthController` · base `/api/auth`
 
 | Method & path | Auth | Request | Success | Errors |
 |---|---|---|---|---|
-| `POST /api/auth/login` | Public | `{ username, password }` — both required; `username` may also be the **e-mail address** of the account (any letter case) | `200` `{ token, username, role }` (`role` is `"ADMINISTRATOR"`, `"USER"` or `null`) | `401 "Invalid username or password"` (wrong credentials **or** non-`ACTIVE` account); `429` after 5 failures in 15 min per `remoteAddr:username` |
+| `POST /api/auth/login` | Public | `{ username, password }` — both required; `username` may also be the **e-mail address** of the account (any letter case) | `200` `{ token, username, role }` (`role` is the account's system role: `"ADMINISTRATOR"`, `"PROJECT_MANAGER"`, `"USER"`, or `null` for an account with none) | `401 "Invalid username or password"` (wrong credentials **or** non-`ACTIVE` account); `429` after 5 failures in 15 min per `remoteAddr:username` |
 | `POST /api/auth/register` | Public | `{ username (3–50, [A-Za-z0-9._-]), email (valid, ≤255), password (policy), confirmPassword }` | `201` `{ username, email, message }`; emails a 6-digit code | `400` validation; `400 "Username is already taken"`, `"Email is already registered"`, `"Password and confirmation do not match"` |
 | `POST /api/auth/verify-otp` | Public | `{ username, otp }` — `otp` must match `\d{6}` | `200` (empty) — account becomes `ACTIVE` | `400` `"This account is already verified"`, `"No verification code found…"`, `"This code has already been used"`, `"…has expired — request a new one"`, `"Too many incorrect attempts…"`, `"Incorrect code — N attempt(s) remaining"`; `404 "User not found"` |
 | `POST /api/auth/resend-otp` | Public | `{ username }` | `200` (empty) | `400 "This account is already verified"`; `429 "Please wait Ns before requesting another code"` (60 s cooldown) |
@@ -135,7 +135,7 @@ There are no update or delete endpoints for positions or departments.
 
 ## 6. Projects
 
-Controller: `ProjectController` · base `/api/projects`. `ProjectResponse`: `id, projectCode, name, description, startDate, endDate, manager (UserResponse), priority, status, progress, createdAt, updatedAt`.
+Controller: `ProjectController` · base `/api/projects`. `ProjectResponse`: `id, projectCode, name, description, startDate, endDate, manager (UserResponse), priority, status, progress, completedAt, createdAt, updatedAt, delayed, daysDelayed`. `completedAt` is set by the database when the status becomes `COMPLETED`, kept while the project is edited and `null` again when it is reopened; it is never taken from the request.
 
 | Method & path | Auth | Request | Success | Notes / errors |
 |---|---|---|---|---|
@@ -182,7 +182,7 @@ Controller: `MilestoneController` · base `/api/milestones`. `MilestoneResponse`
 
 ## 9. Tasks
 
-Controller: `TaskController` · base `/api/tasks`. `TaskResponse`: `id, project, milestone, title, description, priority, status, startDate, dueDate, estimatedHours, actualHours, progress, completedAt, createdBy, createdAt, updatedAt, totalSubtasks, completedSubtasks, overdue, blocked, blockingTaskTitles, approver, approvalStatus, approvalRequestedBy, approvalRequestedAt` (`approvalStatus` is the newest approval request: `PENDING`, `APPROVED`, `CHANGES_REQUESTED`, `REJECTED`, `WITHDRAWN`, or `null` when never submitted).
+Controller: `TaskController` · base `/api/tasks`. `TaskResponse`: `id, project, milestone, title, description, priority, status, startDate, dueDate, estimatedHours, actualHours, progress, completedAt, createdBy, createdAt, updatedAt, totalSubtasks, completedSubtasks, overdue, dueSoon, blocked, blockingTaskTitles, approver, approvalStatus, approvalRequestedBy, approvalRequestedAt` (`approvalStatus` is the newest approval request: `PENDING`, `APPROVED`, `CHANGES_REQUESTED`, `REJECTED`, `WITHDRAWN`, or `null` when never submitted).
 
 | Method & path | Auth | Request | Success | Notes / errors |
 |---|---|---|---|---|
@@ -275,7 +275,7 @@ Controller: `CommentController` · base `/api/comments`. `CommentResponse`: `id,
 | Method & path | Auth | Request | Success | Notes |
 |---|---|---|---|---|
 | `GET /api/comments/task/{taskId}` | Member | — | `200[]` oldest first | |
-| `POST /api/comments` | Content | `{ taskId ★, message (≤4000) ★, parentCommentId }` | `201` | `403` for a `VIEWER` (changed 2026-10-06; reading is still allowed); parent must exist (`404`), same-task is not checked; no notification, no activity entry |
+| `POST /api/comments` | Content | `{ taskId ★, message (≤4000) ★, parentCommentId }` | `201` | `403` for a `VIEWER` (changed 2026-10-06; reading is still allowed); parent must exist (`404 "Parent comment not found"`) and belong to the same task (`400 "The comment you are replying to belongs to another task"`); writes `COMMENT_ADDED` to the activity feed and notifies the task's assignees, the project's Owner and Team Leaders and, for a reply, the parent comment's author (never the author) |
 | `PUT /api/comments/{id}` | author only | `{ taskId ★, message ★ }` | `200` | `403 "You do not have permission…"` for anyone else, including administrators |
 | `DELETE /api/comments/{id}` | author, or Manager | — | `204` | replies are deleted too |
 
@@ -303,7 +303,7 @@ Controllers: `DashboardController`, `TeamViewsController`. Everything here is ca
 | `GET /api/projects/{id}/workload` | same | `200 { projectId, projectName, teamSize, averageOpenTasks, averageEstimatedHours, members: [{ user, assigned, active, overdue, estimatedHours, actualHours, level }] }` | `level` is `OVERLOADED`, `UNDERLOADED` or `BALANCED` against the team average (D-13). `assigned` = non-cancelled tasks, `active` = in progress, `overdue` = past due and not finished, `estimatedHours` = of unfinished tasks, `actualHours` = hours this person logged on the team's tasks. An Owner or Team Leader is listed only once work is assigned to them |
 | `GET /api/workload` | needs `TASK:ASSIGN` in at least one project | `200` the same shape across every project the caller manages (`projectId` null) | `403` for someone who manages none |
 
-`ProjectResponse` also carries `delayed` and `daysDelayed` (the end date passed and the project is neither `COMPLETED` nor `CANCELLED`).
+`ProjectResponse` also carries `delayed` and `daysDelayed` (the end date passed and the project is neither `COMPLETED` nor `CANCELLED`). `TaskResponse.dueSoon` is calculated the same way: the task is not `COMPLETED` or `CANCELLED` and is due today or within the next 3 days (`Derived.DUE_SOON_DAYS`, the first reminder day); an overdue task is `overdue`, never `dueSoon`.
 
 **Role rules of `PUT /api/project-members/{id}`** (B3.7, B3.9): nobody changes their own project role (`403`; the Owner stepping down is told `400 "Transfer ownership"` first); the Owner and an Administrator may set any role (setting `OWNER` is the transfer); a Team Leader may only make a Team Member a Team Member or a Viewer and cannot change the role of the Owner or another Team Leader (`403`).
 
@@ -324,6 +324,8 @@ Controller: `ReportController` (assignment-brief.md B8, D-12). Every endpoint is
 | `GET /api/reports/team-performance` | `projectId`, `from`, `to` (due range) | `200 { scope, members: [{ user, assigned, completed, todo, inProgress, inReview, overdue, completionRate }] }` | Over each member's non-cancelled tasks; `todo` is the B1.3 "pending" |
 | `GET /api/reports/workload` | `projectId` | `200 { scope, workload }` | `workload` has the shape of `GET /api/projects/{id}/workload` ([section 13c](#13c-dashboard-and-manager-views)) |
 
+A `ProjectRow` (the `project` of the Project Report and every row of the Project Status Report) is `{ id, projectCode, name, status, priority, owner, startDate, endDate, progress, delayed, daysDelayed, completedAt }`; `completedAt` is the project's completion date, `null` until it is completed.
+
 Export (PDF / Excel) is optional and not built.
 
 ## 14. Activity logs
@@ -332,7 +334,7 @@ Export (PDF / Excel) is optional and not built.
 |---|---|---|---|
 | `GET /api/activity-logs/recent?limit=` | Any user (scoped) | `200 ActivityLogResponse[]` newest first (`limit` default 10, 1–50; entries carry `projectId` and `projectName`) | the latest events across the caller's projects (all projects for an administrator): the dashboard's "Recent activity" |
 | `GET /api/activity-logs/project/{projectId}?limit=` | Member | `200 ActivityLogResponse[]` newest first (`limit` default 50, 1–200) | the project feed: project created / updated / completed, milestone created / completed, task, subtask and approval events, comments, files; `404` for a stranger. Each entry has `taskId` and `taskTitle` when it is about a task |
-| `GET /api/activity-logs/task/{taskId}` | Member | `200 ActivityLogResponse[]` (`id, action, description, userId, userName, taskId, taskTitle, createdAt`), newest first | Read-only; entries are written by services, never posted. `TASK_DELETED` entries are not returned by any endpoint |
+| `GET /api/activity-logs/task/{taskId}` | Member | `200 ActivityLogResponse[]` (`id, action, description, userId, userName, taskId, taskTitle, createdAt`), newest first | Read-only; entries are written by services, never posted. `TASK_DELETED` entries carry no task link, so they appear in the project and recent feeds but not here |
 
 ## 15. Notifications
 
@@ -365,20 +367,20 @@ Which codes this API actually returns, and from where (`GlobalExceptionHandler` 
 | 400 | path value of the wrong type; missing request parameter; unreadable JSON; upload too large; multipart request without the file | `"Invalid value for 'id'"`, `"Malformed request body"`, `"File is too large"`, `"No file was uploaded"` |
 | **401** | no/invalid/expired token, **or a token whose account is no longer `ACTIVE`** (suspended, inactive, pending, deleted) — from Spring Security, **empty body** | — |
 | 401 | login failed (any reason) | `"Invalid username or password"` |
-| **403** | `AccessDeniedException` (service checks) and `@PreAuthorize` failures | always the generic `"You do not have permission to perform this action"` |
+| **403** | `AccessDeniedException` (service checks) and `@PreAuthorize` failures | the specific sentence the permission layer threw, for example `"Only a Project Manager or an Administrator can create a project"`; the generic `"You do not have permission to perform this action"` only when Spring supplies no message of its own (its default `"Access Denied"`) |
 | **404** | `NotFoundException`, including project access for non-members; a path no controller serves | `"Project not found"`, `"Task not found"`, `"User not found"`, …; `"Resource not found"` for an unknown path |
 | **409** | `ConflictException`, and the safety net for the `projects.project_code` unique constraint — **the only use of 409** | `"Project code already exists."` |
 | **429** | login lockout; OTP resend cooldown | `"Too many failed login attempts. Try again later."`, `"Please wait Ns before requesting another code"` |
 | **500** | any unhandled exception | `"An unexpected error occurred"` (details only in `backend/logs/log.txt`) |
 
-Notes: `403` bodies never say *why*, so a client cannot distinguish "wrong role" from "not assigned". `404` instead of `403` is deliberate for project and notification lookups so existence is not revealed.
+Notes: most `403` bodies name what is missing (a role, an assignment), which is safe because the caller already knows the project exists. `404` instead of `403` is deliberate for project and notification lookups so existence is not revealed.
 
 ## 18. The legacy `openapi.yaml`
 
 `api/openapi.yaml` is an OpenAPI 3.0.3 file written early in the project. Reviewed on 2026-10-08 against the controllers and DTOs, it:
 
-- documents **57 of the 91 endpoints** (63%) and no documented endpoint has been removed;
-- is missing 34 endpoints: registration and OTP, profile photo and preferences, positions and departments, comments, subtasks, invitations, activity logs, notification delete and work logs;
+- documents **57 of the 119 endpoints** (48%; 35 paths) and no documented endpoint has been removed. (The review of 2026-10-08 counted 57 of 91; the 28 endpoints added since are all undocumented there);
+- is missing 62 endpoints: registration and OTP, profile photo and preferences, positions and departments, comments, subtasks, invitations, activity logs, notification delete, work logs, task approval, checklist items, attachments, the dashboard and manager views, the KPIs and reports, and the permission matrix;
 - names the roles `PROJECT_MANAGER`, `TEAM_LEADER` and `TEAM_MEMBER` as global roles in 23 places with the old per-endpoint rules, so its authorization text is wrong (the names exist again since 2026-10-08, but the rules differ);
 - has six drifted schemas (`TaskResponse`, `ProjectMemberResponse`, `UserResponse`, `UserCreateRequest`, `UserUpdateRequest`, `SelfProfileUpdateRequest`), 22 DTOs with no schema, and no `operationId` on any operation.
 

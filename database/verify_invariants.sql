@@ -96,3 +96,9 @@ SELECT t.id, t.title
 FROM tasks t
 WHERE t.status = 'IN_REVIEW'
   AND NOT EXISTS (SELECT 1 FROM task_approvals a WHERE a.task_id = t.id AND a.decision = 'PENDING');
+
+-- 12. A COMPLETED project has a completion date and any other project has none
+--     (trg_projects_completed_at; V14).
+SELECT id, project_code, status, completed_at
+FROM projects
+WHERE (status = 'COMPLETED') <> (completed_at IS NOT NULL);

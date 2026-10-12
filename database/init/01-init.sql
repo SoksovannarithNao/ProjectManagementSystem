@@ -305,6 +305,9 @@ CREATE TABLE projects (
                  CHECK (status IN ('PLANNING', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED')),
     progress     NUMERIC(5, 2) NOT NULL DEFAULT 0
                  CHECK (progress BETWEEN 0 AND 100),
+    -- When the project became COMPLETED; stamped and cleared by
+    -- trg_projects_completed_at below, never set by the application (V14).
+    completed_at TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (end_date >= start_date)
@@ -316,6 +319,25 @@ CREATE INDEX idx_projects_status ON projects (status);
 CREATE TRIGGER trg_projects_updated_at
     BEFORE UPDATE ON projects
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- A COMPLETED project has a completion date, any other status has none: stamp
+-- completed_at when the status becomes COMPLETED (keeping an existing date) and
+-- clear it when the project is reopened, as trg_tasks_completed_at does for tasks.
+CREATE OR REPLACE FUNCTION set_project_completed_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'COMPLETED' AND NEW.completed_at IS NULL THEN
+        NEW.completed_at = now();
+    ELSIF NEW.status <> 'COMPLETED' THEN
+        NEW.completed_at = NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_projects_completed_at
+    BEFORE INSERT OR UPDATE ON projects
+    FOR EACH ROW EXECUTE FUNCTION set_project_completed_at();
 
 -- ==================== project_members ==================== --
 

@@ -1,6 +1,6 @@
 # Project Documentation
 
-Documentation for the **TaskFlow** task and project management system (React frontend, Spring Boot API, PostgreSQL). Everything here was written from the code, the SQL scripts, the running application, the tests and the git history, and cross-checked between layers. First verified on **2026-10-06**; updated on **2026-10-08** (time tracking, frontend design pass, requirements audit, and the move of the `api/`, `backend/`, `frontend/` and `database/` READMEs into this folder). **`docs/` is the single place for project documentation**: the four folder READMEs no longer exist. Where something could not be confirmed it is marked *Unknown / Needs clarification*; nothing describes functionality that does not exist.
+Documentation for the **TaskFlow** task and project management system (React frontend, Spring Boot API, PostgreSQL). Everything here was written from the code, the SQL scripts, the running application, the tests and the git history, and cross-checked between layers. First verified on **2026-10-06**; updated on **2026-10-08** (time tracking, frontend design pass, requirements audit, and the move of the `api/`, `backend/`, `frontend/` and `database/` READMEs into this folder); brought in line with the code again on **2026-10-12** (a full pass over every page against the code, the SQL and the tests). **`docs/` is the single place for project documentation**: the four folder READMEs no longer exist. Where something could not be confirmed it is marked *Unknown / Needs clarification*; nothing describes functionality that does not exist.
 
 ## Start here
 
@@ -37,8 +37,9 @@ Documentation for the **TaskFlow** task and project management system (React fro
 | 17 | Frontend guide — stack, scripts, structure, routes, behaviours, design tokens, end-to-end tests | [frontend.md](frontend.md) |
 | 18 | Product context and design system | [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md) |
 | 19 | Requirements audit — done, partially done, not done, falls short, unclear | [checklist/](checklist/done.md) |
-| 20 | Workflow conformance test: the running app against the 40 workflows (2026-10-08) | [workflow-conformance.md](workflow-conformance.md) |
-| 21 | Change plan: what is still to change, in the proposed order (2026-10-08) | [change-plan.md](change-plan.md) |
+| 20 | Workflow conformance test: the running app against the 44 application flows (first run 2026-10-08, re-tested through 2026-10-10; current standing at the top) | [workflow-conformance.md](workflow-conformance.md) |
+| 21 | Change plan: what was planned and what is still to change, in the proposed order (written 2026-10-08, batches 1–3c done 2026-10-09) | [change-plan.md](change-plan.md) |
+| 22 | Test cases — every case with its steps, expected result and the test that proves it | [test-cases.md](test-cases.md) |
 
 ## Where the rest of the documentation lives
 
@@ -51,7 +52,7 @@ Documentation for the **TaskFlow** task and project management system (React fro
 
 ## Where the old folder READMEs went
 
-The `README.md` files in `api/`, `backend/`, `frontend/` and `database/` were removed on 2026-10-08 and their content moved here, with out-of-date statements corrected (endpoint count 84 → 87, tests 60 → 67 and 30 → 33, work logs now implemented, 16 entities; later syncs on 2026-10-09 and 2026-10-10 brought the counts to 119 endpoints, 22 entities, 290 backend tests and 99 Playwright tests).
+The `README.md` files in `api/`, `backend/`, `frontend/` and `database/` were removed on 2026-10-08 and their content moved here, with out-of-date statements corrected (endpoint count 84 → 87, tests 60 → 67 and 30 → 33, work logs now implemented, 16 entities; later syncs on 2026-10-09, 2026-10-10 and 2026-10-12 brought the counts to 119 endpoints, 22 entities, 328 backend tests, 128 frontend unit tests and 145 Playwright tests).
 
 | Old file and section | Now |
 |---|---|
@@ -82,7 +83,7 @@ The `README.md` files in `api/`, `backend/`, `frontend/` and `database/` were re
 ## Keeping the documentation current
 
 - **`docs/` is the only documentation to keep current.** There are no folder READMEs and `api/openapi.yaml` is no longer maintained, so whenever you change something, update the matching page here in the same pull request and add a [changelog.md](changelog.md) entry.
-- The pages that go stale fastest are [api-reference.md](api-reference.md), [authentication-authorization.md](authentication-authorization.md) (permission matrix), [backend.md](backend.md) and [frontend.md](frontend.md) (status tables), [database.md](database.md) (table list and grants), [issues.md](issues.md), [roadmap.md](roadmap.md), [testing.md](testing.md) and [checklist/](checklist/done.md).
+- The pages that go stale fastest are [api-reference.md](api-reference.md), [authentication-authorization.md](authentication-authorization.md) (permission matrix), [backend.md](backend.md) and [frontend.md](frontend.md) (status tables), [database.md](database.md) (table list and grants), [issues.md](issues.md), [roadmap.md](roadmap.md), [testing.md](testing.md), [test-cases.md](test-cases.md) and [checklist/](checklist/done.md).
 - Fix a bug listed in [issues.md](issues.md) → move it to the *Fixed* table, add a [changelog.md](changelog.md) entry, and add the regression test to [testing.md](testing.md#6-regression-tests-for-fixed-bugs).
 - Make a decision that is hard to reverse → add an [ADR](adr/README.md).
 - Change setup, ports, variables or scripts → update [setup.md](setup.md).

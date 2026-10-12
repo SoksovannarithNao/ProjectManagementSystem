@@ -2,6 +2,7 @@ package backend.dto;
 
 import backend.entity.Task;
 import backend.entity.TaskApproval;
+import backend.util.Derived;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -33,6 +34,8 @@ public class TaskResponse {
     private long totalChecklistItems;
     private long completedChecklistItems;
     private boolean overdue;
+    // Open and due today or within the next few days (Derived.DUE_SOON_DAYS).
+    private boolean dueSoon;
     private boolean blocked;
     private List<String> blockingTaskTitles = List.of();
     // The approver named for this task, if any, and the newest approval
@@ -64,10 +67,9 @@ public class TaskResponse {
         // (due_date < today and not COMPLETED/CANCELLED) — computed here
         // instead of querying that view, since the inputs are already on
         // hand and it's a two-field comparison.
-        this.overdue = task.getDueDate() != null
-                && task.getDueDate().isBefore(LocalDate.now())
-                && !"COMPLETED".equals(task.getStatus())
-                && !"CANCELLED".equals(task.getStatus());
+        LocalDate today = LocalDate.now();
+        this.overdue = Derived.isTaskOverdue(task.getStatus(), task.getDueDate(), today);
+        this.dueSoon = Derived.isTaskDueSoon(task.getStatus(), task.getDueDate(), today);
     }
 
     // Subtask counts are computed separately from a single grouped query
@@ -171,6 +173,10 @@ public class TaskResponse {
 
     public boolean isOverdue() {
         return overdue;
+    }
+
+    public boolean isDueSoon() {
+        return dueSoon;
     }
 
     public boolean isBlocked() {

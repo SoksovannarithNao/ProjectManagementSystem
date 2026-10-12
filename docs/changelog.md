@@ -1,12 +1,86 @@
 # Change Log
 
-Significant changes, newest first, reconstructed from the git history (79 commits, 2026-08-27 → 2026-10-06), the merged pull requests (#8 → #44), the migration files, and the existing READMEs. There are **no git tags or release numbers** (`pom.xml` is `0.0.1-SNAPSHOT`, `frontend/package.json` is `0.0.0`, `api/openapi.yaml` declares `0.2.0`), so entries are grouped by date and pull request.
+Significant changes, newest first, reconstructed from the git history (86 commits, 2026-08-27 → 2026-10-10 at the time of the 2026-10-12 pass), the merged pull requests (#8 → #47), the migration files, and the existing READMEs. There are **no git tags or release numbers** (`pom.xml` is `0.0.1-SNAPSHOT`, `frontend/package.json` is `0.0.0`, `api/openapi.yaml` declares `0.2.0`), so entries are grouped by date and pull request.
 
 Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architecture** · **Build / CI / Docs**. Commit hashes are given so each entry can be inspected with `git show <hash>`. Entries summarise the commit message; extra detail comes from the cited README/migration text. Anything inferred rather than stated is marked *(inferred)*.
 
 ---
 
-## 2026-10-10 (error pages) — One error page for every status; Help & Support as a page (uncommitted)
+## 2026-10-12 (testing and CI) — Checklist #65 and #67 closed; no schema change
+
+Third batch from [checklist/partially_done.md](checklist/partially_done.md) (8 rows → 6). Backend redeployed to the running stack and verified there.
+
+**Fixed**
+- **Two simultaneous project creations could pick the same `PRJ-####`** and one failed with a `409 Project code already exists` the user never caused. Found while chasing an unexplained e2e flake (R-6) and reproduced (2 of 8 parallel `POST /api/projects` failed). `ProjectRepository.lockProjectCodeGeneration` takes a transaction-scoped PostgreSQL advisory lock before `ProjectService.generateProjectCode` reads the codes in use, so creates take turns; 30 of 30 parallel creates succeeded afterwards. A code the user chose is still checked by the pre-check and the unique constraint. Issue F-39.
+
+**Added**
+- **Front-end unit tests.** Vitest 4.1 (`npm test`, Node environment, no browser) with 128 tests in 9 files next to the code: durations, the password policy, permission checks, formatting and dates on a fixed clock, the task status moves, statistics, the API client (token, `ApiError`, `401`, network and non-JSON failures), the auto-logout storage and report formatting. Run in CI.
+- **Three Playwright specs** (126 → 145 tests): `registration.spec.js` (5; the verification code is read from Mailpit, `E2E_MAILPIT_URL`), `smoke.spec.js` (13; every screen and every project view opens with no script error, `5xx` or error page) and `core-workflow.spec.js` (1; project → team → milestone → task → approval → completed project, checked on the project page).
+- **`docs/test-cases.md`**: 115 test cases with steps, expected result and the test that proves each, plus the cases that are still manual.
+
+**Build / CI**
+- `ci.yml`: the `frontend` job now runs `npm test`; a new `e2e` job (after `frontend` and `backend`) makes `backend/logs` writable for the container's unprivileged user, runs `docker compose up -d --build --wait` on the clean runner, installs Chromium, runs the Playwright suite and uploads the report and prints the service logs on failure. `playwright.config.js`: 2 workers and an HTML report in CI.
+- Validated by running the same steps on a second copy of the stack (Compose override with other ports and container names, project name `ci-sim`, CORS set for the new port): this exposed that a fresh Linux checkout leaves `backend/logs` unwritable for the container (the backend never became healthy), now handled by the `chmod` step and noted in `setup.md`. The full suite passed on that fresh database: 145/145 with CI's settings and no retry. The job has not yet run on GitHub.
+
+**Checked, not changed**
+- `npm audit` reports 2 high-severity advisories in build-time packages (`brace-expansion`, `source-map-js`). They were in the committed lockfile before Vitest was added; recorded as I-23, `npm audit fix` not run.
+
+**Tests:** backend 326 → **328** (`ProjectServiceTest` +2); frontend unit tests 0 → **128**; Playwright 126 → **145**; ESLint clean.
+
+**Docs:** `testing.md` (counts, CI, the unit-test table, gaps), new `test-cases.md`, `README.md`, `docs/README.md`, `setup.md` (unit tests, Mailpit variable, Linux log-folder troubleshooting), `frontend.md`, `backend.md`, `users-and-projects.md`, `overview.md`, `security.md`, `roadmap.md`, `issues.md` (F-39, I-23), `workflow-conformance.md` (§17), checklist (`done.md` 61 → 63, `partially_done.md` 8 → 6, R-6, R-7).
+
+---
+
+## 2026-10-12 (auto-logout and notifications) — Checklist #8 and #45 closed; no schema change
+
+Second batch from [checklist/partially_done.md](checklist/partially_done.md) (10 rows → 8). Deployed to the running stack and verified there.
+
+**Added**
+- **Auto-logout.** `auth/IdleLogout.jsx`, mounted in `AppLayout` (so never on the public pages): after 15 minutes without mouse, keyboard, wheel, scroll or touch activity, in this or any other tab (the last activity is shared through `localStorage`), a *Still there?* dialog counts down 60 seconds with *Stay signed in* and *Sign out now*. While it shows only its own button counts. When the minute runs out the session is cleared, the app goes to `/login` and the page says "You were signed out because there was no activity for a while". Limits in `auth/idleTimeout.js`; proposal D-20 in the brief. Browser-side only: the token stays valid on the server until it expires.
+- **Comment, project and milestone notifications.** `UpdateNotificationService`, called by `CommentService`, `ProjectService` and `MilestoneService` after the change is saved: a comment or reply tells the task's assignees, the project's Owner and Team Leaders and, for a reply, the parent comment's author; a project edit or completion tells the assignees of the project's tasks and the leaders; a milestone edit or completion tells the assignees of its linked tasks and the leaders. Never the person who acted, each person once, people with notifications off and non-`ACTIVE` accounts skipped, nothing for a save that changed nothing, creating a project or a milestone, and messages cut to 500 characters. All 11 allowed notification types are now produced. `TextFormat.shorten` is the shared one-line cut. The recipients implement proposal D-10 for these three types.
+
+**Tests:** backend 308 → **326** (`UpdateNotificationServiceTest` 9 cases, plus 9 in `CommentServiceTest` (+2), `ProjectServiceTest` (+3) and `MilestoneServiceTest` (+4), which also take the new dependency); Playwright 115 → **126** (`idle-and-updates.spec.js`: 5 auto-logout cases with Playwright's fake clock, 6 notification cases in one throw-away project); 126/126 twice with `--workers=4`; ESLint clean.
+
+**Docs:** `notifications.md` (all 11 types, new §9), `authentication-authorization.md`, `security.md`, `frontend.md`, `backend.md`, `architecture.md`, `DESIGN.md`, `README.md`, `overview.md`, `PRODUCT.md`, `roadmap.md`, `issues.md` (F-38), `testing.md`, `tasks.md`, `api-reference.md`, `change-plan.md`, ADR-0007, `workflow-conformance.md` (§16; Notifications and Session now PASS), `assignment-brief.md` (D-10 implemented, D-20), checklist (`done.md` 59 → 61, `partially_done.md` 10 → 8).
+
+---
+
+## 2026-10-12 (quick wins) — Six partly-done checklist rows closed; migration V14
+
+First batch from [checklist/partially_done.md](checklist/partially_done.md) (17 rows → 10): #34, #37, #31, #30b and the project completion date (#23, #60, #69). Deployed to the running stack; the live database was backed up first (`pg_dump`), `V14` applied by the Compose `migrate` service and verified.
+
+**Added**
+- **Project completion date.** `projects.completed_at` (`V14`) with the trigger `trg_projects_completed_at`: stamped when the status becomes Completed, kept while a completed project is edited, cleared when it is reopened. Projects that were already Completed (one on the development data) got their last update time, with the user triggers off so `updated_at` did not move. `Project` reads it as a database-generated column (`@Generated`), `ProjectService` flushes after saving so the same `PUT` returns it, and `ProjectResponse.completedAt`, the report `ProjectRow.completedAt`, a *Completed on <date>* chip on the project page and a *Completed on* column in the Project Status Report show it. `verify_invariants.sql` has a 12th check (status and date agree); `init/01-init.sql` mirrors the end state and `init/04-flyway-baseline.sql` baselines at version 14.
+- **Near-deadline flag.** `Derived.isTaskDueSoon` and `TaskResponse.dueSoon`: an open task due today or within 3 days (the first reminder day; an overdue task is not also due soon). A *Due today / tomorrow / in N days* badge (`DueSoonBadge`) on the Tasks page, Kanban cards and the task panel, and the same wording in the dashboard's Due & Overdue list. The 3-day window is proposed as decision D-19 in the brief.
+- **Tasks quick views** (the brief's *My Tasks* groups): All, Today, Upcoming, In Progress, Completed, Overdue, each with a count, combined with the search, the filters and the My Tasks toggle.
+- **Milestone editing.** `MilestoneFormModal` on the project page edits title, description, due date and status (`PUT /api/milestones/{id}`, which already existed); completing a milestone with open linked tasks shows a warning and leaves the tasks alone (D-08). The list shows the description.
+- **Milestones on the calendar.** The month, week and day views draw milestones (from `GET /api/milestones`) beside the tasks: a neutral chip with a flag, announced as "Milestone", struck through once completed.
+
+**Fixed on the way**
+- The Calendar read a due date such as `2026-10-12` as midnight UTC, which puts it on the previous day west of UTC; it now reads it as that calendar day in local time.
+
+**Tests:** backend 306 → **308** (`DerivedTest` +2); Playwright 108 → **115** (`quick-wins.spec.js`, 7 cases: the completion date through the API, the reports and the project page, the near-deadline rule, a milestone update, milestone editing with its warning, the calendar, the quick views); 115/115 twice with `--workers=4`; ESLint clean. The init-script path (`01-init`, `02-seed`, `04-flyway-baseline`) was built on a scratch database: invariants clean, baseline 14, and `V14` is a no-op when run again.
+
+**Docs:** `database.md` (new column, trigger, `V14`, 25 triggers, baseline 14, 12 invariants), `api-reference.md`, `tasks.md`, `users-and-projects.md`, `frontend.md`, `architecture.md`, `overview.md`, `setup.md`, `testing.md`, `roadmap.md`, `issues.md` (F-37), `DESIGN.md`, `PRODUCT.md`, `README.md`, `workflow-conformance.md` (§15; Calendar and My Tasks now PASS), `assignment-brief.md` (D-19), checklist (`done.md` 52 → 59, `partially_done.md` 17 → 10).
+
+---
+
+## 2026-10-12 — Documentation checked page by page against the code
+
+No code, schema or test change. Every page under `docs/`, the root `README.md` and the ADRs were compared with the controllers, services, entities, SQL scripts, migrations, `docker-compose.yml`, the workflows, the frontend routes and components, and `npx playwright test --list`; all 119 endpoints were matched against [api-reference.md](api-reference.md) by a script (none missing) and all 623 relative links and anchors were checked (one broken anchor fixed). Recorded as D-11 in [issues.md](issues.md).
+
+**Fixed (documentation only)**
+- **Counts:** 22 JPA entities (not 15 or 18), 21 granted read-write tables (not 15 or 17), 24 triggers (the `checklist_items` sync trigger was missing from the table), a 198-row permission matrix (163 before `V13`), 11 invariant queries (7 or 9 were stated), 306 backend and 108 Playwright tests (290 / 99 remained in two places), 56 DTO classes, 18 page files.
+- **Flyway:** the baseline row written for a fresh volume is version 13, and the `migrate` service applies `V9`–`V13` to an older volume (pages said 10 and `V9`/`V10`); the `migrate` service was missing from the topology in `architecture.md` and `overview.md`; the migration table in `database.md` is in ascending order; the drift note now says what `V13` re-creates.
+- **Behaviour:** `403` bodies carry the specific sentence (the docs said "always generic"); the login `role` can be `PROJECT_MANAGER`; the console is silent because `logback-spring.xml` logs to the file only (the docs said "console and file" and "no separate config file"); `POST` status codes (`login`, `verify-otp`, `resend-otp`, `accept`, `decline` and the approval decision answer `200`); comments write `COMMENT_ADDED` to the activity feed and replies are checked against the task; `TASK_DELETED` entries appear in the project and recent feeds; a Team Member does not create tasks; users edit their own position and department; an administrator has a UI for creating accounts and giving a system role; invitations from the Team page carry a role; the description of `roles-permissions.spec.js` in `testing.md` now names the seven roles and the 403 page.
+- **Structure lists:** frontend components, UI primitives (`DonutChart` does not exist), pages and routes (`/projects/:id/:view`, `/admin/*`, `/help`, `/error/:status`), backend `security/`, `config/` and `util/` packages, services (approvals, reports, attachments, work logs, deadline job, dashboard and team views), `04-flyway-baseline.sql`.
+- **Checklist and ADRs:** `#L<line>` links into `01-init.sql` and other files (which had moved) replaced by names of the table, trigger or method; ADR-0003, 0005, 0006, 0007, 0008, 0009, 0011, 0013 and 0014 brought up to date (each with the original decision left in place).
+- `openapi.yaml` is described as documenting 57 of the 119 endpoints (it said 87 and 91).
+- The "(uncommitted)" labels on the four 2026-10-10 entries now name commit `5990b0e`, which contains them; the header counts (86 commits, PRs #8 → #47) were refreshed.
+
+---
+
+## 2026-10-10 (error pages) — One error page for every status; Help & Support as a page (commit `5990b0e`)
 
 Front end only; no backend or schema change. Deployed and screenshot-checked at 1360 and 390 px.
 
@@ -26,7 +100,7 @@ Front end only; no backend or schema change. Deployed and screenshot-checked at 
 
 ---
 
-## 2026-10-10 (gantt) — Gantt chart prototype (uncommitted)
+## 2026-10-10 (gantt) — Gantt chart prototype (commit `5990b0e`)
 
 Closes the last item in `docs/checklist/not_done.md` (#38, optional): nothing in the requirements audit is missing any more (17 items are built but incomplete, see `partially_done.md`). Front end only; no backend or schema change. Deployed and screenshot-checked.
 
@@ -44,7 +118,7 @@ Closes the last item in `docs/checklist/not_done.md` (#38, optional): nothing in
 
 ---
 
-## 2026-10-10 (scheduler) — Deadline reminders and overdue notices (uncommitted)
+## 2026-10-10 (scheduler) — Deadline reminders and overdue notices (commit `5990b0e`)
 
 Closes the last two required items in the checklist (#46, #47): a daily job now sends the deadline reminders and the overdue notices that the brief (B9) and the workflow (§27, §28) ask for. No schema change; deployed and verified live.
 
@@ -65,7 +139,7 @@ Closes the last two required items in the checklist (#46, #47): a daily job now 
 
 ---
 
-## 2026-10-10 — Documentation synchronised with the code; friendly network errors (uncommitted)
+## 2026-10-10 — Documentation synchronised with the code; friendly network errors (commit `5990b0e`)
 
 A re-check of every document against the code found the checklist and several descriptive pages still showing the state before change-plan batches 1–3c. No schema or backend change.
 
@@ -327,7 +401,7 @@ Brings the application in line with `Role_Requirment.md`: Administrator, Project
 
 ---
 
-## 2026-10-06 — Invitations, password UX, My Tasks, Java 25 (commits `52a93b4`, `115d52a`; docs uncommitted)
+## 2026-10-06 — Invitations, password UX, My Tasks, Java 25 (commits `52a93b4`, `115d52a`; docs in `5d45c24`)
 
 **Added**
 - Live **password-requirements checklist** on Register, Profile → Password and *Invite Member*, with specific error messages; backend field errors are surfaced instead of the generic "One or more fields are invalid". Login deliberately unchanged.

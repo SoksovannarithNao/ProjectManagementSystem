@@ -19,6 +19,7 @@ import { buildTaskAssigneeMap } from '../api/relations'
 import { groupTasksByStatus } from '../api/stats'
 import { formatDate, humanizeEnum, taskDisplayTitle, blockedReason } from '../api/format'
 import { ApprovalChip } from '../components/ApprovalChip'
+import { DueSoonBadge } from '../components/DueSoonBadge'
 
 const COLUMN_ACCENT = {
   TODO: 'bg-faint',
@@ -226,6 +227,7 @@ export function Kanban() {
                       </p>
                       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
                         <Badge tone={task.priority}>{humanizeEnum(task.priority)}</Badge>
+                        <DueSoonBadge task={task} />
                         <TimeChip task={task} />
                         <ApprovalChip task={task} />
                         {task.totalSubtasks > 0 && (

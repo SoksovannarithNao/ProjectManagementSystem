@@ -47,6 +47,7 @@ import { humanizeEnum, formatDate, taskDisplayTitle, blockedReason, timeAgo } fr
 import { getPendingApprovals } from '../api/approvals'
 import { canApproveTask } from '../api/permissions'
 import { ApprovalChip } from '../components/ApprovalChip'
+import { DueSoonBadge } from '../components/DueSoonBadge'
 
 // Distinct colors per section, using the same soft-background + colored-
 // foreground pairing as Badge.jsx (already proven legible elsewhere in the
@@ -71,6 +72,17 @@ const DUE_OPTIONS = [
   { id: 'today', label: 'Due today' },
   { id: 'week', label: 'Due in the next 7 days' },
   { id: 'none', label: 'No due date' },
+]
+// Quick views over the tasks the other filters leave (brief Part A "My Tasks": Today,
+// Upcoming, In Progress, Completed, Overdue). Today and Upcoming mean open tasks
+// (not Completed or Cancelled) due today / after today.
+const QUICK_VIEWS = [
+  { id: 'all', label: 'All' },
+  { id: 'today', label: 'Today' },
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'inprogress', label: 'In Progress' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'overdue', label: 'Overdue' },
 ]
 const UNASSIGNED = 'unassigned'
 const SORT_OPTIONS = [
@@ -111,6 +123,17 @@ function matchesDueFilter(task, filter) {
   return due < today && task.status !== 'COMPLETED' && task.status !== 'CANCELLED'
 }
 
+function matchesQuickView(task, view) {
+  if (view === 'all') return true
+  const open = task.status !== 'COMPLETED' && task.status !== 'CANCELLED'
+  const today = localIsoDate()
+  if (view === 'today') return open && task.dueDate === today
+  if (view === 'upcoming') return open && !!task.dueDate && task.dueDate > today
+  if (view === 'inprogress') return task.status === 'IN_PROGRESS'
+  if (view === 'completed') return task.status === 'COMPLETED'
+  return !!task.overdue // overdue: the server's own calculation (B1.3)
+}
+
 export function Tasks() {
   const { profile, can, canAny, permissions } = useAuth()
   const notify = useToast()
@@ -131,6 +154,7 @@ export function Tasks() {
   const [dueFilter, setDueFilter] = useState('')
   const [projectFilter, setProjectFilter] = useState('')
   const [myTasksOnly, setMyTasksOnly] = useState(false)
+  const [quickView, setQuickView] = useState('all')
   const [sortBy, setSortBy] = useState('dueDate')
   const [expandedTaskIds, setExpandedTaskIds] = useState(() => new Set())
   // Empty by default — every project group starts fully expanded, matching
@@ -175,7 +199,8 @@ export function Tasks() {
     return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   }, [taskAssignees])
 
-  const filteredList = useMemo(() => {
+  // Everything except the quick view, so each quick view can show how many tasks it holds.
+  const baseFilteredList = useMemo(() => {
     const q = search.trim().toLowerCase()
     return list.filter((t) => {
       if (q) {
@@ -199,6 +224,15 @@ export function Tasks() {
       return true
     })
   }, [list, search, assigneeOptions, priorityFilter, statusFilter, projectFilter, assigneeFilter, dueFilter, myTasksOnly, assigneeMap, profile])
+
+  const quickViewCounts = useMemo(
+    () => Object.fromEntries(QUICK_VIEWS.map((v) => [v.id, baseFilteredList.filter((t) => matchesQuickView(t, v.id)).length])),
+    [baseFilteredList]
+  )
+  const filteredList = useMemo(
+    () => baseFilteredList.filter((t) => matchesQuickView(t, quickView)),
+    [baseFilteredList, quickView]
+  )
 
   // Project name -> one group per status -> its tasks (sorted by the current
   // sort choice) -> each task's subtasks, fetched on demand when expanded
@@ -554,6 +588,38 @@ export function Tasks() {
       />
 
       <div className="flex flex-col gap-4">
+        <div
+          role="group"
+          aria-label="Quick view"
+          data-testid="quick-views"
+          className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5"
+        >
+          {QUICK_VIEWS.map((v) => {
+            const active = quickView === v.id
+            return (
+              <button
+                key={v.id}
+                type="button"
+                aria-pressed={active}
+                data-testid={`quick-view-${v.id}`}
+                onClick={() => setQuickView(v.id)}
+                className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] font-semibold whitespace-nowrap transition-colors ${
+                  active
+                    ? 'bg-charcoal text-on-charcoal border-transparent'
+                    : `bg-card border-border hover:bg-subtle ${
+                        v.id === 'overdue' && quickViewCounts.overdue > 0 ? 'text-danger-ink' : 'text-muted'
+                      }`
+                }`}
+              >
+                {v.label}
+                <span className={`text-[12px] font-medium ${active ? 'opacity-80' : 'text-faint'}`}>
+                  {quickViewCounts[v.id]}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
         {!loading && projectGroups.length === 0 && (
           <EmptyState
             icon={ClipboardList}
@@ -745,6 +811,7 @@ export function Tasks() {
                               <AlertTriangle size={12} /> Overdue
                             </span>
                           )}
+                          <DueSoonBadge task={t} />
                           <ApprovalChip task={t} />
                           {t.blocked && (
                             <span

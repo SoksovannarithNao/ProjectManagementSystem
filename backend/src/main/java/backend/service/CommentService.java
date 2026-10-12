@@ -26,18 +26,21 @@ public class CommentService {
     private final UserRepository userRepository;
     private final ProjectAccessGuard projectAccessGuard;
     private final ActivityLogService activityLogService;
+    private final UpdateNotificationService updateNotificationService;
 
     public CommentService(
             CommentRepository commentRepository,
             TaskRepository taskRepository,
             UserRepository userRepository,
             ProjectAccessGuard projectAccessGuard,
-            ActivityLogService activityLogService) {
+            ActivityLogService activityLogService,
+            UpdateNotificationService updateNotificationService) {
         this.commentRepository = commentRepository;
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
         this.activityLogService = activityLogService;
+        this.updateNotificationService = updateNotificationService;
     }
 
     @Transactional(readOnly = true)
@@ -70,6 +73,7 @@ public class CommentService {
         Comment saved = commentRepository.save(comment);
         activityLogService.record(caller, task, "COMMENT_ADDED",
                 (saved.getParentComment() != null ? "Reply added: \"" : "Comment added: \"") + preview(saved.getMessage()) + "\"");
+        updateNotificationService.notifyCommentAdded(saved, caller);
         return new CommentResponse(saved);
     }
 

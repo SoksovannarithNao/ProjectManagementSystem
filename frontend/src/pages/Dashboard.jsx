@@ -30,7 +30,7 @@ import { computeTaskOverview, computePeriodTaskStats, taskOverviewFromStats, PER
 import { getDashboardStats } from '../api/dashboard'
 import { getRecentActivity } from '../api/activityLog'
 import { getManagedWorkload } from '../api/teamViews'
-import { formatDate, humanizeEnum, taskDisplayTitle, timeAgo } from '../api/format'
+import { formatDate, humanizeEnum, taskDisplayTitle, timeAgo, dueSoonLabel } from '../api/format'
 
 const OPEN_STATUSES = new Set(['TODO', 'IN_PROGRESS', 'IN_REVIEW'])
 
@@ -251,11 +251,16 @@ export function Dashboard() {
                       <span className="text-faint flex min-w-0 items-center gap-1.5 text-xs">
                         <span
                           className={`inline-flex shrink-0 items-center gap-1 ${
-                            t.overdue && !isChecked ? 'text-danger-ink font-semibold' : ''
+                            t.overdue && !isChecked
+                              ? 'text-danger-ink font-semibold'
+                              : t.dueSoon && !isChecked
+                                ? 'text-warning-ink font-semibold'
+                                : ''
                           }`}
                         >
                           {t.overdue && !isChecked && <AlertTriangle size={12} />}
                           {t.overdue && !isChecked ? 'Overdue · ' : ''}
+                          {t.dueSoon && !isChecked ? `${dueSoonLabel(t.dueDate)} · ` : ''}
                           {formatDate(t.dueDate)}
                         </span>
                         <span className="truncate">· {t.project?.name}</span>

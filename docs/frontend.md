@@ -25,6 +25,7 @@ Other scripts:
 npm run build         # production build
 npm run preview       # preview the production build locally
 npm run lint          # ESLint
+npm test              # Vitest unit tests (see Testing)
 npm run test:e2e      # Playwright end-to-end suite (see Testing)
 npm run test:e2e:ui   # same, with Playwright's interactive runner
 ```
@@ -36,17 +37,22 @@ Ports, the Docker route and troubleshooting: [setup.md](setup.md). In the Docker
 ```text
 src/
   components/     shared components: StatCard, ProjectCard, TaskDetailPanel, TaskFormModal, TimeTracking,
-                  NewProjectModal, AddMemberModal, AddProjectMemberModal, AddLookupModal
+                  ChecklistSection, AttachmentsSection, ApprovalChip, DelayedBadge, ProjectActivity,
+                  TeamTasksView, WorkloadTable, TimelineView, GanttChart, MilestoneFormModal, DueSoonBadge, NewProjectModal, AddMemberModal,
+                  AddProjectMemberModal, AddLookupModal
+  components/reports/  the Reports tabs (ReportViews, ReportParts) and their helpers
   components/ui/  small reusable primitives: Avatar, Badge, ConfirmDialog, Dropdown (generic popover),
                   EmptyState, Logo, LookupSelect, Modal, PasswordChecklist, ProgressBar, ProgressRing,
                   Skeleton, TimeChip, Toast, useDirtyForm
   layout/         app shell: Sidebar, TopBar (search/filter slot and notifications bell), layout context
-  pages/          routed pages (see Routes below)
-  auth/           AuthContext (JWT login, logout, refreshProfile; token in localStorage) and ProtectedRoute
+  pages/          routed pages (see Routes below); admin/ holds UsersAdmin and RolesPermissions
+  auth/           AuthContext (JWT login, logout, refreshProfile, permissions; token in localStorage),
+                  ProtectedRoute, RequirePermission (403 page when the matrix does not grant an action) and IdleLogout (inactivity warning and sign-out)
   theme/          ThemeContext.jsx: light/dark/system preference, persisted per user through Settings
   api/            fetch client (client.js) and one module per backend resource (projects, tasks, subtasks,
                   comments, milestones, taskAssignees, taskDependencies, projectMembers, users, roles,
-                  positions, departments, notifications, activityLog, workLogs, auth, validation, ...);
+                  positions, departments, notifications, activityLog, workLogs, approvals, attachments,
+                  checklist, dashboard, reports, teamViews, auth, validation, ...);
                   useApi.js (fetch-on-mount hook); stats.js, relations.js, format.js, duration.js and
                   permissions.js (turns the server's RESOURCE:ACTION list into can / canSys / canAny helpers)
   data/           UsersContext.jsx (getMember(id) for avatar lookups) and NotificationsContext.jsx
@@ -65,12 +71,12 @@ How the pieces fit together: [architecture.md](architecture.md#3-frontend-archit
 | `/register` | Register, self-service sign-up (public) |
 | `/verify-otp` | VerifyOtp, the email-code step after registering (public) |
 | `/` | Dashboard: a statistics strip (total / active / completed / **delayed** projects, average completion, total tasks), task overview with an overdue count, "Due & Overdue" list, project cards, report chart, *Delayed projects*, *Recent activity* and — for people who can assign tasks — *Team workload*. The figures come from `GET /api/dashboard/stats` |
-| `/tasks` | Tasks: every task in your projects grouped by project; search, filter (status, priority, assignee, due date, project, **My Tasks** = tasks you are an assignee of), sort (latest, due date, priority, progress, status, title); groups by status. Renamed from "My Tasks" |
+| `/tasks` | Tasks: every task in your projects grouped by project; search, filter (status, priority, assignee, due date, project, **My Tasks** = tasks you are an assignee of), sort (latest, due date, priority, progress, status, title); groups by status. A **quick-view bar** above the list (All, Today, Upcoming, In Progress, Completed, Overdue, each with a count) narrows the list further: Today and Upcoming are open tasks due today / after today. An open task due today or within 3 days carries a *Due today / tomorrow / in N days* badge (`dueSoon` from the server). Renamed from "My Tasks" |
 | `/projects` | Projects |
 | `/projects/:id/team`, `/projects/:id/workload`, `/projects/:id/timeline`, `/projects/:id/gantt` | ProjectViews: four tabs for one project. *Team Tasks* (members with their tasks, counts and progress, reassign) and *Workload* (overloaded / underloaded against the team average) are for people who can assign tasks; the *Timeline* (project, milestones and tasks on one axis) and the *Gantt* chart (a duration bar per task on a week / month axis with its progress, a today line and arrows for task dependencies; an arrow is red when a task is planned to start before its unfinished prerequisite is due; hovering a bar fades the tasks that do not overlap it; a prototype, `components/GanttChart.jsx`) are for every member |
-| `/projects/:id` | ProjectDetail (also: a *Delayed* badge, links to the three views above, and a role picker with ownership transfer on each member): status, priority, dates, manager, progress, a filterable task list with an "Add Task" action, a Members list and a Milestones list (add, delete) |
+| `/projects/:id` | ProjectDetail (also: a *Delayed* badge, links to the three views above, and a role picker with ownership transfer on each member): status, priority, dates, manager, progress, a *Completed on <date>* chip once the project is completed, a filterable task list with an "Add Task" action, a Members list and a Milestones list (add, edit title / description / due date / status in `components/MilestoneFormModal.jsx`, delete; completing a milestone with open linked tasks shows a warning) |
 | `/kanban` | Kanban |
-| `/calendar` | Calendar (month, week, day) |
+| `/calendar` | Calendar (month, week, day): task due dates, coloured by priority, and milestones on their due dates (a flag chip announced as "Milestone", struck through once completed) |
 | `/team` | Team: project membership and invitations |
 | `/reports` | Reports (needs `REPORT:GENERATE_REPORTS`; the link and route are hidden otherwise). Tabs (`?tab=`): *Overview* (charts), *KPIs* and the seven reports, each with a *Generate* step; the data comes from `GET /api/reports/*` (`components/reports/`, `api/reports.js`) |
 | `/admin/users` | Administration → Users: give each account a system role (needs `USER:VIEW`; changing needs `USER:ASSIGN`) |
@@ -100,7 +106,9 @@ The frontend is wired to the real backend REST API: every page fetches live data
 
 **Search, filter, sort and manage.** Tasks, Kanban and Projects have working search; Tasks filter by status, priority, assignee, due date and project and Projects by status, priority and project manager (both with Sort), Kanban by priority and project, all through the `Dropdown` primitive and in the browser over the already permission-scoped lists; the project detail page has its own status and priority filter scoped to that project. Tasks also has Sort and a per-row Edit/Delete menu (`TaskFormModal` and `ConfirmDialog`), gated by the same grants the backend enforces (`can('TASK', 'EDIT', projectId)` and friends from `useAuth()`, fed by `GET /api/users/me/permissions`) so a control does not appear for a role that would only get a `403`. The helpers are advisory; the backend is the authority.
 
-**Notifications.** The top-bar bell is real: `data/NotificationsContext.jsx` fetches `GET /api/notifications`, shows an unread dot, and marking read or all-read calls the backend. Task assignment, task status change, approval requests and decisions, team invitations and responses, deadline reminders and overdue notices are generated today (see [backend.md](backend.md#notifications)); comment, project-update and milestone-update notifications are not.
+**Notifications.** The top-bar bell is real: `data/NotificationsContext.jsx` fetches `GET /api/notifications`, shows an unread dot, and marking read or all-read calls the backend. Task assignment, task status change, approval requests and decisions, team invitations and responses, deadline reminders and overdue notices, comments and replies, and project and milestone updates are generated today (see [backend.md](backend.md#notifications)); the bell lists them all with their title and message.
+
+**Auto-logout.** `auth/IdleLogout.jsx` (mounted once in the signed-in layout, so never on the public pages) watches mouse, keyboard, wheel, scroll and touch activity. After 15 minutes without any, in this tab or in any other (the last activity is shared through `localStorage`), a *Still there?* dialog counts down 60 seconds with *Stay signed in* and *Sign out now*; while it shows, only its own button counts as activity. When the minute runs out the app clears the session, goes to `/login` and the login page says "You were signed out because there was no activity for a while". The limits are `IDLE_LIMIT_MS` and `IDLE_WARNING_MS` in `auth/idleTimeout.js`. It is a browser-side convenience; the token itself stays valid on the server until it expires.
 
 **Theme.** Light, dark and system (`theme/ThemeContext.jsx`), set from Settings and persisted per user to the backend (`theme_preference`), not only in `localStorage`. Because the saved preference wins after login, a test account's stored theme overrides the operating-system setting.
 
@@ -108,13 +116,15 @@ The frontend is wired to the real backend REST API: every page fetches live data
 
 **Error pages.** `pages/ErrorPage.jsx` is the one page for every error status: an unknown address (`*`, 404), `/error/:status` for any status, the permission guard `RequirePermission` (403), and the project pages when the project cannot be loaded (404, or the real status with *Try again*). It uses the shared `EmptyState` and `.btn` styles and says "Error <status> · <what it means>" with *Back to the dashboard*, *Go back*, *Help & Support* and — only for failures that may pass (status `0` = the server could not be reached, see `api/client.js`, and 5xx) — *Try again*. Covered: 0, 400, 401, 403, 404, 429, 500, 502 / 503 / 504 (service unavailable); anything else gets a generic message. A 404 does not say whether the page is missing or off limits, because the backend answers 404 for both on purpose.
 
-**Known limitations** (backend support missing, not frontend bugs): comments do not notify anyone; there is no per-user activity feed (the log is per task in the task panel and per project on the project page); Kanban cards cannot be moved between columns; the Calendar shows task due dates but not milestones. The full list against the requirements is in [checklist/](checklist/).
+**Known limitations** (backend support missing, not frontend bugs): there is no per-user activity feed (the log is per task in the task panel and per project on the project page); Kanban cards cannot be moved between columns. The full list against the requirements is in [checklist/](checklist/).
 
 ## Design system in code
 
 Colours, type, radii, spacing and the rules behind them are in [DESIGN.md](DESIGN.md). In code: tokens live in `@theme` in `src/styles/global.css`; shared classes are `.card`, `.btn`, `.btn-primary/-secondary/-ghost`, `.icon-btn`, `.field` (+ `-sm`, `-lg`), `.hit-area` and `.skeleton`; status text uses the `*-ink` colour tokens and text on a charcoal fill uses `text-on-charcoal`. A global `:focus-visible` rule provides the keyboard focus ring, and animation is reduced under `prefers-reduced-motion`.
 
 ## Testing
+
+**Unit tests** (`npm test`, Vitest, 128 tests in 9 files) sit next to the code as `*.test.js` and cover the plain logic in `src/api` and `src/auth` (durations, password rules, permission checks, statistics, formatting, the task status moves, the API client, the auto-logout storage); they need no browser and no backend and run in CI. There are no tests of rendered components. Each is listed in [testing.md](testing.md#41-frontend-unit-tests-128).
 
 An end-to-end suite (`e2e/`, Playwright) drives the real app against the real backend with no mocking. `playwright.config.js` deliberately has no `webServer`: it points `baseURL` at an already-running stack (`http://localhost:5173` by default; override with `E2E_BASE_URL` or `FRONTEND_PORT`).
 
@@ -126,7 +136,7 @@ npm run test:e2e              # headless run
 npm run test:e2e:ui           # interactive runner
 ```
 
-`e2e/helpers.js`'s `login()` uses the seeded `admin.system` / `DevPassword123!` credentials. Coverage (108 tests): `auth.spec.js` (login success and failure, redirect when unauthenticated), `approvals.spec.js` (the approval workflow through the API and two UI flows), `manager-views.spec.js` (Delayed, dashboard figures, Team Tasks, Workload, the timeline, role rules and ownership transfer), `reports.spec.js` (the KPIs and the seven reports through the API and four UI cases), `gantt.spec.js` (the Gantt chart: bars, dependency arrows and the start-before-prerequisite warning, overlap fading, zoom), `help-errors.spec.js` (the error page for an unknown address, a missing project and each status, and the Help & Support page), `collaboration.spec.js` (attachments, checklists, replies and the project feed, through the API and three UI flows), `batch1.spec.js` (sign-in by e-mail, unknown API path = 404, status labels, project and task filters and sorting, own position/department), `projects.spec.js` (project cards render and link, opening a project and a task), `project-team.spec.js` (duplicate project-code `409`, inactive and suspended users cannot be invited, org-wide invitation suggestions, pending count, the Add-member picker), `team.spec.js` (no invitation offered for inactive or suspended users), `permissions.spec.js` (scoped lookups, no cross-project task moves, read-only `VIEWER`, deactivated accounts' tokens rejected) and `time-tracking.spec.js` (logging time, a rejected entry, the timer surviving a reload). Not covered: Kanban, Calendar, the Reports Overview charts, Dashboard, Profile and Settings, registration and OTP, notifications. The specs share one database, so leftover data can break a run (see [testing.md](testing.md)). The suite is not wired into CI (`ci.yml` only lints and builds the frontend); run it locally before a pull request that touches these flows. Inventory and gaps: [testing.md](testing.md).
+`e2e/helpers.js`'s `login()` uses the seeded `admin.system` / `DevPassword123!` credentials. Coverage (145 tests): `core-workflow.spec.js` (one project from creation to completion), `registration.spec.js` (registering and verifying with the e-mailed code, read from Mailpit through `E2E_MAILPIT_URL`), `smoke.spec.js` (every screen opens without a script error, a `5xx` or an error page), `idle-and-updates.spec.js` (auto-logout with a fake clock, and the comment, project and milestone notifications), `quick-wins.spec.js` (the project completion date, the near-deadline flag, milestone editing, milestones on the calendar and the Tasks quick views), `auth.spec.js` (login success and failure, redirect when unauthenticated), `approvals.spec.js` (the approval workflow through the API and two UI flows), `manager-views.spec.js` (Delayed, dashboard figures, Team Tasks, Workload, the timeline, role rules and ownership transfer), `reports.spec.js` (the KPIs and the seven reports through the API and four UI cases), `roles-permissions.spec.js` (the permission matrix and the Administration pages), `gantt.spec.js` (the Gantt chart: bars, dependency arrows and the start-before-prerequisite warning, overlap fading, zoom), `help-errors.spec.js` (the error page for an unknown address, a missing project and each status, and the Help & Support page), `collaboration.spec.js` (attachments, checklists, replies and the project feed, through the API and three UI flows), `batch1.spec.js` (sign-in by e-mail, unknown API path = 404, status labels, project and task filters and sorting, own position/department), `projects.spec.js` (project cards render and link, opening a project and a task), `project-team.spec.js` (duplicate project-code `409`, inactive and suspended users cannot be invited, org-wide invitation suggestions, pending count, the Add-member picker), `team.spec.js` (no invitation offered for inactive or suspended users), `permissions.spec.js` (scoped lookups, no cross-project task moves, read-only `VIEWER`, deactivated accounts' tokens rejected) and `time-tracking.spec.js` (logging time, a rejected entry, the timer surviving a reload). Only checked to open without an error (`smoke.spec.js`): Kanban, the Calendar apart from its milestones, the Reports Overview charts, Profile and Settings (the Dashboard figures are checked only through `manager-views.spec.js`). The specs share one database, so leftover data can break a run (see [testing.md](testing.md)). The suite runs in CI (the `e2e` job in `ci.yml` builds the whole stack on a fresh runner and runs it with 2 workers); run it locally before a pull request that touches these flows. Inventory and gaps: [testing.md](testing.md).
 
 ## Contributing
 

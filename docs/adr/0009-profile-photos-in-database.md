@@ -29,7 +29,7 @@ Users upload a profile photo. The frontend displays it with a plain `<img>` tag,
 - Anyone who learns a token can fetch that photo without logging in; tokens are unguessable but not secret once shared.
 - Photo bytes live in the `users` row: backups grow, and because `User.profilePhoto` is a plain `@Column` `byte[]` (no `@Basic(fetch = LAZY)`), **every load of a `User` entity reads the photo bytes (up to 5 MB)** — including users nested in members, assignees and projects (by code reading; not measured).
 - The content type is taken from the client's upload header; the bytes are not inspected (see [../security.md](../security.md#5-input-validation)).
-- No automated test covers upload or serving.
+- Only the 5 MB limit is unit-tested (`UserServiceTest`); no automated test covers the upload happy path or serving. File attachments (2026-10-09) follow the same choice: their bytes live in `attachment_contents`, so a `pg_dump` carries them too.
 
 ## Evidence
 

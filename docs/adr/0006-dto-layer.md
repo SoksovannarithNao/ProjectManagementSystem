@@ -26,7 +26,7 @@ Files: `backend/src/main/java/backend/dto/`.
 ## Consequences
 
 - `UserServiceTest` asserts that responses do not leak the hash.
-- More classes to maintain (41 classes in the `dto` package — requests, responses and `PasswordPolicy`) and manual mapping code; response DTOs for list endpoints can nest large objects (for example `TaskAssigneeResponse` embeds a full `TaskResponse`).
+- More classes to maintain (56 classes in the `dto` package — requests, responses and `PasswordPolicy`) and manual mapping code; response DTOs for list endpoints can nest large objects (for example `TaskAssigneeResponse` embeds a full `TaskResponse`).
 - Nested `UserResponse` exposes email, phone and date of birth wherever a user appears (for example a project's manager) to every project member; a narrower public-profile DTO does not exist, except `InvitableUserResponse`, which was introduced deliberately narrow on 2026-10-06.
 - Updates are full-replace (`PUT`) because request DTOs mirror the whole resource; clients re-send everything (`taskResponseToRequest`).
 

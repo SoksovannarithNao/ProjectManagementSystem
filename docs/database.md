@@ -1,8 +1,8 @@
 # Database
 
-PostgreSQL schema as it actually exists. **Sources read:** `database/init/01-init.sql` (what Docker and CI execute), `02-seed.sql`, `03-app-role.sh`, `database/verify_invariants.sql`, and the Flyway migrations `database/taskmanager/migrations/V1…V13`. This page is both the structural reference (sections 1-10) and the operational guide that used to live in `database/README.md` (sections 11-14: running and inspecting, design decisions, authorization, backend coverage; migration details are in section 8). The folder README was removed.
+PostgreSQL schema as it actually exists. **Sources read:** `database/init/01-init.sql` (what Docker and CI execute), `02-seed.sql`, `03-app-role.sh`, `database/verify_invariants.sql`, and the Flyway migrations `database/taskmanager/migrations/V1…V14`. This page is both the structural reference (sections 1-10) and the operational guide that used to live in `database/README.md` (sections 11-14: running and inspecting, design decisions, authorization, backend coverage; migration details are in section 8). The folder README was removed.
 
-- **24 tables**, 5 views, and 24 triggers: 7 `updated_at` triggers plus 17 rule/derivation triggers (see [section 5](#5-triggers-and-functions)).
+- **24 tables**, 5 views, and 25 triggers: 7 `updated_at` triggers plus 18 rule/derivation triggers (see [section 5](#5-triggers-and-functions)).
 - **22 of the 24 tables** have JPA entities and repositories; **2 do not** (`report_exports`, `kpi_snapshots`). `permissions` and `role_permissions` are read by the backend since migration `V9`. Hibernate runs with `ddl-auto=validate`.
 - Conventions: `BIGINT GENERATED ALWAYS AS IDENTITY` primary keys; timestamps are `TIMESTAMPTZ`; enum-like columns are `VARCHAR` + `CHECK` (not native enums).
 
@@ -140,7 +140,7 @@ Legend: **PK** primary key · **FK** foreign key (with `ON DELETE`) · **UQ** un
 
 **`permissions`** — action catalog. `id` PK; `code` varchar(30) NN **UQ**; `description`. Seed: `VIEW`, `CREATE`, `EDIT`, `DELETE`, `ASSIGN`, `APPROVE`, `GENERATE_REPORTS` *(implemented — read-only)*.
 
-**`role_permissions`** *(implemented)* — the permission matrix. Composite PK `(role_id, permission_id, resource, scope)`; `role_id`, `permission_id` FK `CASCADE`; `resource` varchar(30) NN (`PROJECT`, `MILESTONE`, `MEMBER`, `ATTACHMENT`, `CHECKLIST_ITEM`, `TASK`, `TASK_STATUS`, `SUBTASK`, `COMMENT`, `WORK_LOG`, `REPORT`, `USER`, `ROLE`, `LOOKUP`); `scope` varchar(10) NN CHECK `SYSTEM`/`PROJECT`; index on `permission_id`. Seed: **163 rows** — Administrator 84, Project Manager 2 (`PROJECT:CREATE`, `REPORT:GENERATE_REPORTS`), Owner 30, Admin 28, Member 12, Viewer 7, User 0. The matrix is listed in [authentication-authorization.md](authentication-authorization.md#52-project-scope-matrix); the SQL is `V10` / `01-init.sql`.
+**`role_permissions`** *(implemented)* — the permission matrix. Composite PK `(role_id, permission_id, resource, scope)`; `role_id`, `permission_id` FK `CASCADE`; `resource` varchar(30) NN (`PROJECT`, `MILESTONE`, `MEMBER`, `ATTACHMENT`, `CHECKLIST_ITEM`, `TASK`, `TASK_STATUS`, `SUBTASK`, `COMMENT`, `WORK_LOG`, `REPORT`, `USER`, `ROLE`, `LOOKUP`); `scope` varchar(10) NN CHECK `SYSTEM`/`PROJECT`; index on `permission_id`. Seed: **198 rows** — Administrator 98 (every action on all 14 resources), Project Manager 2 (`PROJECT:CREATE`, `REPORT:GENERATE_REPORTS`), Owner 37, Admin 35, Member 17, Viewer 9, User 0 (163 before the `ATTACHMENT` and `CHECKLIST_ITEM` resources arrived in `V13`). The matrix is listed in [authentication-authorization.md](authentication-authorization.md#52-project-scope-matrix); the SQL is `V10` / `01-init.sql`.
 
 **`positions`**, **`departments`** *(implemented)* — org-wide lookup lists. `id` PK; `name` varchar(100) NN; `description` varchar(255); `created_at`. Unique index on `LOWER(name)`.
 
@@ -171,7 +171,7 @@ Indexes: `idx_users_username_lower`, `idx_users_email_lower` (unique), `idx_user
 
 ### 3.2 Projects and teams
 
-**`projects`** *(implemented)* — `id` PK; `project_code` varchar(30) NN **UQ** (constraint `projects_project_code_key`); `name` varchar(200) NN; `description` text; `start_date`, `end_date` date NN; `manager_id` NN FK → `users` `RESTRICT`; `priority`, `status` (see §2); `progress` NUMERIC(5,2) NN default 0; `created_at`, `updated_at`. `CHECK (end_date >= start_date)`. Indexes: `manager_id`, `status`.
+**`projects`** *(implemented)* — `id` PK; `project_code` varchar(30) NN **UQ** (constraint `projects_project_code_key`); `name` varchar(200) NN; `description` text; `start_date`, `end_date` date NN; `manager_id` NN FK → `users` `RESTRICT`; `priority`, `status` (see §2); `progress` NUMERIC(5,2) NN default 0; `completed_at` timestamptz (V14: when the project became `COMPLETED`, set and cleared by `trg_projects_completed_at`, never written by the application); `created_at`, `updated_at`. `CHECK (end_date >= start_date)`. Indexes: `manager_id`, `status`.
 
 **`project_members`** *(implemented)* — `id` PK; `project_id` NN FK → `projects` `CASCADE`; `user_id` NN FK → `users` `CASCADE`; `project_role`, `status` (§2); `invited_by` FK → `users` `SET NULL`; `responded_at`; `joined_at` NN default `now()`. **`UNIQUE (project_id, user_id)`**. Indexes: `project_id`, `user_id`, `status`. Constraint trigger `trg_project_members_single_owner`.
 
@@ -219,7 +219,7 @@ Indexes: `idx_users_username_lower`, `idx_users_email_lower` (unique), `idx_user
 | `v_team_performance` | per user: assigned, completed, pending, overdue tasks, completion rate | No |
 | `v_team_workload` | per user: assigned/active/overdue tasks, estimated hours, actual (logged) hours | No |
 
-The four reporting views exist for the not-yet-built reports; the Reports page computes its charts in the browser from `/api/tasks` data.
+None of the views is read by the backend. The KPIs and the seven reports are calculated live in Java by `ReportService` (`GET /api/reports/*`), and the Reports Overview charts are computed in the browser from `/api/tasks` data; the four reporting views remain available for ad-hoc SQL.
 
 ## 5. Triggers and functions
 
@@ -241,10 +241,12 @@ All validation triggers raise with `ERRCODE '23514'` so they surface as `DataInt
 | `trg_tasks_not_completed_with_open_subtasks` | `tasks` BEFORE UPDATE | cannot **enter** `COMPLETED` with an incomplete subtask |
 | `trg_tasks_progress_derived_from_subtasks` | `tasks` BEFORE UPDATE | task `progress` follows subtask completion (when it has subtasks) |
 | `trg_subtasks_sync_parent_task` | `subtasks` AFTER INSERT/UPDATE/DELETE | push subtask-derived progress to the parent task |
+| `trg_checklist_items_sync_parent_task` | `checklist_items` AFTER INSERT/UPDATE/DELETE | the same for checklist items, which count toward task progress together with subtasks (V13) |
+| `trg_projects_completed_at` | `projects` BEFORE INSERT/UPDATE | stamp `completed_at` when the status becomes `COMPLETED` (an existing date is kept), clear it for any other status (V14) |
 | `trg_tasks_progress_sync` | `tasks` AFTER INSERT/UPDATE/DELETE | recompute the project's and milestone's progress |
 | `trg_projects_progress_derived`, `trg_milestones_progress_derived` | BEFORE UPDATE | overwrite `progress` with the computed value on every update |
 
-Functions that are not triggers: `fn_compute_project_progress(bigint)`, `fn_compute_milestone_progress(bigint)`, `fn_compute_task_progress_from_subtasks(bigint)`, `fn_generate_overdue_notifications()` (returns the number of rows inserted; only the seed script calls it — the application's overdue notices come from `DeadlineNotificationService`). Rules that exist **only in application code** (no trigger): subtask assignee eligibility (`SubtaskService`), invitation eligibility (`ProjectMemberService`), and the "assignees may change only status/progress" restriction (`TaskService`). **Not checked anywhere:** that a comment's parent belongs to the same task, and that a task dependency joins two tasks of the same project.
+Functions that are not triggers: `fn_compute_project_progress(bigint)`, `fn_compute_milestone_progress(bigint)`, `fn_compute_task_progress_from_subtasks(bigint)`, `fn_generate_overdue_notifications()` (returns the number of rows inserted; only the seed script calls it — the application's overdue notices come from `DeadlineNotificationService`). Rules that exist **only in application code** (no trigger): subtask assignee eligibility (`SubtaskService`), invitation eligibility (`ProjectMemberService`), and the "assignees may change only status/progress" restriction (`TaskService`). **Not checked by the database:** that a comment's parent belongs to the same task (`CommentService` checks it, `400`), and that a task dependency joins two tasks of the same project (checked nowhere).
 
 Progress formulas: project and milestone = `round(100 × completed ÷ non-cancelled tasks, 2)` (0 when none); task = `round(100 × completed subtasks ÷ subtasks, 2)` (left unchanged when there are no subtasks).
 
@@ -260,7 +262,7 @@ Loaded once, after `01-init.sql`, into an empty volume: 13 positions, 7 departme
 
 ## 8. Migrations vs. the init script
 
-`database/init/01-init.sql` is what actually creates the schema (Docker and CI). `database/taskmanager/migrations/` is a Flyway project (`flyway.toml`, locations `filesystem:migrations`, `validateMigrationNaming`, `outOfOrder = true`) applied to an existing database by the one-shot `migrate` service in `docker-compose.yml` on every `docker compose up` (a database built from the current init scripts carries its own baseline row, version 13, from `init/04-flyway-baseline.sql`). **The application itself does not run Flyway** (`flyway-core` is not a dependency).
+`database/init/01-init.sql` is what actually creates the schema (Docker and CI). `database/taskmanager/migrations/` is a Flyway project (`flyway.toml`, locations `filesystem:migrations`, `validateMigrationNaming`, `outOfOrder = true`) applied to an existing database by the one-shot `migrate` service in `docker-compose.yml` on every `docker compose up` (a database built from the current init scripts carries its own baseline row, version 14, from `init/04-flyway-baseline.sql`). **The application itself does not run Flyway** (`flyway-core` is not a dependency).
 
 | Migration | Content |
 |---|---|
@@ -273,12 +275,13 @@ Loaded once, after `01-init.sql`, into an empty volume: 13 positions, 7 departme
 | `V7__add_default_global_user_role.sql` | adds the `USER` role |
 | `V8__enforce_project_owner_integrity.sql` | `trg_project_members_owner_integrity` (replaced in `V10`) |
 | `V9__requirement_roles_and_permissions.sql` | first version of the role matrix: `roles.scope/project_role/built_in`, `role_permissions.resource/scope`, four requirement roles + `VIEWER` at both levels, backfill, grants to `taskmanager_app` |
-| `V13__attachments_checklists.sql` | **attachments and checklists** (change-plan 3a): resources `ATTACHMENT` and `CHECKLIST_ITEM` in the `role_permissions` check plus their grants (35 rows; the matrix is now 198); `attachments.file_url` optional; table `attachment_contents`; `checklist_items.created_by`; `fn_compute_task_progress_from_subtasks(task, status)` counts checklist items with subtasks (D-07) and the `checklist_items` sync trigger; grants for the application role; idempotent |
-| `V12__task_approval_workflow.sql` | **approval workflow** (B3.8): `tasks.approver_id`; table `task_approvals` with a partial unique index (one open request per task); widens the `activity_logs.action` and `notifications.type` checks; gives each task already `IN_REVIEW` an open request; grants the application role; idempotent |
-| `V11__rename_status_to_do_to_todo.sql` | renames the stored task/subtask status `TO_DO` → `TODO` (D-15): drops and re-adds the two `CHECK` constraints, new column defaults, rewrites the rows with the user triggers switched off (no new `updated_at`), re-creates `v_team_workload`; idempotent |
 | `V10__two_level_roles.sql` | **two-level roles** ([ADR-0015](adr/0015-two-level-roles-system-and-project.md)): adds `USER`, `OWNER`, `ADMIN`, `MEMBER`; retires the `TEAM_LEADER` / `TEAM_MEMBER` system roles (their accounts become `USER`); `PROJECT_MANAGER` becomes system-only; rewrites the matrix (163 rows: a Team Member no longer creates tasks or deletes subtasks, report access moves to the project roles); makes every project have exactly one owner (extra owners → `ADMIN`) and every owner a Project Manager; replaces the V8 trigger with the deferred `trg_project_members_single_owner`. **Idempotent**: the data changes run only while the old model (`TEAM_LEADER`) is present, so a re-run or a database built from the new `01-init.sql` is left alone and edited grants are never wiped |
+| `V11__rename_status_to_do_to_todo.sql` | renames the stored task/subtask status `TO_DO` → `TODO` (D-15): drops and re-adds the two `CHECK` constraints, new column defaults, rewrites the rows with the user triggers switched off (no new `updated_at`), re-creates `v_team_workload`; idempotent |
+| `V12__task_approval_workflow.sql` | **approval workflow** (B3.8): `tasks.approver_id`; table `task_approvals` with a partial unique index (one open request per task); widens the `activity_logs.action` and `notifications.type` checks; gives each task already `IN_REVIEW` an open request; grants the application role; idempotent |
+| `V13__attachments_checklists.sql` | **attachments and checklists** (change-plan 3a): resources `ATTACHMENT` and `CHECKLIST_ITEM` in the `role_permissions` check plus their grants (35 rows; the matrix is now 198); `attachments.file_url` optional; table `attachment_contents`; `checklist_items.created_by`; `fn_compute_task_progress_from_subtasks(task, status)` counts checklist items with subtasks (D-07) and the `checklist_items` sync trigger; grants for the application role; idempotent |
+| `V14__project_completed_at.sql` | **project completion date** (checklist #23): `projects.completed_at` and the trigger `trg_projects_completed_at` (stamp on `COMPLETED`, clear otherwise); projects already `COMPLETED` get their last update time, with the user triggers switched off so `updated_at` does not move; idempotent |
 
-**Drift (verified):** the migrations V1–V8 do **not** contain the task/subtask consistency objects that `01-init.sql` has — `check_task_not_completed_with_open_subtasks`, `trg_tasks_not_completed_with_open_subtasks`, `fn_compute_task_progress_from_subtasks`, `trg_subtasks_sync_parent_task`, `trg_tasks_progress_derived_from_subtasks`. A database built from the migrations would lack those rules. The old `database/README.md` (since removed) stated that the two routes produce identical schemas; that was true when it was written but is no longer. See [issues.md](issues.md).
+**Drift (verified, re-checked 2026-10-12):** no migration from `V1` to `V14` creates the task/subtask consistency objects that `01-init.sql` has — `check_task_not_completed_with_open_subtasks`, `trg_tasks_not_completed_with_open_subtasks`, `trg_subtasks_sync_parent_task` and `trg_tasks_progress_derived_from_subtasks` (`V13` only re-creates the function `fn_compute_task_progress_from_subtasks`, which those triggers call). A database built from the migrations alone would lack those rules; the Compose route is safe because it baselines an existing database at 8 and a fresh one at 14. The old `database/README.md` (since removed) stated that the two routes produce identical schemas; that was true when it was written but is no longer. See [issues.md](issues.md).
 
 ### 8.1 Flyway project layout and rules
 
@@ -290,15 +293,15 @@ database/taskmanager/
 ├── flyway.user.toml         per-user Development/Shadow connection details: git-ignored, never commit
 ├── filter.rgf               SQL Compare filter used by Flyway Desktop's diffing
 ├── schema-model/            schema snapshot Flyway Desktop maintains from the Development connection
-└── migrations/              V1 … V13 (table above)
+└── migrations/              V1 … V14 (table above)
 ```
 
 - **Source of truth, stated plainly:** `database/init/*.sql` is what creates the schema (Docker Compose through `docker-entrypoint-initdb.d`, and CI, both run `01-init.sql` then `02-seed.sql`). The migrations are a parallel, versioned historical record kept equivalent by hand. Editing `init/01-init.sql` without also adding a matching migration (or the reverse) is how the drift above was introduced.
-- **New schema changes are new files** (`V10__*.sql`, `V11__*.sql`, …), never edits to an already-numbered migration: Flyway checksums each applied file and refuses to re-run one that changed. `V1` was corrected in place once, to fix three triggers that were missing `USING ERRCODE = '23514'`; that was only safe because no `flyway_schema_history` table has ever existed anywhere this project runs, so nothing had consumed `V1`'s checksum. Do not treat it as precedent for a migration that has actually been applied somewhere.
+- **New schema changes are new files** (the next one is `V15__*.sql`), never edits to an already-numbered migration: Flyway checksums each applied file and refuses to re-run one that changed. `V1` was corrected in place once, to fix three triggers that were missing `USING ERRCODE = '23514'`; that was only safe because no `flyway_schema_history` table has ever existed anywhere this project runs, so nothing had consumed `V1`'s checksum. Do not treat it as precedent for a migration that has actually been applied somewhere.
 - Flyway Desktop generates new migrations by diffing its **Development** database against its **Shadow** database (a second, disposable Postgres database it can wipe and rebuild). Create one locally with `docker exec -it taskmanager-postgres psql -U postgres -c "CREATE DATABASE taskmanager_shadow;"`.
 - `V2` expresses its changes as `ALTER TABLE` / `CREATE` against the `V1` baseline (for example `ALTER TABLE tasks ALTER COLUMN start_date SET NOT NULL`), whereas `01-init.sql` bakes them into each `CREATE TABLE` (`start_date DATE NOT NULL`) because it always runs on an empty database. The routes were intended to give the same result; the drift paragraph above lists where they no longer do.
 - Migrations contain schema only. `init/02-seed.sql` is dev-only fake data and deliberately not a migration, because migrations must be safe in every environment. Load it by hand (`psql -f database/init/02-seed.sql`) after migrating if you want the demo rows.
-- **Applied by Docker Compose.** The one-shot `migrate` service (`flyway/flyway`, `docker-compose.yml`) runs `migrate -baselineOnMigrate=true -baselineVersion=8` against the database before the backend starts (`depends_on: migrate: service_completed_successfully`). A volume that predates Flyway has no `flyway_schema_history`, so it baselines at 8 and applies `V9` and `V10`. A volume built from the current init scripts already holds the end state, so `init/04-flyway-baseline.sql` writes a **baseline row at version 10** and Flyway applies only what is newer (without it `V9` would re-create the retired roles). When you fold a new migration into `01-init.sql`, raise the version in that file. It connects as the `postgres` superuser (migrations create objects and grants); the backend still connects as `taskmanager_app`. Both paths were tested on throwaway databases before the live upgrade, and `verify_invariants.sql` has two new checks (exactly one owner per project; owners are Project Managers or Administrators).
+- **Applied by Docker Compose.** The one-shot `migrate` service (`flyway/flyway`, `docker-compose.yml`) runs `migrate -baselineOnMigrate=true -baselineVersion=8` against the database before the backend starts (`depends_on: migrate: service_completed_successfully`). A volume that predates Flyway has no `flyway_schema_history`, so it baselines at 8 and applies `V9` to `V14`. A volume built from the current init scripts already holds the end state, so `init/04-flyway-baseline.sql` writes a **baseline row at version 14** and Flyway applies only what is newer (without it `V9` would re-create the retired roles). When you fold a new migration into `01-init.sql`, raise the version in that file. It connects as the `postgres` superuser (migrations create objects and grants); the backend still connects as `taskmanager_app`. Both paths were tested on throwaway databases before the live upgrade, and `verify_invariants.sql` carries checks for the ownership rule (exactly one owner per project; owners are Project Managers or Administrators) and the approval rule (an open request belongs to a task in review, and every task in review has one).
 
 ### 8.2 Running the migrations with the Flyway CLI or Docker
 
@@ -319,7 +322,7 @@ docker run --rm `
 
 ## 9. Invariant checks
 
-`database/verify_invariants.sql` is a standalone set of 7 read-only queries that must each return **zero rows** (run it any time with `psql -f database/verify_invariants.sql`, especially after a schema or seed change; CI runs it with `psql -t -A`, which prints nothing when every query is empty): tasks missing dates, active tasks with incomplete dependencies, assignees who are not project members, assignees who are not `ACTIVE`, tasks linked to another project's milestone, stale project progress, stale milestone progress. CI runs it after loading the schema and seed and fails the build on any output.
+`database/verify_invariants.sql` is a standalone set of 12 read-only queries that must each return **zero rows** (run it any time with `psql -f database/verify_invariants.sql`, especially after a schema or seed change; CI runs it with `psql -t -A`, which prints nothing when every query is empty): tasks missing dates, active tasks with incomplete dependencies, assignees who are not project members, assignees who are not `ACTIVE`, tasks linked to another project's milestone, stale project progress, stale milestone progress, a project without exactly one active owner, an owner who cannot own projects, a pending approval request on a task that is not in review, a task in review without an open request, and a project whose completion date disagrees with its status. CI runs it after loading the schema and seed and fails the build on any output.
 
 ## 10. Notes and inconsistencies found
 
@@ -337,7 +340,7 @@ cp .env.example .env   # first time only
 docker compose up -d
 ```
 
-This starts a `postgres` container, creates the `taskmanager` database, and runs every `.sql` and `.sh` file in `database/init/` in filename order, **the first time the container's data volume is created**. `01-init.sql` is the schema, `02-seed.sql` loads demo data (24 users, 10 projects and everything under them) and `03-app-role.sh` creates the least-privileged role the backend connects as. CI loads both `.sql` files into its own throwaway database. Every seeded user shares the password `DevPassword123!`; `contractor.felix` (`INACTIVE`) and `exemployee.diego` (`SUSPENDED`) are seeded to fail login whatever the password, to exercise `account_status` handling.
+This starts a `postgres` container, creates the `taskmanager` database, and runs every `.sql` and `.sh` file in `database/init/` in filename order, **the first time the container's data volume is created**. `01-init.sql` is the schema, `02-seed.sql` loads demo data (24 users, 10 projects and everything under them), `03-app-role.sh` creates the least-privileged role the backend connects as and `04-flyway-baseline.sql` records the Flyway baseline (version 14). CI loads every `.sql` file in the folder into its own throwaway database. Every seeded user shares the password `DevPassword123!`; `contractor.felix` (`INACTIVE`) and `exemployee.diego` (`SUSPENDED`) are seeded to fail login whatever the password, to exercise `account_status` handling.
 
 | | Superuser (admin, migrations) | App role (what the backend uses) |
 |---|---|---|
@@ -395,13 +398,14 @@ Not every table has a backend entity, repository, service and controller; some a
 | `otp_verifications` | Full stack, but no REST surface of its own: used only by `register`, `verify-otp`, `resend-otp` |
 | `subtasks` | Full stack, project-membership scoped |
 | `comments` | Full stack: read and create by project members, author-only edit, author-or-manager delete |
-| `activity_logs` | Full stack, read-only API (`GET /api/activity-logs/task/{taskId}`), written internally by other services |
+| `activity_logs` | Full stack, read-only API (`GET /api/activity-logs/task/{taskId}`, `/project/{projectId}`, `/recent`), written internally by other services |
 | `work_logs` | Full stack (added 2026-10-08): list by task, create, delete; feeds `TaskResponse.actualHours` |
-| `checklist_items`, `attachments`, `attachment_contents` | implemented in V13 (`ChecklistItemService`, `AttachmentService`) |
+| `task_approvals` | Full stack (V12): `TaskApprovalService`, `TaskApprovalController` |
+| `checklist_items`, `attachments`, `attachment_contents` | Full stack (V13): `ChecklistItemService`, `AttachmentService` |
 | `permissions`, `role_permissions` | Full stack (added 2026-10-08): `GET /api/permissions/matrix`, `PUT /api/roles/{id}/permissions`, `GET /api/users/me/permissions` (section 13) |
 | `report_exports`, `kpi_snapshots` | DB-only: nothing writes to them; the reporting views are queryable but have no controller |
 
-`project_members` also gained `status`, `invited_by` and `responded_at` (migration `V4`) for the invitation workflow; a project is the "team", so there is no separate `teams` table. Remaining scope: entities and controllers for `checklist_items` and `attachments`, and endpoints over the reporting views, `report_exports` and `kpi_snapshots`. Prioritised plan: [roadmap.md](roadmap.md).
+`project_members` also gained `status`, `invited_by` and `responded_at` (migration `V4`) for the invitation workflow; a project is the "team", so there is no separate `teams` table. Remaining scope: entities for `report_exports` and `kpi_snapshots`, which only matter if report export or KPI history is built. Prioritised plan: [roadmap.md](roadmap.md).
 
 ## Contributing
 

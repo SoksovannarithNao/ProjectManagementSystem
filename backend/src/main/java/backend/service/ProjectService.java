@@ -29,6 +29,7 @@ public class ProjectService {
     private final ProjectAccessGuard projectAccessGuard;
     private final ProjectOwnership projectOwnership;
     private final ActivityLogService activityLogService;
+    private final UpdateNotificationService updateNotificationService;
 
     public ProjectService(
             ProjectRepository projectRepository,
@@ -36,13 +37,15 @@ public class ProjectService {
             UserRepository userRepository,
             ProjectAccessGuard projectAccessGuard,
             ProjectOwnership projectOwnership,
-            ActivityLogService activityLogService) {
+            ActivityLogService activityLogService,
+            UpdateNotificationService updateNotificationService) {
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
         this.projectOwnership = projectOwnership;
         this.activityLogService = activityLogService;
+        this.updateNotificationService = updateNotificationService;
     }
 
     // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
@@ -93,6 +96,8 @@ public class ProjectService {
         Project project = new Project();
         applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
+        // Flushed so the database-set completed_at is read back into the response.
+        projectRepository.flush();
         projectOwnership.assignOwner(saved, saved.getManager());
         activityLogService.recordProjectEvent(caller, saved, "PROJECT_CREATED",
                 "Project \"" + saved.getName() + "\" created");
@@ -106,6 +111,8 @@ public class ProjectService {
         String[] before = snapshot(project);
         applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
+        // Flushed so the database-set completed_at is read back into the response.
+        projectRepository.flush();
         // Only an administrator can change the manager; that is an ownership transfer.
         projectOwnership.assignOwner(saved, saved.getManager());
         logProjectChanges(caller, saved, before);
@@ -134,9 +141,15 @@ public class ProjectService {
             activityLogService.recordProjectEvent(actor, saved, "PROJECT_UPDATED",
                     "Project updated (" + String.join(", ", changed) + ")");
         }
-        if ("COMPLETED".equals(saved.getStatus()) && !"COMPLETED".equals(before[1])) {
+        boolean completed = "COMPLETED".equals(saved.getStatus()) && !"COMPLETED".equals(before[1]);
+        if (completed) {
             activityLogService.recordProjectEvent(actor, saved, "PROJECT_COMPLETED",
                     "Project \"" + saved.getName() + "\" completed");
+        }
+        // The people around the project hear about it too (nothing is sent for a save
+        // that changed nothing).
+        if (!changed.isEmpty()) {
+            updateNotificationService.notifyProjectUpdated(saved, actor, completed, changed);
         }
     }
 
@@ -150,10 +163,11 @@ public class ProjectService {
     }
 
     // Next PRJ-#### after the highest one in use (seed data starts at
-    // PRJ-2001, so the first generated code is PRJ-2004). The unique
-    // constraint on project_code remains the backstop for two simultaneous
-    // creates picking the same number.
+    // PRJ-2001, so the first generated code is PRJ-2004). Simultaneous creates
+    // queue on a database lock until the earlier one commits; the unique
+    // constraint on project_code remains the final backstop.
     private String generateProjectCode() {
+        projectRepository.lockProjectCodeGeneration();
         int max = 0;
         for (String code : projectRepository.findAutoProjectCodes()) {
             String digits = code.substring("PRJ-".length());

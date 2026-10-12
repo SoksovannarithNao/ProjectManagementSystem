@@ -4,7 +4,7 @@ In-app notifications only (no email, push or SMS apart from the registration cod
 
 ## 1. Notification types
 
-The `notifications.type` CHECK constraint allows 11 values. **Eight are produced by the application today** (the approval pair since 2026-10-09; the deadline reminder and the overdue notice since 2026-10-10).
+The `notifications.type` CHECK constraint allows 11 values and **all eleven are produced by the application today** (the approval pair since 2026-10-09; the deadline reminder and the overdue notice since 2026-10-10; comments, project updates and milestone updates since 2026-10-12).
 
 | Type | Produced? | Producer | Recipient |
 |---|---|---|---|
@@ -14,9 +14,9 @@ The `notifications.type` CHECK constraint allows 11 values. **Eight are produced
 | `TEAM_INVITATION_RESPONDED` | ✅ | `ProjectMemberService.respondToInvitation` → `notifyInvitationResponded` | the person who sent the invitation |
 | `APPROVAL_REQUESTED` | ✅ | `TaskApprovalService.openRequest` / `designateApprover` → `notifyApprovalRequested` | the approver named for the task; otherwise every active member of the project who may approve; never the person asking |
 | `APPROVAL_DECIDED` | ✅ | `TaskApprovalService.decide` / `recordDirectCompletion` → `notifyApprovalDecided` | the person who asked for the review (not when they decided it themselves) |
-| `COMMENT_ADDED` | ❌ | — (comments notify nobody) | — |
-| `PROJECT_UPDATED` | ❌ | — | — |
-| `MILESTONE_UPDATED` | ❌ | — | — |
+| `COMMENT_ADDED` | ✅ | `CommentService.createComment` → `UpdateNotificationService.notifyCommentAdded` (see §9) | the task's assignees, the project's Owner and Team Leaders, and for a reply the author of the comment it answers; never the author |
+| `PROJECT_UPDATED` | ✅ | `ProjectService.updateProject` → `UpdateNotificationService.notifyProjectUpdated` (see §9) | the assignees of the project's tasks and the project's Owner and Team Leaders; never the person who edited |
+| `MILESTONE_UPDATED` | ✅ | `MilestoneService.updateMilestone` → `UpdateNotificationService.notifyMilestoneUpdated` (see §9) | the assignees of the milestone's linked tasks and the project's Owner and Team Leaders; never the person who edited |
 | `DEADLINE_REMINDER` | ✅ | `DeadlineNotificationService.sendReminders`, run by `DeadlineScheduler` (see §8) | the assignees of the task and the project's active Owner; for a milestone or a project, the Owner |
 | `OVERDUE_TASK` | ✅ | `DeadlineNotificationService.sendOverdueNotices`, run by `DeadlineScheduler` (see §8). The seed script also calls `fn_generate_overdue_notifications()` once, so demo data contains older rows | the assignees of the overdue task and the project's active Owner |
 
@@ -30,15 +30,18 @@ The `notifications.type` CHECK constraint allows 11 values. **Eight are produced
 | `APPROVAL_DECIDED` | an approver approves, requests changes or rejects (or completes the task directly) | "Task approved" / "Changes requested" / "Task rejected" | `<approver> approved\|asked for changes on\|rejected "<task>"[: <comment>]` |
 | `TEAM_INVITATION` | a project invitation is created or re-sent | "Team invitation" | `<inviter name> invited you to join "<project name>"` |
 | `TEAM_INVITATION_RESPONDED` | the invitee accepts or declines (and the inviter still exists) | "Invitation accepted" / "Invitation declined" | `<invitee name> accepted|declined your invitation to join "<project name>"` |
+| `COMMENT_ADDED` | a comment or a reply is added to a task | "New comment" / "New reply" | `<author> commented on\|replied on "<task>" in "<project>": <the first 100 characters>` |
+| `PROJECT_UPDATED` | a project is saved with at least one change (name, status, priority, dates or description), or becomes Completed | "Project updated" / "Project completed" | `<editor> updated "<project>" (status, end date)` / `<editor> marked "<project>" as completed` |
+| `MILESTONE_UPDATED` | a milestone is saved with at least one change (title, description, due date, status), or becomes Completed | "Milestone updated" / "Milestone completed" | `<editor> updated milestone "<title>" in "<project>" (due date)` / `<editor> completed milestone "<title>" in "<project>"` |
 | `DEADLINE_REMINDER` | 3 days or 1 day before a task's or milestone's due date or a project's end date, while it is not finished | "Deadline approaching" | `"<task>" in "<project>" is due in 3 days (<yyyy-mm-dd>)` / `… is due tomorrow (<date>)`; `Milestone "<title>" in "<project>" is due …`; `Project "<name>" ends in 3 days (<date>)` |
 | `OVERDUE_TASK` | the day after a task's due date, while it is not Completed or Cancelled | "Task overdue" | `"<task>" in "<project>" was due on <yyyy-mm-dd> and is not yet completed` |
 
 Details worth knowing:
 
-- Each row records the related **project** (and **task**, for the first two) so the UI can show names.
+- Each row records the related **project** (and **task**, for the first two and for comments) so the UI can show names.
 - `TASK_STATUS_CHANGED` goes to **all** assignees, **including the person who made the change** — the actor is not excluded.
 - The status-change notification is **not** sent when the status changes through the subtask auto-promotion (`SubtaskService.startTaskIfStillToDo` saves the task directly and does not call `NotificationService`).
-- Unassigning a task, deleting a task, comments, project edits and milestone edits create **no** notification.
+- Unassigning a task, deleting a task, creating a project and creating a milestone create **no** notification, and neither does saving a project or a milestone without changing anything.
 - The database function `fn_generate_overdue_notifications()` is no longer used by the application (only the seed script calls it, and it reaches assignees only). The scheduled job in §8 replaced it.
 
 ## 3. Read / unread behaviour
@@ -92,3 +95,23 @@ Created by `service/DeadlineNotificationService.java` and run by `config/Deadlin
 | Failure | An exception is logged (`Deadline notifications (…) failed`) and the next run tries again; it never stops the application. Each run logs `Deadline notifications (scheduled|startup): N created` |
 
 The first run on a database that already holds overdue work creates a notice for every open overdue task, for each assignee and the Owner (53 on the development data on 2026-10-10). A database loaded from `02-seed.sql` already has older `OVERDUE_TASK` rows, written by the SQL function with slightly different text (no project name), so the scheduler adds its own on top the first time.
+
+
+## 9. Comments, project updates and milestone updates (since 2026-10-12)
+
+Created by `service/UpdateNotificationService.java`, called by `CommentService`, `ProjectService` and `MilestoneService` right after the change is saved (the same pattern as [ADR-0007](adr/0007-application-created-notifications.md)). The recipients follow the proposal D-10 of the brief ("assignees and the Owner / Team Leaders of the project; the actor excluded"):
+
+| Event | Recipients |
+|---|---|
+| A comment or reply on a task | the task's assignees; the project's active Owner and Team Leaders; for a reply, also the author of the comment it answers |
+| A project is edited or completed | the assignees of any task in the project; the project's active Owner and Team Leaders |
+| A milestone is edited or completed | the assignees of the tasks linked to the milestone; the project's active Owner and Team Leaders |
+
+Rules that apply to all three:
+
+- **Never the person who made the change**, and each person at most once (an assignee who is also the Owner gets one notification).
+- People who switched task notifications off, and accounts that are not `ACTIVE`, are skipped (the same preference as every other notification, section 5).
+- A Team Member who is not assigned to anything affected is **not** told: only the people with work in it, plus the project's leaders.
+- Only real changes notify: a save that changes nothing, creating a project and creating a milestone do not. The message names the fields that changed (`status, end date`) and is cut to 500 characters, a comment preview to 100.
+- A completed project or milestone gets its own title ("Project completed", "Milestone completed").
+- Not covered: removing a member, deleting a project or milestone, and a time log produce no notification (D-10 leaves "member added / removed" pending).
