@@ -99,7 +99,7 @@ components:
     backgroundColor: "{colors.subtle}"
     textColor: "{colors.ink}"
     rounded: "{rounded.md}"
-    height: "44px"
+    height: "40px"
   badge:
     rounded: "{rounded.full}"
     padding: "4px 10px"
@@ -126,7 +126,7 @@ The current implementation is soft and low-contrast: pale gray surfaces, light s
 - Neutral, tonal surfaces; charcoal is the only strong colour and is used for the primary action and the active location.
 - Status colours (success, warning, danger, info) carry meaning and nothing else.
 - Cards on a light canvas; tonal steps rather than heavy shadows create depth.
-- Compact, scannable rows: 13–14px working text, 42px nav rows, 44px inputs.
+- Compact, scannable rows: 13–14px working text, 42px nav rows, 40px inputs (44px on the auth screens).
 - Light, dark and system themes are all first-class; every colour must resolve through tokens.
 
 ## Colors
@@ -191,7 +191,7 @@ Canvas `#1c1c1e`, container `#29292c`, card `#232326`, border `#38383c`, ink `#f
 
 An app shell with a fixed 224px left sidebar and a scrolling main area. Main content is centred with a max width of 1440px and horizontal padding of 40px on desktop, 24px below 1024px and 16px below 640px. The sidebar becomes an off-canvas drawer below 1024px.
 
-Pages are built from cards separated by a 24px gap. Card padding is 22px vertical and 24px horizontal. The dashboard is a two-column grid (`1fr 380px`) laid out in two rows, so neither column runs long: Task Overview beside Reports, then Due & Overdue beside Projects. Below 1200px it is one column in the order Overview, Due & Overdue, Projects, Reports (the actionable list comes before the project cards). Task and board views are horizontally scrolling lanes of 240–268px columns. The scrollbar gutter is reserved so layout never shifts when content grows.
+Pages are built from cards separated by a 24px gap. Card padding is 22px vertical and 24px horizontal. The dashboard opens with a strip of six statistic cards (total, active, completed and delayed projects, average completion, total tasks; six columns, three below 1200px, two below 640px) and then a two-column grid (`1fr 380px`) laid out in rows, so neither column runs long: Task Overview beside Reports, Due & Overdue beside Projects, Recent activity beside Delayed projects, and — only for people who can assign tasks — a full-width Team workload card. Below 1200px it is one column in DOM order (Overview, Due & Overdue, Projects, Reports, then the rest; the actionable list comes before the project cards). Task and board views are horizontally scrolling lanes of 240–268px columns. The scrollbar gutter is reserved so layout never shifts when content grows.
 
 Density is moderate: working rows are 42–44px tall with 12–14px gaps; body text is 14px on every screen size. Use spacing in multiples of 4px; recurring values are 6, 10, 14, 18, 22 and 24px.
 
@@ -260,6 +260,7 @@ A role list (Card, one button per role; the selected role uses the Charcoal fill
 
 ### Badges (status and priority)
 - **Style:** pill, 12px semibold, 4px × 10px, a 6px dot in `currentColor` before the label, soft-tint background with the matching `-ink` hue as text.
+- **Deadline flags:** *Overdue* is the danger tint; *Due today / tomorrow / in N days* (`DueSoonBadge`, an open task due within 3 days) is the warning tint with a clock icon; the completed-project chip (*Completed on <date>*) is the success tint. Dashboard rows use the same hues as plain text.
 - **Mapping:** see Colors → Status. Unknown values fall back to Subtle with Muted text.
 
 ### Avatars
@@ -269,10 +270,13 @@ A role list (Card, one button per role; the selected role uses the Charcoal fill
 - 7px pill track in Divider, Ink fill (flips to near-white in dark mode); width transitions over 500ms. Donut and ring variants use Charcoal on a Blue-Gray track.
 
 ### Modals and drawers
-- Centred modal (max 460px, 9–13px radius, Pop shadow) and right-hand slide-in panels for task detail and task/project forms. Closing a dirty form asks "Discard changes?" with Keep editing / Discard. Backdrop clicks close; nested overlays stop propagation.
+- Centred modal (max 460px, 9–13px radius, Pop shadow) and right-hand slide-in panels for task detail and task/project forms. Closing a dirty form asks "Discard changes?" with Keep editing / Discard. Backdrop clicks close; nested overlays stop propagation. The *Still there?* inactivity dialog (`role="alertdialog"`, 380px, a clock icon in the warning ink) is the one overlay that ignores backdrop clicks: only its two buttons close it, and it sits above every other overlay.
+
+### Quick views (Tasks page)
+- A row of pill buttons above the task groups (All, Today, Upcoming, In Progress, Completed, Overdue), each with its count; the selected one takes the Charcoal fill, the others the Card fill with a Border and Muted text (Overdue turns `danger-ink` when it holds tasks). It scrolls sideways on narrow screens and uses `aria-pressed`.
 
 ### Calendar
-- Desktop: month grid with one truncated 12px chip per task, tinted by priority. Phones (under 640px): cells are about 40px wide, so a title cannot fit; each day shows up to four dots in the task's colour instead, and the Week and Day views list the titles.
+- Desktop: month grid with one truncated 12px chip per task, tinted by priority, and one per milestone: a neutral Blue-Gray chip with a small flag and a hidden "Milestone:" prefix, struck through once completed. Phones (under 640px): cells are about 40px wide, so a title cannot fit; each day shows up to four dots in the item's colour instead (Charcoal for a milestone), and the Week and Day views list the titles.
 
 ### Dashboard task rows
 - A "Due & Overdue" row is: checkbox, task title (project name stripped from it), a second line of `Overdue · date` (in `danger-ink` with a warning icon) or just the date, then the project name; priority badge; assignee. Overdue is also counted in the Task Overview header as a link to Tasks.

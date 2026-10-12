@@ -37,6 +37,7 @@ import { getApprovals, submitForReview, decideApproval, setTaskApprover, DECISIO
 import { canApproveTask } from '../api/permissions'
 import { getDependenciesByTask, createTaskDependency, deleteTaskDependency } from '../api/taskDependencies'
 import { formatDate, humanizeEnum, initialsFor, timeAgo, blockedReason } from '../api/format'
+import { DueSoonBadge } from './DueSoonBadge'
 
 const STATUS_OPTIONS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
 
@@ -597,6 +598,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                 <AlertTriangle size={12} /> Overdue
               </span>
             )}
+            <DueSoonBadge task={task} />
             {task.blocked && (
               <span
                 title={blockedReason(task)}

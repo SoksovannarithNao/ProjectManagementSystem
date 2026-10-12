@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus, CalendarX2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, CalendarX2, Flag } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
@@ -7,6 +7,7 @@ import { TaskFormModal } from '../components/TaskFormModal'
 import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
 import { getTasks } from '../api/tasks'
+import { getMilestones } from '../api/milestones'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const VIEWS = ['Month', 'Week', 'Day']
@@ -16,6 +17,8 @@ const eventTones = {
   warning: 'bg-warning-soft text-warning-ink',
   danger: 'bg-danger-soft text-danger-ink',
   info: 'bg-info-soft text-info-ink',
+  // Milestones are not coloured by priority: a neutral chip with a flag marks them.
+  milestone: 'bg-blue-gray text-ink',
 }
 
 const eventDots = {
@@ -23,12 +26,34 @@ const eventDots = {
   warning: 'bg-warning',
   danger: 'bg-danger',
   info: 'bg-info',
+  milestone: 'bg-charcoal',
 }
 
 const PRIORITY_TONE = { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', URGENT: 'danger' }
 
 const eventClass = (tone) =>
   `truncate rounded-[2px] px-1.5 py-[3px] text-[12px] font-semibold ${eventTones[tone] ?? eventTones.info}`
+
+// One task or milestone on a day. Milestones carry a flag and a hidden "Milestone:"
+// label so they are told apart by more than colour.
+function EventChip({ ev }) {
+  const isMilestone = ev.kind === 'milestone'
+  return (
+    <span
+      data-testid={isMilestone ? 'calendar-milestone' : 'calendar-task'}
+      title={ev.hint}
+      className={`${eventClass(ev.tone)} ${ev.done ? 'line-through opacity-60' : ''}`}
+    >
+      {isMilestone && (
+        <>
+          <Flag size={10} className="mr-1 inline-block align-[-1px]" aria-hidden="true" />
+          <span className="sr-only">Milestone: </span>
+        </>
+      )}
+      {ev.title}
+    </span>
+  )
+}
 
 function buildMonthGrid(year, month) {
   const firstOfMonth = new Date(year, month, 1)
@@ -51,6 +76,12 @@ function startOfWeek(date) {
   return d
 }
 
+// A due date is a calendar date ("2026-10-12"): read it as that day in local time.
+// new Date("2026-10-12") is midnight UTC, which lands on the previous day west of UTC.
+function parseDay(isoDate) {
+  return new Date(`${isoDate}T00:00:00`)
+}
+
 function dateKey(d) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
@@ -69,6 +100,9 @@ export function Calendar() {
   // create tasks in.
   const canAdd = canAny('TASK', 'CREATE')
   const { data: tasks, loading, refetch } = useApi(getTasks)
+  // Milestones of every project the caller can see; if they fail to load the calendar
+  // still shows the tasks.
+  const { data: milestones } = useApi(getMilestones)
   const today = useMemo(() => new Date(), [])
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()))
   const [view, setView] = useState('Month')
@@ -80,14 +114,31 @@ export function Calendar() {
     const map = new Map()
     for (const t of tasks ?? []) {
       if (!t.dueDate) continue
-      const due = new Date(t.dueDate)
-      const key = dateKey(due)
+      const key = dateKey(parseDay(t.dueDate))
       const list = map.get(key) ?? []
-      list.push({ title: t.title, tone: PRIORITY_TONE[t.priority] ?? 'info' })
+      list.push({
+        kind: 'task',
+        title: t.title,
+        tone: PRIORITY_TONE[t.priority] ?? 'info',
+        hint: t.project?.name ? `${t.title} · ${t.project.name}` : t.title,
+      })
+      map.set(key, list)
+    }
+    for (const m of milestones ?? []) {
+      if (!m.dueDate) continue
+      const key = dateKey(parseDay(m.dueDate))
+      const list = map.get(key) ?? []
+      list.push({
+        kind: 'milestone',
+        title: m.title,
+        tone: 'milestone',
+        done: m.status === 'COMPLETED',
+        hint: `Milestone · ${m.title}${m.project?.name ? ` · ${m.project.name}` : ''}`,
+      })
       map.set(key, list)
     }
     return map
-  }, [tasks])
+  }, [tasks, milestones])
 
   const shiftPeriod = (delta) => {
     setCursor((prev) => {
@@ -135,7 +186,7 @@ export function Calendar() {
     <div>
       <TopBar
         title="Calendar"
-        subtitle="Plan and track deadlines across your projects"
+        subtitle="Task due dates and milestones across your projects"
         actions={
           canAdd && (
             <button className="btn btn-primary" onClick={() => openNewTask(cursor)}>
@@ -219,9 +270,7 @@ export function Calendar() {
                     </span>
                     <div className="flex flex-col gap-[3px] max-[640px]:hidden">
                       {events?.map((ev, idx) => (
-                        <span key={idx} className={eventClass(ev.tone)}>
-                          {ev.title}
-                        </span>
+                        <EventChip key={idx} ev={ev} />
                       ))}
                     </div>
                     {/* Phones: cells are ~40px wide, so a title cannot fit. One dot per
@@ -229,7 +278,7 @@ export function Calendar() {
                     {events?.length > 0 && (
                       <div
                         className="hidden flex-wrap gap-[3px] max-[640px]:flex"
-                        aria-label={`${events.length} ${events.length === 1 ? 'task' : 'tasks'} due`}
+                        aria-label={`${events.length} ${events.length === 1 ? 'item' : 'items'} due`}
                       >
                         {events.slice(0, 4).map((ev, idx) => (
                           <span key={idx} className={`h-1.5 w-1.5 rounded-full ${eventDots[ev.tone] ?? eventDots.info}`} />
@@ -260,13 +309,11 @@ export function Calendar() {
                   {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
                 {events.length === 0 ? (
-                  <span className="text-faint text-[12px]">No tasks due</span>
+                  <span className="text-faint text-[12px]">Nothing due</span>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {events.map((ev, idx) => (
-                      <span key={idx} className={eventClass(ev.tone)}>
-                        {ev.title}
-                      </span>
+                      <EventChip key={idx} ev={ev} />
                     ))}
                   </div>
                 )}

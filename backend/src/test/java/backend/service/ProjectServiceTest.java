@@ -48,6 +48,8 @@ class ProjectServiceTest {
 
     @Mock
     private ProjectOwnership projectOwnership;
+    @Mock
+    private UpdateNotificationService updateNotificationService;
 
     private ProjectService projectService;
 
@@ -55,7 +57,7 @@ class ProjectServiceTest {
 
     @BeforeEach
     void setUp() {
-        projectService = new ProjectService(projectRepository, projectMemberRepository, userRepository, projectAccessGuard, projectOwnership, activityLogService);
+        projectService = new ProjectService(projectRepository, projectMemberRepository, userRepository, projectAccessGuard, projectOwnership, activityLogService, updateNotificationService);
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 7L);
         caller.setUsername("pm.olivia");
@@ -132,6 +134,27 @@ class ProjectServiceTest {
         ProjectResponse response = projectService.createProject(request(null), "pm.olivia");
 
         assertThat(response.getProjectCode()).isEqualTo("PRJ-2011");
+    }
+
+    @Test
+    void create_withoutACode_takesTheCodeLockBeforeReadingTheCodesInUse() {
+        when(projectRepository.findAutoProjectCodes()).thenReturn(List.of());
+        stubSave();
+
+        projectService.createProject(request(null), "pm.olivia");
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(projectRepository);
+        order.verify(projectRepository).lockProjectCodeGeneration();
+        order.verify(projectRepository).findAutoProjectCodes();
+    }
+
+    @Test
+    void create_withAChosenCode_doesNotNeedTheCodeLock() {
+        stubSave();
+
+        projectService.createProject(request("WEB-RD"), "pm.olivia");
+
+        verify(projectRepository, never()).lockProjectCodeGeneration();
     }
 
     @Test
@@ -252,6 +275,49 @@ class ProjectServiceTest {
         projectService.updateProject(5L, same, "pm.olivia");
 
         verify(activityLogService, never()).recordProjectEvent(any(), any(), any(), any());
+        verify(updateNotificationService, never()).notifyProjectUpdated(any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any());
+    }
+
+    // ---- notifications ------------------------------------------------------
+
+    @Test
+    void editingAProject_tellsThePeopleAroundItWhatChanged() {
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(existingProject()));
+        when(projectRepository.existsByProjectCodeAndIdNot("PRJ-2005", 5L)).thenReturn(false);
+        stubSave();
+
+        projectService.updateProject(5L, request("PRJ-2005"), "pm.olivia");
+
+        verify(updateNotificationService).notifyProjectUpdated(
+                any(Project.class), org.mockito.ArgumentMatchers.eq(caller), org.mockito.ArgumentMatchers.eq(false),
+                org.mockito.ArgumentMatchers.argThat(changed -> changed.contains("name")));
+    }
+
+    @Test
+    void completingAProject_isAnnouncedAsCompleted() {
+        Project existing = existingProject();
+        existing.setStatus("IN_PROGRESS");
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(existing));
+        when(projectRepository.existsByProjectCodeAndIdNot("PRJ-2005", 5L)).thenReturn(false);
+        stubSave();
+        ProjectRequest done = request("PRJ-2005");
+        done.setStatus("COMPLETED");
+
+        projectService.updateProject(5L, done, "pm.olivia");
+
+        verify(updateNotificationService).notifyProjectUpdated(
+                any(Project.class), org.mockito.ArgumentMatchers.eq(caller), org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.argThat(changed -> changed.contains("status")));
+    }
+
+    @Test
+    void creatingAProject_notifiesNobody() {
+        when(projectRepository.findAutoProjectCodes()).thenReturn(List.of());
+        stubSave();
+
+        projectService.createProject(request(null), "pm.olivia");
+
+        verify(updateNotificationService, never()).notifyProjectUpdated(any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any());
     }
 
     @Test

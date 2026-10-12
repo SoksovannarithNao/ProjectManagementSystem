@@ -21,6 +21,12 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     @Query("select p.projectCode from Project p where p.projectCode like 'PRJ-%'")
     List<String> findAutoProjectCodes();
 
+    // Held until the surrounding transaction ends, so two simultaneous creates take
+    // turns picking the next PRJ-#### instead of choosing the same one. The cast is
+    // only there because Hibernate cannot map the function's void result.
+    @Query(value = "select cast(pg_advisory_xact_lock(4001) as text)", nativeQuery = true)
+    String lockProjectCodeGeneration();
+
     boolean existsByProjectCode(String projectCode);
 
     boolean existsByProjectCodeAndIdNot(String projectCode, Long id);

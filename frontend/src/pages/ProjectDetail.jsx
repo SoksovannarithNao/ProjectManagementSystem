@@ -18,6 +18,7 @@ import {
   Gauge,
   ChartGantt,
   ChartNoAxesGantt,
+  CheckCircle2,
 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar, AvatarGroup } from '../components/ui/Avatar'
@@ -31,6 +32,7 @@ import { useToast } from '../components/ui/Toast'
 import { NewProjectModal } from '../components/NewProjectModal'
 import { TaskFormModal } from '../components/TaskFormModal'
 import { AddProjectMemberModal } from '../components/AddProjectMemberModal'
+import { MilestoneFormModal } from '../components/MilestoneFormModal'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { DelayedBadge } from '../components/DelayedBadge'
 import { AttachmentsSection } from '../components/AttachmentsSection'
@@ -43,7 +45,7 @@ import { getTasksByProjectId } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getMilestonesByProjectId, createMilestone, deleteMilestone } from '../api/milestones'
 import { buildTaskAssigneeMap } from '../api/relations'
-import { humanizeEnum, formatDate, initialsFor, colorForId, taskDisplayTitle, blockedReason } from '../api/format'
+import { humanizeEnum, formatDate, formatLongDate, initialsFor, colorForId, taskDisplayTitle, blockedReason } from '../api/format'
 import { computeTaskOverview } from '../api/stats'
 
 const PROJECT_STATUS_OPTIONS = ['PLANNING', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED']
@@ -107,6 +109,7 @@ export function ProjectDetail() {
   const canAddContent = can('TASK', 'CREATE', projectId)
   const canManageTeam = can('MEMBER', 'CREATE', projectId)
   const canCreateMilestone = can('MILESTONE', 'CREATE', projectId)
+  const canEditMilestone = can('MILESTONE', 'EDIT', projectId)
   const canDeleteMilestone = can('MILESTONE', 'DELETE', projectId)
   // Team Tasks and Workload are for people who manage the work; the Timeline is for every member.
   const canSeeTeamViews = can('TASK', 'ASSIGN', projectId)
@@ -138,6 +141,7 @@ export function ProjectDetail() {
   const [milestoneTitle, setMilestoneTitle] = useState('')
   const [milestoneDue, setMilestoneDue] = useState('')
   const [addingMilestone, setAddingMilestone] = useState(false)
+  const [editingMilestone, setEditingMilestone] = useState(null)
   const [roleBusyId, setRoleBusyId] = useState(null)
   const [transferTarget, setTransferTarget] = useState(null)
 
@@ -381,6 +385,14 @@ export function ProjectDetail() {
               </Badge>
             )}
             <DelayedBadge project={project} />
+            {project.completedAt && (
+              <span
+                data-testid="completed-on"
+                className={`bg-success-soft text-success-ink gap-1 ${STATUS_ROW_BADGE_CLASS}`}
+              >
+                <CheckCircle2 size={12} /> Completed on {formatLongDate(project.completedAt)}
+              </span>
+            )}
             {overdueCount > 0 && (
               <span className={`bg-danger-soft text-danger-ink gap-1 ${STATUS_ROW_BADGE_CLASS}`}>
                 <AlertTriangle size={12} /> {overdueCount} overdue task{overdueCount === 1 ? '' : 's'}
@@ -693,12 +705,17 @@ export function ProjectDetail() {
 
             <div className="mb-3 flex flex-col gap-2">
               {milestones.map((ms) => (
-                <div key={ms.id} className="border-border group flex items-center gap-3 rounded-md border px-3 py-2.5">
+                <div
+                  key={ms.id}
+                  data-testid="milestone-row"
+                  className="border-border group flex items-center gap-3 rounded-md border px-3 py-2.5"
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="text-ink truncate text-[13px] font-semibold">{ms.title}</p>
                       <Badge tone={ms.status}>{humanizeEnum(ms.status)}</Badge>
                     </div>
+                    {ms.description && <p className="text-muted mt-0.5 truncate text-[12px]">{ms.description}</p>}
                     <div className="mt-1.5 flex items-center gap-2">
                       <div className="max-w-[140px] flex-1">
                         <ProgressBar percent={Number(ms.progress ?? 0)} height={5} />
@@ -706,6 +723,16 @@ export function ProjectDetail() {
                       <span className="text-faint text-[12px]">{formatDate(ms.dueDate)}</span>
                     </div>
                   </div>
+                  {canEditMilestone && (
+                    <button
+                      type="button"
+                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Edit milestone ${ms.title}`}
+                      onClick={() => setEditingMilestone(ms)}
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  )}
                   {canDeleteMilestone && (
                     <button
                       type="button"
@@ -794,6 +821,21 @@ export function ProjectDetail() {
           defaultProjectId={projectId}
           onClose={() => setShowNewTask(false)}
           onSaved={refetchAfterTaskChange}
+        />
+      )}
+
+      {editingMilestone && (
+        <MilestoneFormModal
+          milestone={editingMilestone}
+          project={project}
+          openTaskCount={
+            tasks.filter(
+              (t) =>
+                t.milestone?.id === editingMilestone.id && t.status !== 'COMPLETED' && t.status !== 'CANCELLED'
+            ).length
+          }
+          onClose={() => setEditingMilestone(null)}
+          onSaved={refetchMilestones}
         />
       )}
 

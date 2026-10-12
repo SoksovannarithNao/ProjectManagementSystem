@@ -25,7 +25,7 @@ Only the task's **progress %** follows its subtasks automatically ([ADR-0012](00
 ## Alternatives considered
 
 - **Derive status fully from subtasks** — rejected (stated).
-- **Strict transition state machine** — not implemented; the UI's quick-advance control walks To Do → Doing → Done, but the API and dropdown allow any move *(by code reading)*.
+- **Strict transition state machine** — not implemented; the UI's quick-advance control walks To Do → In Progress → In Review → Completed, but the API and dropdown allow any move *(by code reading)*. Since 2026-10-09 entering `COMPLETED` also needs `TASK:APPROVE` and is recorded as an approval ([tasks.md](../tasks.md#2-status-and-priority)); that is a permission, not an automatic status change, so the principle stands.
 - **Fail the subtask update when the parent cannot be promoted** — avoided: the promotion is skipped for blocked tasks because the trigger would throw and roll the subtask update back too (stated in `SubtaskService`).
 
 ## Consequences

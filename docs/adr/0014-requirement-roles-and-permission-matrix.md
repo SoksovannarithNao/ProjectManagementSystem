@@ -1,6 +1,6 @@
 # ADR-0014: Four requirement roles and a data-driven permission matrix
 
-- **Status:** Accepted; **its role set was replaced the same day by [ADR-0015](0015-two-level-roles-system-and-project.md)** (system roles `ADMINISTRATOR`/`PROJECT_MANAGER`/`USER`, project roles `OWNER`/`ADMIN`/`MEMBER`/`VIEWER`, migration `V10`). The data-driven matrix, the 404/403 rules, hide-not-disable and the Flyway delivery stand. Partly supersedes [ADR-0002](0002-project-level-authorization.md)
+- **Status:** Accepted; **its role set was replaced the same day by [ADR-0015](0015-two-level-roles-system-and-project.md)** (system roles `ADMINISTRATOR`/`PROJECT_MANAGER`/`USER`, project roles `OWNER`/`ADMIN`/`MEMBER`/`VIEWER`, migration `V10`). The data-driven matrix, the 404/403 rules, hide-not-disable and the Flyway delivery stand. Decision 6 (reports gated only by the page) was superseded on 2026-10-09: `ReportService` checks `REPORT:GENERATE_REPORTS` on the server for every `/api/reports/*` endpoint. Partly supersedes [ADR-0002](0002-project-level-authorization.md)
 - **Date:** 2026-10-08
 - **Area:** authorization
 
@@ -38,7 +38,7 @@ Before this change the project had two system roles (`USER`, `ADMINISTRATOR`) an
 - The `USER` role is gone; the JWT `role` claim now carries one of the four names. Tokens issued earlier keep working until they expire.
 - Matrix edits take effect immediately for new requests, and for the UI after the next profile refresh.
 - Invariants: `ADMINISTRATOR` always has every grant; `PROJECT:VIEW` is granted to every project role so a member can always see their own project; the matrix in `V9`, `01-init.sql` and `authentication-authorization.md` is the same table.
-- The `GENERATE_REPORTS` gap remains until report endpoints exist.
+- ~~The `GENERATE_REPORTS` gap remains until report endpoints exist.~~ Closed on 2026-10-09 (see the status above); the Reports *Overview* charts still read `/api/tasks` and friends.
 - Deleting a project whose only active owner is one person fails on the V8 owner-integrity trigger (found while verifying this change; not caused by it).
 
 ## Evidence

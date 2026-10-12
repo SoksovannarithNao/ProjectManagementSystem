@@ -28,6 +28,7 @@ public class MilestoneService {
     private final UserRepository userRepository;
     private final ProjectAccessGuard projectAccessGuard;
     private final ActivityLogService activityLogService;
+    private final UpdateNotificationService updateNotificationService;
 
     public MilestoneService(
             MilestoneRepository milestoneRepository,
@@ -35,13 +36,15 @@ public class MilestoneService {
             ProjectMemberRepository projectMemberRepository,
             UserRepository userRepository,
             ProjectAccessGuard projectAccessGuard,
-            ActivityLogService activityLogService) {
+            ActivityLogService activityLogService,
+            UpdateNotificationService updateNotificationService) {
         this.milestoneRepository = milestoneRepository;
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
         this.activityLogService = activityLogService;
+        this.updateNotificationService = updateNotificationService;
     }
 
     // Previously an unscoped findAll() with no username parameter at all —
@@ -113,13 +116,37 @@ public class MilestoneService {
             projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.MILESTONE, Action.EDIT);
         }
         String previousStatus = milestone.getStatus();
+        String[] before = snapshot(milestone);
         applyRequest(milestone, request);
         Milestone saved = milestoneRepository.save(milestone);
-        if ("COMPLETED".equals(saved.getStatus()) && !"COMPLETED".equals(previousStatus)) {
+        boolean completed = "COMPLETED".equals(saved.getStatus()) && !"COMPLETED".equals(previousStatus);
+        if (completed) {
             activityLogService.recordProjectEvent(caller, saved.getProject(), "MILESTONE_COMPLETED",
                     "Milestone \"" + saved.getTitle() + "\" completed");
         }
+        // The people with work on it hear about an edit (nothing is sent for a save that
+        // changed nothing).
+        List<String> changed = changedFields(before, snapshot(saved));
+        if (!changed.isEmpty()) {
+            updateNotificationService.notifyMilestoneUpdated(saved, caller, completed, changed);
+        }
         return new MilestoneResponse(saved);
+    }
+
+    // title, description, due date, status - what an edit can change.
+    private static String[] snapshot(Milestone m) {
+        return new String[] {m.getTitle(), String.valueOf(m.getDescription()), String.valueOf(m.getDueDate()), m.getStatus()};
+    }
+
+    private static List<String> changedFields(String[] before, String[] after) {
+        String[] labels = {"title", "description", "due date", "status"};
+        List<String> changed = new java.util.ArrayList<>();
+        for (int i = 0; i < labels.length; i++) {
+            if (!java.util.Objects.equals(before[i], after[i])) {
+                changed.add(labels[i]);
+            }
+        }
+        return changed;
     }
 
     public void deleteMilestone(Long id, String username) {

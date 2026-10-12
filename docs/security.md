@@ -32,7 +32,7 @@ The UI checks are conveniences only; the backend and database repeat every rule 
 | Uniform login failure | one `401` message for unknown user, wrong password and non-active account **(verified live)** | `AuthService`, `GlobalExceptionHandler` |
 | Email verification | 6-digit `SecureRandom` code, bcrypt-hashed, 10 min expiry, 5 attempts, 60 s resend cooldown | `OtpService` |
 | Unverified accounts | cannot log in | `CustomUserDetailsService` |
-| Session ends | client deletes the token; `401` on any call also logs out | `api/client.js` |
+| Session ends | client deletes the token; `401` on any call also logs out; after 15 idle minutes (60-second warning) the app logs out by itself, since 2026-10-12 (the token stays valid on the server until it expires) | `api/client.js`, `auth/IdleLogout.jsx` |
 
 **Gaps:**
 
@@ -78,7 +78,7 @@ The UI checks are conveniences only; the backend and database repeat every rule 
 
 **Path and query values** — a wrong type (`/api/tasks/abc`) → `400 "Invalid value for 'id'"`; a missing required parameter → `400`; `GET /api/tasks/status/{status}` is checked against the allowed set. **(verified live)**
 
-**File upload** — two places. *Profile photo:* non-empty, content type one of `image/jpeg`, `image/png`, `image/webp`, `image/gif` (so no SVG), max 5 MB (checked in `UserService`). *Attachments* (`AttachmentService`, `util/FileTypeGuard`, since 2026-10-09): needs `ATTACHMENT:CREATE` in the project; an allow-list of extensions (no executables, scripts, HTML or SVG), the first bytes must match the type, plain-text types may hold no NUL bytes, the MIME type is derived from the extension and never taken from the client, names are stripped of folders and control / quote characters, at most 10 MB per file and 25 files per task or project; downloads need a token and are always `Content-Disposition: attachment` with `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`, so a stored file can never run in the app's origin. Not done: virus scanning and a per-user upload rate limit. The content type comes from the client's multipart header; **the bytes are not inspected** (by code reading). Served with that stored type and `X-Content-Type-Options: nosniff` (Spring default).
+**File upload** — two places. *Profile photo:* non-empty, content type one of `image/jpeg`, `image/png`, `image/webp`, `image/gif` (so no SVG), max 5 MB (checked in `UserService`). *Attachments* (`AttachmentService`, `util/FileTypeGuard`, since 2026-10-09): needs `ATTACHMENT:CREATE` in the project; an allow-list of extensions (no executables, scripts, HTML or SVG), the first bytes must match the type, plain-text types may hold no NUL bytes, the MIME type is derived from the extension and never taken from the client, names are stripped of folders and control / quote characters, at most 10 MB per file and 25 files per task or project; downloads need a token and are always `Content-Disposition: attachment` with `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`, so a stored file can never run in the app's origin. Not done: virus scanning and a per-user upload rate limit. For the **profile photo** the content type comes from the client's multipart header and **the bytes are not inspected** (by code reading); it is served with that stored type and `X-Content-Type-Options: nosniff` (Spring default).
 
 **Frontend** — HTML5 `required`/`min`/`max`/`pattern` attributes; start ≤ end / start ≤ due checks; non-negative hours; live password rules; the user's typed username/search text is only ever sent as data.
 
@@ -95,7 +95,7 @@ The UI checks are conveniences only; the backend and database repeat every rule 
 | `ConflictException` | 409 | e.g. duplicate project code |
 | `DataIntegrityViolationException` | 409 for `projects_project_code_key`, otherwise 400 | trigger messages are cleaned (`ERROR: ` prefix and `Where:` line removed); **CHECK and other unique-constraint messages are passed through raw** ⚠ |
 | `IllegalArgumentException` | 400 | the service's own sentence |
-| `AccessDeniedException` | 403 | always the generic message |
+| `AccessDeniedException` | 403 | the specific sentence thrown by the permission layer; the generic `"You do not have permission to perform this action"` only for Spring's own default text |
 | `AuthenticationException` | 401 | `"Invalid username or password"` |
 | `TooManyRequestsException` | 429 | |
 | `MethodArgumentTypeMismatchException`, `MissingServletRequestParameterException`, `HttpMessageNotReadableException`, `MaxUploadSizeExceededException` | 400 | |
@@ -105,7 +105,7 @@ Errors raised **before** the controller (missing/invalid token) are produced by 
 
 Why triggers set `ERRCODE '23514'`: PostgreSQL's default error code for `RAISE EXCEPTION` is not mapped by Hibernate to a constraint violation, which used to surface as a `500`; the explicit code makes the handler return a readable `400` (a rule recorded in the init script comments — **new triggers must do the same**).
 
-**Logging.** Handled failures are logged at `WARN` (not found, validation, constraint, access denied, failed login, rate limit); unexpected ones at `ERROR` with a stack trace. Logs go to the console and a rotating file `backend/logs/log.txt` (10 MB per file, 14 days, 100 MB cap; mounted to the host by Docker Compose). `spring.jpa.show-sql=true` also prints every SQL statement (statements, not bound values), which is noisy for a production log.
+**Logging.** Handled failures are logged at `WARN` (not found, validation, constraint, access denied, failed login, rate limit); unexpected ones at `ERROR` with a stack trace. Logs go to a rotating file `backend/logs/log.txt` only (10 MB per file, 14 days, 100 MB cap; mounted to the host by Docker Compose); `logback-spring.xml` keeps the console quiet. `spring.jpa.show-sql=true` also prints every SQL statement (statements, not bound values), which is noisy for a production log.
 
 **Frontend.** `ApiError(status, message, fieldErrors)`; pages show `err.message` in a toast or inline text; `passwordErrorMessage` prefers the `fieldErrors` entry. `401` clears the session.
 
@@ -123,17 +123,17 @@ Full catalogue in [database.md](database.md). The security-relevant ones:
 
 ## 8. Infrastructure and browser-facing measures
 
-- **Least-privilege database role:** the backend connects as `taskmanager_app` (no `SUPERUSER`/`CREATEDB`/`CREATEROLE`; DML only on the 15 mapped tables) — [ADR-0011](adr/0011-least-privilege-database-role.md).
+- **Least-privilege database role:** the backend connects as `taskmanager_app` (no `SUPERUSER`/`CREATEDB`/`CREATEROLE`; DML only on the 21 read-write tables, `SELECT` on `permissions`) — [ADR-0011](adr/0011-least-privilege-database-role.md).
 - **Container:** the backend image runs as a non-root user `spring`.
 - **CORS:** allow-list from `app.cors.allowed-origins` (`CORS_ALLOWED_ORIGINS`; default `http://localhost:5173`, `http://localhost:80`), all headers, methods `GET POST PUT PATCH DELETE OPTIONS`, credentials allowed.
 - **CSRF:** disabled — acceptable because authentication is a bearer header, not a cookie.
 - **Response headers (API):** Spring Security defaults, e.g. `X-Content-Type-Options: nosniff`, `Cache-Control: no-cache, no-store`, `X-XSS-Protection: 0` **(verified live)**.
 - **Secrets:** read from environment variables; `.env` is git-ignored; `.env.example` and `docker-compose.yml` contain **development defaults** (database passwords, JWT secret) that must be changed for any real deployment.
-- **Not present (confirmed absent from the repository):** HTTPS/TLS configuration, HSTS, a Content-Security-Policy, security headers in `nginx.conf`, an upload virus scan, dependency-vulnerability scanning in CI (a one-off scan of 14 direct dependencies found no known CVEs during the 2026-10-06 Java upgrade — see [changelog.md](changelog.md)), rate limiting other than login and OTP resend. How production traffic is secured is **Unknown / Needs clarification** (the CD pipeline only pushes images).
+- **Not present (confirmed absent from the repository):** HTTPS/TLS configuration, HSTS, a Content-Security-Policy, security headers in `nginx.conf`, an upload virus scan, dependency-vulnerability scanning in CI (a one-off scan of 14 direct dependencies found no known CVEs during the 2026-10-06 Java upgrade — see [changelog.md](changelog.md); `npm audit` on the front end reports two high-severity advisories in build-time packages, see I-23 in [issues.md](issues.md)), rate limiting other than login and OTP resend. How production traffic is secured is **Unknown / Needs clarification** (the CD pipeline only pushes images).
 
 ## 9. Security checklist for contributors
 
-- New endpoint → decide its access rule as a *(resource, action)* pair; use `ProjectAccessGuard.assertCan` (or a `@PreAuthorize` permission check for system-wide ones) and add the grant rows to `V9`-style migration + `01-init.sql`; remember `assertAccess` returns `404` by design. Check the permission against the **target** project when a request body can change `projectId`.
+- New endpoint → decide its access rule as a *(resource, action)* pair; use `ProjectAccessGuard.assertCan` (or a `@PreAuthorize` permission check for system-wide ones) and add the grant rows in a new Flyway migration (see `V13`) and in `01-init.sql`; remember `assertAccess` returns `404` by design. Check the permission against the **target** project when a request body can change `projectId`.
 - New table → add a `GRANT` to `database/init/03-app-role.sh` **and** the duplicate in `.github/workflows/ci.yml`.
 - New cross-row rule as a trigger → `USING ERRCODE = '23514'`, and add the same change to a new Flyway migration.
 - New user-visible error → throw `IllegalArgumentException`/`ConflictException` with a human sentence rather than relying on a database message.

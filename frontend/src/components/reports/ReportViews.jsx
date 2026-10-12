@@ -20,7 +20,7 @@ import {
   getTeamPerformanceReport,
   getWorkloadReport,
 } from '../../api/reports'
-import { humanizeEnum } from '../../api/format'
+import { humanizeEnum, formatLongDate } from '../../api/format'
 
 const TASK_STATUS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED'].map((s) => ({ value: s, label: humanizeEnum(s) }))
 const PRIORITY = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((s) => ({ value: s, label: humanizeEnum(s) }))
@@ -150,6 +150,9 @@ export function ProjectReportView() {
             {r.description && <p className="text-muted mb-2 text-[13px]">{r.description}</p>}
             <p className="text-muted mb-2 text-[12px]">
               Owner {r.project.owner?.fullName ?? '—'} · {fullDate(r.project.startDate)} → {fullDate(r.project.endDate)}
+              {r.project.completedAt && (
+                <span data-testid="report-completed-on"> · Completed on {formatLongDate(r.project.completedAt)}</span>
+              )}
             </p>
             <div className="flex max-w-[360px] items-center gap-3">
               <span className="min-w-0 flex-1">
@@ -276,6 +279,7 @@ export function ProjectStatusReportView() {
                   { key: 'owner', label: 'Owner', render: (p) => p.owner?.fullName ?? '—' },
                   { key: 'priority', label: 'Priority', render: (p) => humanizeEnum(p.priority) },
                   { key: 'dates', label: 'Dates', render: (p) => `${fullDate(p.startDate)} → ${fullDate(p.endDate)}` },
+                  { key: 'completedOn', label: 'Completed on', render: (p) => formatLongDate(p.completedAt) },
                   { key: 'progress', label: 'Progress', align: 'right', render: (p) => `${Math.round(Number(p.progress ?? 0))}%` },
                   {
                     key: 'late',

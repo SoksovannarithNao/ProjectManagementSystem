@@ -327,7 +327,7 @@ Part A (everything above) is the assignment text as received. Part B resolves it
 - **Where Part B differs from Part A, Part B governs**, and the difference is listed in section B0.
 - **Wording convention.** *REQUIRED* = Part A says "must". *OPTIONAL* = Part A says "can" or "prototype". *UNDEFINED* = no source says. *OUT OF SCOPE* = explicitly excluded (nothing is, today).
 - **`D-nn`** marks a rule this specification had to choose because a source leaves it open. All are collected in section B13.2. D-01 to D-18 were all approved by the project owner on 2026-10-08.
-- **"Current implementation"** notes describe the application as it is on 2026-10-09 (after change-plan batches 1, 2, 3a, 3b and 3c). They are information, not requirements.
+- **"Current implementation"** notes describe the application as it is on 2026-10-12 (after change-plan batches 1, 2, 3a, 3b and 3c, the deadline reminders and the Gantt prototype). They are information, not requirements.
 
 **Outline of Part B** (the 13 headings the specification must contain)
 
@@ -369,7 +369,7 @@ Part A (everything above) is the assignment text as received. Part B resolves it
 | C-14 | §33 activity log and Part A's audit log describe the same thing | Two logs with different audiences (B10). |
 | C-15 | "Active", "Pending", "Delayed", "Overdue" undefined or overlapping | Defined in B1.3. |
 | C-16 | Part A "Completed Tasks" vs dashboard "Done" counts; "Pending" vs "To Do" | One vocabulary (B1.2, B1.3). |
-| C-17 | Part A: only Project Manager / Team Leader create tasks; current application also lets Team Members | Specification follows Part A: Team Members do **not** create tasks (matrix in B3.4). Application mismatch recorded in B13. |
+| C-17 | Part A: only Project Manager / Team Leader create tasks; the application used to let Team Members create them too | Specification follows Part A: Team Members do **not** create tasks (matrix in B3.4). The application now matches (migration `V10`, 2026-10-08; G-05). |
 | C-18 | The Required Functions list omits Registration, Change Password, Session Management, Dependencies, Timeline | Added as supporting workflows A1–A9 in the workflow file and classified in B1.4. |
 
 ---
@@ -407,6 +407,7 @@ Normal path: `TODO → IN_PROGRESS → IN_REVIEW → COMPLETED`. `CANCELLED` can
 | Term | Applies to | Definition |
 |---|---|---|
 | **Overdue** | task | `due_date` has passed **and** status is not `COMPLETED` or `CANCELLED`. Due dates are calendar dates: a task due on the 10th becomes overdue on the 11th. Days overdue = today − due date. |
+| **Due soon** (Tasks Near Deadline) | task | calculated: the task is neither `COMPLETED` nor `CANCELLED` and `due_date` is today or within the next **3** days (decided 2026-10-12: the first reminder day of B9). An overdue task is **Overdue**, never also due soon. |
 | **Active** | task | status = `IN_PROGRESS` |
 | **Pending** | task | status = `TODO` |
 | **In Review** | task | status = `IN_REVIEW` (counted separately; it is neither Pending nor Active) |
@@ -415,7 +416,7 @@ Normal path: `TODO → IN_PROGRESS → IN_REVIEW → COMPLETED`. `CANCELLED` can
 | **Delayed** | task | not used; use **Overdue**. |
 
 `DELAYED` is **never** a stored status for a project or a task, so it can never contradict the dates. The Project Status Report lists "Delayed" as a derived group next to the five stored statuses (B8).
-*Current implementation (2026-10-09):* Overdue and Delayed are both calculated in `backend/util/Derived` from the dates and statuses and never stored. `ProjectResponse` carries `delayed` and `daysDelayed`; `GET /api/dashboard/stats` counts them for what the caller may see; the dashboard, the project cards and page, and the projects filter show them.
+*Current implementation (2026-10-12):* Overdue, Due soon and Delayed are all calculated in `backend/util/Derived` from the dates and statuses and never stored (`TaskResponse.dueSoon`). `ProjectResponse` carries `delayed` and `daysDelayed`; `GET /api/dashboard/stats` counts them for what the caller may see; the dashboard, the project cards and page, and the projects filter show them.
 
 ### B1.4 Feature classification
 
@@ -424,16 +425,16 @@ Classification of every feature named in only one source or marked inconsistentl
 | Feature | Class | Source and notes | Current application |
 |---|---|---|---|
 | Registration (email code) | REQUIRED | Part A *Users & Access*; absent from the workflow's 40 functions (now A1) | done |
-| Login by username **or** email | REQUIRED | Part A | username only |
+| Login by username **or** email | REQUIRED | Part A | done (2026-10-09) |
 | Change password, logout | REQUIRED | Part A *Users & Access* (now A2) | done |
-| Session management + auto-logout prototype | REQUIRED | Part A *Security & Sessions* (now A3) | token expires after one hour, no warning or auto-logout |
+| Session management + auto-logout prototype | REQUIRED | Part A *Security & Sessions* (now A3) | done (2026-10-12): the token expires after one hour and the app signs the user out after 15 idle minutes with a 60-second warning (browser-side; D-20) |
 | Task dependencies and ordering rules | REQUIRED | Part A *Task Dependencies* (now A4) | done (database rules + UI) |
 | Project Timeline | REQUIRED | Part A *Projects*; no workflow (now A5) | done (2026-10-09, `/projects/:id/timeline`) |
 | Gantt chart prototype | OPTIONAL | Part A "can"; listed in the Overview and the team-responsibilities file but in no function list | built 2026-10-10 (project *Gantt* tab) |
 | Kanban board (view by status) | REQUIRED | Part A | done |
 | Kanban moving cards between columns | OPTIONAL | Part A "can … as a prototype" | missing (cards open the panel) |
-| Calendar (tasks, due dates, milestones) | REQUIRED | Part A; at least one of day/week/month, all three is the target | month view; tasks only |
-| Task List with search/filter/sort | REQUIRED | Part A | partly |
+| Calendar (tasks, due dates, milestones) | REQUIRED | Part A; at least one of day/week/month, all three is the target | done (2026-10-12): month, week and day views of tasks and milestones |
+| Task List with search/filter/sort | REQUIRED | Part A | done in the browser over the permission-scoped list (2026-10-09; G-16) |
 | Subtasks | REQUIRED | Part A | done |
 | Checklists | REQUIRED | Part A | done (2026-10-09, `V13`) |
 | File attachments | REQUIRED | Part A "must" | done (2026-10-09, `V13`) |
@@ -441,7 +442,7 @@ Classification of every feature named in only one source or marked inconsistentl
 | Comments with replies | REQUIRED | Part A | done (replies in the UI since 2026-10-09) |
 | Task discussion (threads) | OPTIONAL | Part A "can" | same as above |
 | @mentions | UNDEFINED | in neither source; requested for notifications only | missing |
-| Notifications (7 kinds) | REQUIRED | Part A | 3 of 7 produced |
+| Notifications (7 kinds) | REQUIRED | Part A | 7 of 7 produced (2026-10-12) |
 | Deadline reminders, overdue notifications | REQUIRED | Part A | built 2026-10-10: a daily `@Scheduled` job (08:00 and at startup) |
 | Time tracking, work logs | OPTIONAL | Part A "can … as a prototype"; work-log fields are listed as "must" if it is built | done |
 | Team workload | REQUIRED | Part A | done (2026-10-09: `/projects/:id/workload`, the dashboard card; the Reports page chart stays) |
@@ -449,9 +450,9 @@ Classification of every feature named in only one source or marked inconsistentl
 | Team performance | OPTIONAL | Part A "can" (but the Team Performance Report is REQUIRED) | done as the Team Performance Report (2026-10-09) |
 | Reports (seven named) | REQUIRED | Part A | done (2026-10-09: `GET /api/reports/*`, one tab each) |
 | Report export (PDF/Excel) | OPTIONAL | Part A "can … as a prototype" | missing |
-| Activity log | REQUIRED | Part A | per task only |
+| Activity log | REQUIRED | Part A | done (2026-10-09): per task, per project and recent activity |
 | Audit log | OPTIONAL | Part A "can" | missing |
-| Approvals | REQUIRED | the permission `APPROVE` is required; its workflow is defined by this specification (B3.8) | completion gate only |
+| Approvals | REQUIRED | the permission `APPROVE` is required; its workflow is defined by this specification (B3.8) | done (2026-10-09, `V12`) |
 | Project Detail screen | REQUIRED | Part A | done |
 | Responsive UI, loading/empty/error states | REQUIRED | Part A | done |
 | Debugging, final presentation, live demo | REQUIRED | Part A; delivered by the student, not the application | — |
@@ -629,7 +630,7 @@ Distinctions:
 
 The seven permissions are the high-level categories. The finer actions below are what the application checks. Where an older document lists "19 actions" it refers to this layer; the layer is kept and organised under the seven permissions.
 
-*Current implementation:* the 19-action `ProjectAccessGuard` of earlier documents was replaced on 2026-10-08 by a *resource × action* check against the `role_permissions` table. The resources (`PROJECT`, `MILESTONE`, `MEMBER`, `TASK`, `TASK_STATUS`, `SUBTASK`, `COMMENT`, `WORK_LOG`, `REPORT`, `USER`, `ROLE`, `LOOKUP`) are the fine-grained layer described here.
+*Current implementation:* the 19-action `ProjectAccessGuard` of earlier documents was replaced on 2026-10-08 by a *resource × action* check against the `role_permissions` table. The resources (`PROJECT`, `MILESTONE`, `MEMBER`, `TASK`, `TASK_STATUS`, `SUBTASK`, `COMMENT`, `WORK_LOG`, `ATTACHMENT`, `CHECKLIST_ITEM`, `REPORT`, `USER`, `ROLE`, `LOOKUP`) are the fine-grained layer described here.
 
 | Permission | Fine-grained actions | Held by (project level unless stated) |
 |---|---|---|
@@ -717,19 +718,19 @@ Conceptual model required by Part A *Architecture & Logic*. "Current" says wheth
 | **Project** | id, code, name, description, start date, end date, **owner**, priority (Low/Medium/High/Critical), status, progress, created date | has members, milestones, tasks | yes (the "project manager" is the owner) |
 | **Project member** | project, user, **project role** (`OWNER`/`ADMIN`/`MEMBER`/`VIEWER`), membership status (`PENDING`/`ACTIVE`/`DECLINED`), invited by, joined at | exactly one `OWNER` per project | yes |
 | **Milestone** | id, title, description, due date, status, progress | belongs to a project; has linked tasks | yes |
-| **Task** | id, title, description, project, milestone, start date, due date, priority (Low/Medium/High/Urgent), status, progress, estimated time, created date, completion date, **approval state**, **designated approver** | belongs to one project; has assignees, subtasks, checklist items, dependencies, comments, attachments, work logs | yes except the bold fields |
+| **Task** | id, title, description, project, milestone, start date, due date, priority (Low/Medium/High/Urgent), status, progress, estimated time, created date, completion date, **approval state**, **designated approver** | belongs to one project; has assignees, subtasks, checklist items, dependencies, comments, attachments, work logs | yes (approval state and designated approver since 2026-10-09, `V12`) |
 | **Task assignee** | task, user | assignee must be an `ACTIVE` project member | yes |
 | **Task dependency** | task, blocks-task | no self reference, no cycles | yes |
 | **Subtask** | title, assignee, due date, status, completion | child of a task | yes |
 | **Checklist item** | task, text, completed | child of a task; **not** a task | yes (2026-10-09, `V13`) |
-| **Approval record** | task, requested by/at, decided by/at, decision, comment | many per task over time | no |
+| **Approval record** | task, requested by/at, decided by/at, decision, comment | many per task over time | yes (2026-10-09, `V12`: table `task_approvals`) |
 | **Comment** | task, user, message, date/time, parent comment (reply), mentions *(undefined)* | belongs to a task | yes (replies in the UI since 2026-10-09; no mentions) |
 | **Attachment** | project or task, file name, type, size, uploaded by, uploaded at | belongs to a project **or** a task | yes (2026-10-09, `V13`) |
 | **Work log** *(optional)* | task, user, work date, hours, description | belongs to a task | yes |
 | **Notification** | recipient, type, message, task/project reference, read flag, created at | per user | yes |
-| **Activity log entry** | actor, action, project/task, details, time | per project and task | task events only |
+| **Activity log entry** | actor, action, project/task, details, time | per project and task | yes (task, project and recent feeds since 2026-10-09) |
 | **Audit log entry** *(optional)* | actor, action, target type/id, before, after, time | system-wide | no |
-| **Report / KPI / Workload** | calculated from the above; not stored unless exports are kept | — | no |
+| **Report / KPI / Workload** | calculated from the above; not stored unless exports are kept | — | yes, calculated live by `ReportService` (2026-10-09); `report_exports` and `kpi_snapshots` are unused |
 
 Integrity rules that live with the data: due date not after the project end date; start date not after due date; a task belongs to a project; a `COMPLETED` task has a completion date; dependencies cannot be circular; an assignee must be an active member; a project always has exactly one owner.
 
@@ -746,7 +747,7 @@ The flows are in [project-workflow.md](project-workflow.md): the 40 numbered fun
 - **Sign-in:** username **or** email, plus password; an inactive, suspended or unverified account cannot sign in (B1.1).
 - **Registration:** name, username, email, password (policy: ≥ 8 characters with upper, lower, digit and special), then a one-time code sent by email. The new account has system role `USER` and status `ACTIVE` once verified. It cannot create projects until an administrator gives it `PROJECT_MANAGER`.
 - **Change password** requires the current password. **Logout** ends the session.
-- **Session:** a signed token with a limited lifetime (value UNDEFINED in Part A; current 1 hour); it stops working immediately if the account stops being `ACTIVE`; an **auto-logout prototype** (inactivity timeout with a warning) is REQUIRED.
+- **Session:** a signed token with a limited lifetime (value UNDEFINED in Part A; current 1 hour); it stops working immediately if the account stops being `ACTIVE`; an **auto-logout prototype** (inactivity timeout with a warning) is REQUIRED (built 2026-10-12: 15 minutes, then a 60-second warning, D-20).
 - **Authorization:** exactly as B3. Every request is checked on the server; the interface only hides what would be refused. A hidden control is removed, not shown disabled.
 - **Role administration:** only an `ADMINISTRATOR` can give a system role or edit the permission assignments of roles. The `ADMINISTRATOR` role itself always holds every permission. The last administrator cannot be removed. An `ADMINISTRATOR` can also **create, edit and delete additional system roles** and choose their permissions from the seven (workflow §4); the three built-in system roles cannot be renamed or deleted, and the four project roles are fixed (D-14).
 - **Messages:** a refused action states what is missing ("Only a Project Manager or an Administrator can create a project").
@@ -778,7 +779,7 @@ The **seven named reports** are the authoritative requirement. A generic "genera
 |---|---|---|---|---|
 | 1 | **Project Report** | one project: details, owner, dates, status, priority, progress, milestones with progress, task counts by status, team, upcoming deadlines | project (required) | project progress (B1.5) |
 | 2 | **Task Report** | list of tasks: title, project, assignee, priority, status, progress, start, due, estimated time | project, assignee, status, priority, due-date range | — |
-| 3 | **Project Status Report** | projects grouped by Planning, In Progress, On Hold, Completed, Cancelled **and Delayed** (derived, B1.3) | status, owner, date range | Delayed calculation (missing) |
+| 3 | **Project Status Report** | projects grouped by Planning, In Progress, On Hold, Completed, Cancelled **and Delayed** (derived, B1.3) | status, owner, date range | Delayed calculation (done 2026-10-09, `util/Derived`) |
 | 4 | **Task Completion Report** | completed tasks and **completion percentage by Project, Team Member or Date Range** | group by project / member; date range required | completion date |
 | 5 | **Overdue Task Report** | task name, project, assignee, due date, **days overdue**, current status | project, assignee, priority | overdue definition (B1.3) |
 | 6 | **Team Performance Report** | per member: assigned, completed, pending, overdue tasks and completion rate | project, date range | assignees, completion data |
@@ -808,14 +809,14 @@ Part A requires seven kinds (task assignment, status change, comment, project up
 |---|---|---|---|
 | Task assigned | the new assignee. Content: task name, project, due date, assigned by | Part A | yes |
 | Task status changed | **pending** (D-10) | none | yes (recipients as built) |
-| Comment added | "the people involved" — **pending** who (D-10) | workflow §24 | type exists, not produced |
+| Comment added | "the people involved" — **pending** who (D-10) | workflow §24 | yes (2026-10-12): the task's assignees, the Owner and Team Leaders, and a reply's parent author; never the author |
 | Mention | **UNDEFINED** — mentions are in neither source | — | no |
 | Deadline approaching (3 days and 1 day before; task, milestone, project) | the assignee and the project's `OWNER` | workflow §27 | yes (2026-10-10) |
 | Deadline passed / task overdue | the assignee and the project's `OWNER` | Part A, workflow §28 | yes (2026-10-10), once per person and due date |
 | Approval requested | the designated approver; otherwise everyone who may approve — **pending** (D-10) | this spec | yes (2026-10-09) |
 | Approval completed | the person who requested — **pending** (D-10) | this spec | yes (2026-10-09) |
-| Project updated | **pending** (D-10) | Part A names it | no |
-| Milestone updated | **pending** (D-10) | Part A names it | no |
+| Project updated | **pending** (D-10) | Part A names it | yes (2026-10-12): the assignees of the project's tasks, the Owner and Team Leaders; never the editor |
+| Milestone updated | **pending** (D-10) | Part A names it | yes (2026-10-12): the assignees of the milestone's linked tasks, the Owner and Team Leaders; never the editor |
 | Project member added / removed | the person added or removed (invitation sent, response returned to the inviter) — the added/removed case is **pending** | partly current | invitation and its response only |
 
 Rules: an actor is not notified of their own action unless D-10 says otherwise; a user can switch task notifications off in their settings (current); a notification is created only for people who may see the item.
@@ -899,7 +900,7 @@ Remain optional; none is acceptance criteria. If shown in the demo they are labe
 
 ### B13.1 Differences between this specification and the application
 
-Status after the role-model migration `V10` (2026-10-08) and change-plan batches 1, 2, 3a, 3b and 3c (2026-10-09). These are implementation gaps, not reasons to change the requirements.
+Status after the role-model migration `V10` (2026-10-08), change-plan batches 1, 2, 3a, 3b and 3c (2026-10-09), and the deadline reminders and Gantt prototype (2026-10-10); unchanged when re-checked on 2026-10-12. These are implementation gaps, not reasons to change the requirements.
 
 | # | Area | Status | Detail |
 |---|---|---|---|
@@ -916,7 +917,7 @@ Status after the role-model migration `V10` (2026-10-08) and change-plan batches
 | G-11 | Status name | **Resolved** | stored `TODO` since `V11` (2026-10-09) |
 | G-12 | Ownership transfer | **Resolved** | `PUT /api/project-members/{id}` with role `OWNER`, one step; previous owner becomes `ADMIN` |
 | G-13 | Administrator creating for others | **Resolved** | the named manager must be able to own projects; becomes the owner |
-| G-14 | Missing features | Open | audit log, @mentions, auto-logout, Kanban moving, report export (B1.4). (Deadline reminders, overdue notices and the Gantt prototype were built 2026-10-10.) |
+| G-14 | Missing features | Open | audit log, @mentions, Kanban moving, report export (B1.4). (Deadline reminders, overdue notices and the Gantt prototype were built 2026-10-10; auto-logout and the missing notification types 2026-10-12.) |
 | G-19 | Dashboard statistics, Delayed, Team Tasks, Workload, Timeline, role / ownership UI | **Resolved** | built 2026-10-09 (change-plan 3b); see D-13 |
 | G-18 | Checklists, attachments, comment replies, project / comment / file activity | **Resolved** | built 2026-10-09 (`V13`, change-plan 3a); see D-07 and D-17 |
 | G-15 | A project with a single owner could not be deleted | **Resolved** | the owner check is deferred and skipped for a project being deleted |
@@ -925,7 +926,7 @@ Status after the role-model migration `V10` (2026-10-08) and change-plan batches
 
 ### B13.2 Decisions
 
-**Approved by the project owner on 2026-10-08:** D-01 to D-18. D-01 was changed from the provisional rule (a Team Leader may delete everything except the project, not nothing); D-13 was refined; all others were approved as written. **No decision is open.** Each row shows the rule now in force.
+**Approved by the project owner on 2026-10-08:** D-01 to D-18. D-01 was changed from the provisional rule (a Team Leader may delete everything except the project, not nothing); D-13 was refined; all others were approved as written. **No decision is open** except the proposals D-19 and D-20. Each row shows the rule now in force.
 
 | ID | Question | Rule in force |
 |---|---|---|
@@ -938,7 +939,7 @@ Status after the role-model migration `V10` (2026-10-08) and change-plan batches
 | D-07 | Do checklist items count toward task progress? | Yes: `(completed subtasks + completed checklist items) ÷ (all subtasks + all checklist items)`; manual value if neither exists. **Implemented 2026-10-09.** |
 | D-08 | May a milestone be completed with unfinished linked tasks? | Yes, with a warning; tasks are not changed. |
 | D-09 | Part A lets a "Project Manager or Team Leader" be the responsible person. Is the responsible person always the `OWNER`? | Yes; a Team Leader (`ADMIN`) assists and may be listed as "lead", but the project record has one responsible person, the `OWNER`. |
-| D-10 | Notification recipients for status change, comment, approvals, project/milestone update, member added/removed | Proposal: assignees and the `OWNER`/`ADMIN`s of the project; the actor excluded. |
+| D-10 | Notification recipients for status change, comment, approvals, project/milestone update, member added/removed | Proposal: assignees and the `OWNER`/`ADMIN`s of the project; the actor excluded. **Implemented 2026-10-12 for comments, project updates and milestone updates** as the people with work in the item (a task's assignees, the assignees of a project's tasks, the assignees of a milestone's tasks) plus the `OWNER` and `ADMIN`s, with a reply also reaching its parent comment's author; member added / removed is still pending. |
 | D-11 | Who may read the audit log? | `ADMINISTRATOR`; ownership events also visible to that project's `OWNER`. |
 | D-12 | KPI formulas | B8 table. **Implemented 2026-10-09** (`ReportService`). |
 | D-13 | Overloaded / underloaded thresholds | **Implemented 2026-10-09** (`util/WorkloadClassifier`): a member's load is their open tasks (active + overdue) and the estimated hours of unfinished work; **overloaded** when either is more than 1.5x the team average and at least one task / four hours above it; **underloaded** when open tasks are under half the average (at least one task below) and estimated hours are not above it; **balanced** otherwise and always for a one-person team. An Owner or Team Leader counts only once work is assigned to them. **Decided:** relative to the team. A member is overloaded when their active-plus-overdue tasks or estimated hours are clearly above the average of the same team, underloaded when clearly below; no fixed numbers. The margin is an implementation detail to tune. |
@@ -947,6 +948,8 @@ Status after the role-model migration `V10` (2026-10-08) and change-plan batches
 | D-16 | May users edit their own position and department? | Yes (Part A: users edit their profile; both are profile fields). They choose from the managed lists; only an administrator creates new list entries. An administrator or a project owner/leader may also set them for others (current behaviour). **Implemented 2026-10-09.** |
 | D-17 | Attachment limits (types, size) and who may upload/delete | Upload: `OWNER`, `ADMIN`, `MEMBER` on tasks they can see; delete: the uploader, `OWNER` (and `ADMIN`, D-01). **Limits chosen 2026-10-09 (they were UNDEFINED):** 10 MB per file, 25 files per task or project, an allow-list of types (images, PDF, text, CSV, JSON, Office / OpenDocument, ZIP; no executables, scripts, HTML or SVG), content checked against the type. |
 | D-18 | Calendar views | at least month; day and week are the target. |
+| D-19 | **Proposal, not yet approved** (2026-10-12): what are "Tasks Near Deadline", "Today" and "Upcoming" (Part A names them without definitions)? | Near deadline (*Due soon*) = an open task due today or within 3 days, matching the first reminder day. In *My Tasks*, **Today** = open tasks due today and **Upcoming** = open tasks due after today. *In Progress*, *Completed* and *Overdue* use the statuses and B1.3. **Implemented 2026-10-12** (`Derived.DUE_SOON_DAYS`, the Tasks quick views); change the value or the wording if the owner prefers another window. |
+| D-20 | **Proposal, not yet approved** (2026-10-12): the auto-logout timing (Part A leaves it undefined) | 15 minutes without activity, then a 60-second warning with *Stay signed in*, then sign-out. Activity in any open tab counts. It is a browser-side prototype: the token is not revoked on the server. **Implemented 2026-10-12** (`IDLE_LIMIT_MS`, `IDLE_WARNING_MS` in `frontend/src/auth/idleTimeout.js`). |
 
 ### B13.3 Requirements that still conflict or are still open
 

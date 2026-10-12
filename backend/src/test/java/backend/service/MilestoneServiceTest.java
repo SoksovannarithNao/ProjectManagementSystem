@@ -44,6 +44,8 @@ class MilestoneServiceTest {
     private ProjectAccessGuard projectAccessGuard;
     @Mock
     private ActivityLogService activityLogService;
+    @Mock
+    private UpdateNotificationService updateNotificationService;
 
     private MilestoneService service;
     private User caller;
@@ -53,7 +55,7 @@ class MilestoneServiceTest {
     void setUp() {
         service = new MilestoneService(
                 milestoneRepository, projectRepository, projectMemberRepository, userRepository, projectAccessGuard,
-                activityLogService);
+                activityLogService, updateNotificationService);
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 1L);
         caller.setUsername("pm.olivia");
@@ -134,5 +136,59 @@ class MilestoneServiceTest {
         verify(activityLogService).recordProjectEvent(
                 org.mockito.ArgumentMatchers.eq(caller), org.mockito.ArgumentMatchers.eq(milestone.getProject()),
                 org.mockito.ArgumentMatchers.eq("MILESTONE_COMPLETED"), org.mockito.ArgumentMatchers.contains("Beta"));
+    }
+
+    // ---- notifications ------------------------------------------------------
+
+    @Test
+    void editingAMilestone_tellsThePeopleWithWorkOnItWhatChanged() {
+        when(milestoneRepository.save(any(Milestone.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+
+        service.updateMilestone(3L, request(10L, "Beta renamed"), "pm.olivia");
+
+        verify(updateNotificationService).notifyMilestoneUpdated(
+                org.mockito.ArgumentMatchers.eq(milestone), org.mockito.ArgumentMatchers.eq(caller),
+                org.mockito.ArgumentMatchers.eq(false),
+                org.mockito.ArgumentMatchers.argThat(changed -> changed.contains("title") && changed.contains("due date")));
+    }
+
+    @Test
+    void completingAMilestone_isAnnouncedAsCompleted() {
+        when(milestoneRepository.save(any(Milestone.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+        MilestoneRequest done = request(10L, "Beta");
+        done.setStatus("COMPLETED");
+
+        service.updateMilestone(3L, done, "pm.olivia");
+
+        verify(updateNotificationService).notifyMilestoneUpdated(
+                org.mockito.ArgumentMatchers.eq(milestone), org.mockito.ArgumentMatchers.eq(caller),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.argThat(changed -> changed.contains("status")));
+    }
+
+    @Test
+    void savingAMilestoneWithoutChanges_notifiesNobody() {
+        milestone.setDueDate(LocalDate.of(2026, 11, 1));
+        milestone.setStatus("PENDING");
+        when(milestoneRepository.save(any(Milestone.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+        MilestoneRequest same = request(10L, "Beta");
+        same.setDescription(null);
+
+        service.updateMilestone(3L, same, "pm.olivia");
+
+        verify(updateNotificationService, never()).notifyMilestoneUpdated(any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any());
+    }
+
+    @Test
+    void creatingAMilestone_notifiesNobody() {
+        when(milestoneRepository.save(any(Milestone.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+
+        service.createMilestone(request(10L, "Launch"), "pm.olivia");
+
+        verify(updateNotificationService, never()).notifyMilestoneUpdated(any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any());
     }
 }

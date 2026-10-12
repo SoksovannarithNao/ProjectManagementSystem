@@ -194,7 +194,7 @@ The frontend has **no** environment variables: it calls relative `/api/...` path
 
 ## Database setup
 
-There is nothing to run by hand. On the **first start with an empty data volume**, PostgreSQL executes `database/init/` in filename order: `01-init.sql` (schema, triggers, views), `02-seed.sql` (demo data), `03-app-role.sh` (creates `taskmanager_app`). A fresh volume therefore already has the latest schema. An **existing** volume does not re-run those scripts, so the one-shot `migrate` service (Flyway, `database/taskmanager/migrations/`, baseline version 8) brings it up to date every time you run `docker compose up -d`: it applied `V9__requirement_roles_and_permissions.sql` (the first role matrix) and `V10__two_level_roles.sql` (system roles `ADMINISTRATOR` / `PROJECT_MANAGER` / `USER`, project roles `OWNER` / `ADMIN` / `MEMBER` / `VIEWER`) to the volumes that predate them, and does nothing when the database is current. A fresh volume also gets `04-flyway-baseline.sql`, which records that it is already at version 10. To change the schema: add a new `V<n>__*.sql` migration **and** mirror the end state in `01-init.sql`, so fresh and existing databases end up identical. Details: [database.md](database.md#8-migrations-vs-the-init-script).
+There is nothing to run by hand. On the **first start with an empty data volume**, PostgreSQL executes `database/init/` in filename order: `01-init.sql` (schema, triggers, views), `02-seed.sql` (demo data), `03-app-role.sh` (creates `taskmanager_app`), then `04-flyway-baseline.sql`. A fresh volume therefore already has the latest schema. An **existing** volume does not re-run those scripts, so the one-shot `migrate` service (Flyway, `database/taskmanager/migrations/`, baseline version 8) brings it up to date every time you run `docker compose up -d`: it applies `V9` to `V14` to volumes that predate them (the role matrix, the two-level roles, the `TODO` status rename, the approval workflow, attachments and checklists, the project completion date) and does nothing when the database is current. A fresh volume gets `04-flyway-baseline.sql`, which records that it is already at version 14. To change the schema: add a new `V<n>__*.sql` migration **and** mirror the end state in `01-init.sql`, so fresh and existing databases end up identical. Details: [database.md](database.md#8-migrations-vs-the-init-script).
 
 ## Build commands
 
@@ -206,7 +206,7 @@ There is nothing to run by hand. On the **first start with an empty data volume*
 | Both Docker images | `docker compose build` (or `docker compose build backend frontend`) |
 | Everything, then start | `docker compose up -d --build` |
 
-CI runs lint + build for the frontend, `mvn -B verify` (with a throwaway PostgreSQL) for the backend, the database invariant check, and a Docker build of both images ([.github/workflows/ci.yml](../.github/workflows/ci.yml)). Pushes to `dev`/`main` publish images to GitHub Container Registry ([cd.yml](../.github/workflows/cd.yml)); there is no automatic deploy.
+CI runs lint, unit tests and the build for the frontend, `mvn -B verify` (with a throwaway PostgreSQL) for the backend, the database invariant check, the Playwright suite against a freshly built copy of the whole stack, and a Docker build of both images ([.github/workflows/ci.yml](../.github/workflows/ci.yml)). Pushes to `dev`/`main` publish images to GitHub Container Registry ([cd.yml](../.github/workflows/cd.yml)); there is no automatic deploy.
 
 ## 4. Verify it works
 
@@ -260,11 +260,12 @@ cd backend
 
 Needs the Postgres container running (`docker compose up -d postgres mailpit`) and JDK 25 (see B2). One test starts the whole application, so it must be able to reach the database.
 
-### Frontend: lint and build
+### Frontend: lint, unit tests and build
 
 ```bash
 cd frontend
 npm run lint
+npm test           # Vitest: plain-logic tests, no browser or backend needed, under a second
 npm run build
 ```
 
@@ -282,6 +283,8 @@ npm run test:e2e
 Good to know:
 
 - The tests run against http://localhost:5173 (override with the `E2E_BASE_URL` environment variable).
+- The registration tests read the verification e-mail from Mailpit at http://localhost:8025 (override with `E2E_MAILPIT_URL`).
+- The same suite runs in CI on every pull request, against a stack built from scratch on the runner (the `e2e` job in [ci.yml](../.github/workflows/ci.yml)).
 - They log in with the seeded accounts, so they expect the **sample data to be intact**. If tests fail strangely after lots of manual changes, [reset the database](#resetting-the-database).
 - Because Docker serves a *built* copy of your code, rebuild the containers before running them if you changed frontend or backend code.
 - `npm run test:e2e:ui` opens Playwright's interactive runner, which is handy for debugging.
@@ -296,10 +299,11 @@ Good to know:
 | "port is already allocated" / "address already in use" | Something else is using 5173, 8080, 5432, 8025 or 1025. Stop it, or change `FRONTEND_PORT`, `BACKEND_PORT`, `POSTGRES_PORT`, `MAILPIT_UI_PORT` in `.env` and run `docker compose up -d` again. Remember the Docker `frontend`/`backend` containers use 5173/8080 too — stop them (`docker compose stop frontend backend`) before using Path B. |
 | Maven says `release version 25 not supported` | `JAVA_HOME` points at an older JDK. Set it to JDK 25 or newer for your terminal (see B2). |
 | Backend crashes on start with a schema / "missing table or column" error | Your local database was built from an older schema. [Reset it](#resetting-the-database). |
+| On Linux the backend container restarts and its log says `logs/log.txt (Permission denied)` | The container runs as an unprivileged user and the bind-mounted `backend/logs` folder belongs to yours. Make it writable once (`chmod a+rwx backend/logs`) and run `docker compose up -d` again. The CI `e2e` job does this itself; on Docker Desktop for Windows the folder was already writable. |
 | Backend can't connect to the database | Postgres isn't running (`docker compose ps`), or you changed `POSTGRES_*` / `TASKMANAGER_APP_PASSWORD` in `.env` after the volume was created — reset the database. |
 | Login fails for every seeded user | Wrong password (it's `DevPassword123!`), or the database wasn't seeded — reset it. Five wrong tries in 15 minutes triggers a temporary lock-out (HTTP 429); wait, or restart the backend. |
 | Registering works but no verification email arrives | Emails never go to a real inbox — open Mailpit at http://localhost:8025. In Path B, make sure you started the backend with `MAIL_HOST=localhost` (see B2). |
-| Blank page or data never loads | Open the browser's developer tools (Network tab) to see the failing `/api` call. Check the backend log: `docker compose logs backend`, or the file `backend/logs/log.txt`. In Path B, confirm the backend is running on port 8080. |
+| Blank page or data never loads | Open the browser's developer tools (Network tab) to see the failing `/api` call. Check the backend log file `backend/logs/log.txt` (the console is quiet by design, so `docker compose logs backend` shows little). In Path B, confirm the backend is running on port 8080. |
 | I changed code but the app (Docker) looks the same | Docker serves a built copy — rebuild: `docker compose build backend frontend` then `docker compose up -d backend frontend`. Hard-refresh the browser (Ctrl+Shift+R). |
 | `npm install` / `npm ci` errors | Check `node --version` is 20 or newer. Delete `frontend/node_modules` and run `npm install` again. |
 | Playwright says the browser isn't installed | Run `npx playwright install chromium` inside `frontend/`. |
@@ -308,7 +312,7 @@ Good to know:
 
 ```bash
 docker compose ps                         # what's running, and is it healthy
-docker compose logs -f backend            # follow backend logs
+tail -f backend/logs/log.txt              # follow backend logs (PowerShell: Get-Content backend\logs\log.txt -Wait)
 docker compose logs -f frontend           # follow frontend (nginx) logs
 docker exec -it taskmanager-postgres psql -U postgres -d taskmanager   # open a SQL prompt
 ```

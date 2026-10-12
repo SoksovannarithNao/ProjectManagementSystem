@@ -1,6 +1,6 @@
 # Change Plan
 
-What is still to change in the application, in the order proposed. Written on **2026-10-08**, after the two-level role migration (`V10`). **Batches 1, 2, 3a, 3b and 3c were done on 2026-10-09** (see §3, §4 and §5); nothing else is started.
+What is still to change in the application, in the order proposed. Written on **2026-10-08**, after the two-level role migration (`V10`). **Batches 1, 2, 3a, 3b and 3c were done on 2026-10-09** (see §3, §4 and §5), the scheduled reminders (part of 3d) and the Gantt prototype (batch 4) on 2026-10-10; what remains is in the table below.
 
 Sources: the approved specification ([assignment-brief.md](../assignment-brief.md) Part B, decisions D-01 … D-18 all approved), the user flows ([project-workflow.md](../project-workflow.md)) and the live test ([workflow-conformance.md](workflow-conformance.md)). Section references like *B8* point into Part B of the brief.
 
@@ -11,7 +11,7 @@ Sources: the approved specification ([assignment-brief.md](../assignment-brief.m
 | Two-level roles, one owner per project, Team Member limits, permission matrix and its admin screens | [ADR-0015](adr/0015-two-level-roles-system-and-project.md), migration `V10` |
 | Specification resolved on paper (contradictions, definitions, reports, notifications, acceptance criteria) | brief Part B, `project-workflow.md` |
 | Time tracking (optional feature) | [tasks.md](tasks.md#time-tracking-estimated-vs-actual) |
-| Live conformance test of the 40 workflows | [workflow-conformance.md](workflow-conformance.md): 16 pass, 18 partial, 10 missing (20 / 14 / 10 after batch 1; 22 / 13 / 9 after batch 2; 26 / 10 / 8 after batch 3a; 31 / 7 / 6 after batch 3b; 33 / 6 / 5 after batch 3c) |
+| Live conformance test of the 44 application flows | [workflow-conformance.md](workflow-conformance.md): 16 pass, 18 partial, 10 missing after `V10` (20 / 14 / 10 after batch 1; 22 / 13 / 9 after batch 2; 26 / 10 / 8 after batch 3a; 31 / 7 / 6 after batch 3b; 33 / 6 / 5 after batch 3c; 35 / 5 / 4 after the reminders; **36 / 5 / 3** after the Gantt prototype, the current standing) |
 | **Batch 1 — quick fixes (7 items)** | 2026-10-09, migration `V11`; §3 |
 | **Batch 2 — approval workflow** | 2026-10-09, migration `V12`; §4 |
 | **Batch 3a — collaboration (4 items)** | 2026-10-09, migration `V13`; §5 |
@@ -22,9 +22,10 @@ Sources: the approved specification ([assignment-brief.md](../assignment-brief.m
 |---|---|---|
 | ~~1. Quick fixes~~ | done 2026-10-09 | |
 | ~~2. Approval workflow~~ | done 2026-10-09 | |
-| **3. Missing required features** | 5 sub-batches, 16 items | large |
-| **4. Optional features** | 6 | optional |
-| **5. Housekeeping** | 3 (1 done) | small |
+| **3. Missing required features** | 3a, 3b, 3c and the reminders of 3d are done; left: extra system roles (3e); the remaining notification types and auto-logout (3d) were built on 2026-10-12 | small |
+| **4. Optional features** | 5 of 6 left (the Gantt prototype is built) | optional |
+| **5. Housekeeping** | 2 left (5.3, 5.4; 5.1 done, 5.2 no longer reproduces) | small |
+| **6. Partly-done checklist rows** | taken in batches from [checklist/partially_done.md](checklist/partially_done.md); the quick-wins batch (milestone edit, calendar milestones, Tasks quick views, near-deadline flag, project completion date) was done 2026-10-12 | see the checklist |
 
 ## 2. How every batch is delivered
 
@@ -168,8 +169,8 @@ Delivery followed §2 except the backup and migration, which a change without sc
 | Item | Detail |
 |---|---|
 | Scheduled reminders and overdue notices | **Done 2026-10-10** (outside the numbered batches). A Spring `@Scheduled` job: 3 days and 1 day before a deadline, and when overdue; to the assignee and the project Owner. Unit-tested (16) and verified live |
-| Remaining notification types | Comment, project update, milestone update, member added/removed; recipients per D-10 |
-| Auto-logout (prototype) | Inactivity warning, then sign-out; the timeout value is still to be chosen |
+| Remaining notification types | **Done 2026-10-12** for comments, project updates and milestone updates (`UpdateNotificationService`; recipients per D-10: the people with work in the item plus the Owner and Team Leaders, never the actor); member added / removed is still pending in D-10 |
+| Auto-logout (prototype) | **Done 2026-10-12.** Inactivity warning, then sign-out: 15 idle minutes, a 60-second countdown (proposal D-20), browser-side |
 
 ### 3e. Roles (1)
 
@@ -183,13 +184,13 @@ Not acceptance criteria. Build only if wanted; if shown they are labelled "Optio
 
 Kanban drag-to-move (same status rules as §15) · report export to PDF/Excel · ~~Gantt chart prototype~~ (built 2026-10-10, outside the batches) · document management · audit log (B10) · @mentions (undefined in both sources).
 
-## 7. Batch 5 — Housekeeping (3 left)
+## 7. Batch 5 — Housekeeping (2 left)
 
 | # | Item |
 |---|---|
 | 5.1 | ~~Delete the leftover pending `newuser` invitation~~ — **done 2026-10-08**: the invitation was already gone; the one remaining failure in `project-team.spec.js` was a stale selector (`text-danger` → the message text), fixed. The suite is 43/43 |
-| 5.2 | I-21: tasks 2, 3 and 5 of PRJ-2001 are assigned to `lead.owen`, who has no PRJ-2001 membership in the live database (seed has one) |
-| 5.3 | `api/openapi.yaml` is stale (documents 57 of 91 endpoints, old roles); regenerate it from the code or retire it |
+| 5.2 | ~~I-21: tasks 2, 3 and 5 of PRJ-2001 are assigned to `lead.owen`, who has no PRJ-2001 membership in the live database (seed has one)~~ — `verify_invariants.sql` query 3 returned no rows after batch 2 (2026-10-09); the cause of the change is not known, so keep watching it |
+| 5.3 | `api/openapi.yaml` is stale (documents 57 of 119 endpoints, old roles); regenerate it from the code or retire it |
 | 5.4 | Run the Playwright suite in CI (it needs the Docker stack) |
 
 ## 8. Proposed order
@@ -203,4 +204,4 @@ Kanban drag-to-move (same status rules as §15) · report export to PDF/Excel ·
 
 ## 9. Open questions
 
-None blocking. Values still to be chosen when their batch starts: attachment size/type limits (D-17), the inactivity timeout (3d). (The `TODO` rename, 1.7, was done with batch 1.)
+None blocking. Values chosen when their batch was built: attachment size/type limits (D-17) and the inactivity timeout (D-20, proposed 2026-10-12: 15 minutes and a 60-second warning). (The `TODO` rename, 1.7, was done with batch 1.)

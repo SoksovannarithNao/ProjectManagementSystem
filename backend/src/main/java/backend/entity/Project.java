@@ -1,6 +1,8 @@
 package backend.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.Generated;
+import org.hibernate.generator.EventType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -40,6 +42,13 @@ public class Project {
 
     @Column(nullable = false, precision = 5, scale = 2)
     private BigDecimal progress = BigDecimal.ZERO;
+
+    // Set and cleared by the database (trg_projects_completed_at) when the status
+    // becomes / stops being COMPLETED, so the two can never disagree. Read-only
+    // here; @Generated makes Hibernate re-read it after an insert or update.
+    @Generated(event = {EventType.INSERT, EventType.UPDATE})
+    @Column(name = "completed_at", insertable = false, updatable = false)
+    private OffsetDateTime completedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -121,6 +130,10 @@ public class Project {
 
     public void setProgress(BigDecimal progress) {
         this.progress = progress;
+    }
+
+    public OffsetDateTime getCompletedAt() {
+        return completedAt;
     }
 
     public OffsetDateTime getCreatedAt() {

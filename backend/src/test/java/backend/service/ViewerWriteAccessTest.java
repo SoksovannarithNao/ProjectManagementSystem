@@ -49,6 +49,8 @@ class ViewerWriteAccessTest {
     @Mock
     private ActivityLogService activityLogService;
     @Mock
+    private UpdateNotificationService updateNotificationService;
+    @Mock
     private CommentRepository commentRepository;
     @Mock
     private ProjectAccessGuard projectAccessGuard;
@@ -67,7 +69,7 @@ class ViewerWriteAccessTest {
         subtaskService = new SubtaskService(
                 subtaskRepository, taskRepository, taskDependencyRepository, userRepository,
                 activityLogService, projectAccessGuard, taskAssigneeRepository);
-        commentService = new CommentService(commentRepository, taskRepository, userRepository, projectAccessGuard, activityLogService);
+        commentService = new CommentService(commentRepository, taskRepository, userRepository, projectAccessGuard, activityLogService, updateNotificationService);
 
         viewer = new User();
         ReflectionTestUtils.setField(viewer, "id", 1L);

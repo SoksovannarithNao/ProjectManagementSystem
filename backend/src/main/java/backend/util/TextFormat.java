@@ -5,6 +5,14 @@ public final class TextFormat {
     private TextFormat() {
     }
 
+    // One line of at most `max` characters, ending in an ellipsis when it was cut:
+    // for previews of long text in notifications.
+    public static String shorten(String text, int max) {
+        if (text == null) return "";
+        String oneLine = text.replaceAll("\\s+", " ").trim();
+        return oneLine.length() <= max ? oneLine : oneLine.substring(0, max - 1) + "…";
+    }
+
     // "IN_PROGRESS" -> "In Progress". Used for human-readable activity-log
     // descriptions (see ActivityLogService callers) and notification text.
     // "TODO" is one word in storage but two in the label: "To Do".

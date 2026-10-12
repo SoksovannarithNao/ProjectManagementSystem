@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { clearIdleSignOutNotice, wasSignedOutForInactivity } from '../auth/idleTimeout'
 import { Logo } from '../components/ui/Logo'
 
 export function Login() {
@@ -11,6 +12,9 @@ export function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // Why the user landed here, when the app signed them out for inactivity.
+  const [idleNotice] = useState(wasSignedOutForInactivity)
+  useEffect(() => clearIdleSignOutNotice(), [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -37,6 +41,15 @@ export function Login() {
         </div>
         <h1 className="text-ink mb-1 text-xl font-bold tracking-[-0.015em]">Sign in</h1>
         <p className="text-muted mb-6 text-[13px]">Use your TaskFlow account to continue.</p>
+        {idleNotice && (
+          <p
+            role="status"
+            data-testid="idle-signed-out"
+            className="bg-warning-soft text-warning-ink mb-5 rounded-md px-3 py-2.5 text-[12px] font-semibold"
+          >
+            You were signed out because there was no activity for a while. Sign in again to continue.
+          </p>
+        )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">

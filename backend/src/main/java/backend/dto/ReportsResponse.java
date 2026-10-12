@@ -33,7 +33,7 @@ public final class ReportsResponse {
 
     public record ProjectRow(Long id, String projectCode, String name, String status, String priority,
                              UserResponse owner, LocalDate startDate, LocalDate endDate, BigDecimal progress,
-                             boolean delayed, long daysDelayed) {
+                             boolean delayed, long daysDelayed, OffsetDateTime completedAt) {
     }
 
     // ---- KPIs ----------------------------------------------------------------

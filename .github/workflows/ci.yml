@@ -26,8 +26,7 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
-      # TODO: enable once a frontend test suite exists (no "test" script defined yet).
-      # - run: npm test -- --run
+      - run: npm test
       - run: npm run build
 
   backend:
@@ -122,6 +121,58 @@ jobs:
           SPRING_DATASOURCE_USERNAME: taskmanager_app
           SPRING_DATASOURCE_PASSWORD: taskmanager_app_password
         run: mvn -B verify
+
+  # Browser tests against the real, whole application: the compose stack is built
+  # from this checkout (database + Flyway + backend + frontend + Mailpit) and
+  # Playwright drives it like a user would. A fresh runner means an empty database,
+  # so database/init/*.sql seeds it exactly as a first local `docker compose up` does.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [frontend, backend] # no point booting the stack if lint/unit tests failed
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # docker-compose.yml bind-mounts ./backend/logs, and the backend runs as an
+      # unprivileged user inside the container. On a Linux runner the folder belongs
+      # to the runner's user, so without this the backend cannot open its log file
+      # and never becomes healthy.
+      - name: Let the backend container write its logs
+        run: chmod a+rwx backend/logs
+
+      - name: Start the stack
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run end-to-end tests
+        working-directory: frontend
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
+
+      - name: Show service logs
+        if: failure()
+        run: docker compose logs --no-color --tail=200
 
   docker-build-check:
     runs-on: ubuntu-latest

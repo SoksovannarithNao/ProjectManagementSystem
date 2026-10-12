@@ -10,7 +10,7 @@ Notifications must tell the right person about an event: someone assigned to a t
 
 ## Decision
 
-`service/NotificationService` creates notification rows from Java, called by other services **right after** the triggering change is saved: `TaskAssigneeService` → `notifyTaskAssigned`; `TaskService.updateTask` → `notifyTaskStatusChanged`; `ProjectMemberService.inviteMember` → `notifyTeamInvitation`; `respondToInvitation` → `notifyInvitationResponded`. All of them honour the recipient's `task_notifications_enabled` preference. Reading, marking read and deleting are self-scoped by the token.
+`service/NotificationService` creates notification rows from Java, called by other services **right after** the triggering change is saved: `TaskAssigneeService` → `notifyTaskAssigned`; `TaskService.updateTask` → `notifyTaskStatusChanged`; `TaskApprovalService` → `notifyApprovalRequested` / `notifyApprovalDecided` (since 2026-10-09); `ProjectMemberService.inviteMember` → `notifyTeamInvitation`; `respondToInvitation` → `notifyInvitationResponded`; and, from a daily scheduled job (since 2026-10-10), `DeadlineNotificationService` for `DEADLINE_REMINDER` and `OVERDUE_TASK`. All of them honour the recipient's `task_notifications_enabled` preference. Reading, marking read and deleting are self-scoped by the token.
 
 ## Why (as stated in the project)
 
@@ -28,7 +28,7 @@ Notifications must tell the right person about an event: someone assigned to a t
 - Only code paths that call `NotificationService` produce notifications: changes made directly in SQL, and the subtask auto-promotion of a task's status, produce none.
 - The single switch `task_notifications_enabled` also controls **invitation** notifications, which are the only place the UI offers Accept/Decline — a user who turns it off cannot see invitations (issue I-12).
 - Delivery is in-app only and pull-based (no push; the UI fetches at load and after the user's own actions).
-- 4 of the 9 allowed notification types are produced.
+- All 11 allowed notification types are produced. `COMMENT_ADDED`, `PROJECT_UPDATED` and `MILESTONE_UPDATED` (2026-10-12) come from `UpdateNotificationService`, called by `CommentService`, `ProjectService` and `MilestoneService` in the same style; a separate class keeps `NotificationService` small and gives the "who is around this item" recipient rules one home.
 
 ## Evidence
 

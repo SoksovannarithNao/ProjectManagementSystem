@@ -1,6 +1,6 @@
 # User & Project Management
 
-Users, projects, project membership and the invitation workflow. Code: `UserService`, `ProjectService`, `ProjectMemberService`, `ProjectAccessGuard`; UI: `pages/Team.jsx`, `pages/Projects.jsx`, `pages/ProjectDetail.jsx`, `components/NewProjectModal.jsx`, `AddProjectMemberModal.jsx`, `AddMemberModal.jsx`. Permission rules are summarized in [authentication-authorization.md](authentication-authorization.md#52-permission-matrix).
+Users, projects, project membership and the invitation workflow. Code: `UserService`, `ProjectService`, `ProjectMemberService`, `ProjectAccessGuard`; UI: `pages/Team.jsx`, `pages/Projects.jsx`, `pages/ProjectDetail.jsx`, `components/NewProjectModal.jsx`, `AddProjectMemberModal.jsx`, `AddMemberModal.jsx`. Permission rules are summarized in [authentication-authorization.md](authentication-authorization.md#52-project-scope-matrix).
 
 ## 1. User lifecycle
 
@@ -19,8 +19,8 @@ stateDiagram-v2
 | Stage | How | Notes |
 |---|---|---|
 | Create (self) | `POST /api/auth/register` → `POST /api/auth/verify-otp` | Gets the system role `USER` (cannot create projects until an Administrator makes the account a Project Manager); `fullName` = username until edited. See [authentication-authorization.md](authentication-authorization.md#12-self-registration-with-email-verification) |
-| Create (administrator) | `POST /api/users` (UI: Team → *Invite Member*) | The administrator sets a temporary password that must satisfy the [password policy](authentication-authorization.md#4-password-policy); optional system role (default Team Member; project-only roles are refused), position, department, status (default `ACTIVE`). The success message says to "share their temporary password to sign in" — no email is sent to the new user |
-| Profile | `PUT /api/users/me` | Editable by the user: full name, email, gender, date of birth, phone. **Not** editable by the user: username, role, status, position, department |
+| Create (administrator) | `POST /api/users` (UI: Team → *Invite Member*) | The administrator sets a temporary password that must satisfy the [password policy](authentication-authorization.md#4-password-policy); optional system role (default `USER`; project-only roles are refused), position, department, status (default `ACTIVE`). The success message says to "share their temporary password to sign in" — no email is sent to the new user |
+| Profile | `PUT /api/users/me` | Editable by the user: full name, email, gender, date of birth, phone, position and department (chosen from the managed lists; `null` clears). **Not** editable by the user: username, role, status |
 | Photo | `PUT /api/users/me/photo` (multipart `file`), `DELETE /api/users/me/photo` | JPEG, PNG, WEBP or GIF only; max 5 MB (`spring.servlet.multipart`); stored as bytes in `users.profile_photo`; served publicly at `/api/photos/{token}` (see [ADR-0009](adr/0009-profile-photos-in-database.md)) |
 | Preferences | `PUT /api/users/me/preferences` | `themePreference` (`LIGHT`/`DARK`/`SYSTEM`) and `taskNotificationsEnabled`. **Turning notifications off also stops invitation notifications** — see [notifications.md](notifications.md#5-the-preference-switch) |
 | Position / department | `PUT /api/users/{id}/position-department` | A user sets their own on the **Profile** page (`PUT /api/users/me`, chosen from the lists); a "team admin" can set them for someone else here, never for themselves. Lists are org-wide (`positions`, `departments`; names unique case-insensitively) |
@@ -28,7 +28,7 @@ stateDiagram-v2
 | Give a system role | `PUT /api/users/{id}/role` `{ "roleId" }` (`USER:ASSIGN`, administrator) | UI: Administration → Users. `VIEWER` (project-only) is refused; the last Administrator cannot be demoted |
 | Delete | `DELETE /api/users/{id}` (administrator) | Refused while the user is a sole active owner. Database cascades remove their memberships, comments, assignments, notifications and OTP rows; `tasks.created_by`, `subtasks.assignee_id` and `activity_logs.user_id` become NULL. `projects.manager_id` is `ON DELETE RESTRICT`, so deleting a user who is still a project's manager fails at the database |
 
-There is **no UI** for an administrator to edit, deactivate or delete an existing user, or to manage roles — those exist only as API endpoints. The Team page lists users the caller can see and lets team admins set position/department and manage a member's project membership.
+The UI for administrators covers creating an account (Team → *Invite Member*, which opens `AddMemberModal`) and giving an account its system role (Administration → Users, `pages/admin/UsersAdmin.jsx`, with a search box and the account status shown as a badge). There is **no UI** to edit, deactivate or delete an existing user — those exist only as API endpoints (`PUT` / `DELETE /api/users/{id}`). The Team page lists users the caller can see and lets team admins set position/department and manage a member's project membership.
 
 The user directory (`GET /api/users`) is scoped: an administrator sees everyone; everyone else sees themselves plus people who share an *active* project with them. A brand-new account with no projects sees only itself. **Single-user lookups follow the same rule** (`GET /api/users/{id}` and `/api/users/username/{username}`): you can read an account's profile only if you are an administrator, it is you, or you share an active project with them; otherwise the answer is the same `404` as for a user that does not exist, so the lookup neither exposes profiles nor confirms that an account exists.
 
@@ -38,7 +38,7 @@ The user directory (`GET /api/users`) is scoped: an administrator sees everyone;
 
 | Field | Rules |
 |---|---|
-| `projectCode` | **Generated by the server** on create: the next `PRJ-####` after the highest existing `PRJ-` code (`ProjectService.generateProjectCode`; the seed data uses `PRJ-2001`…`PRJ-2010`). The request field is optional; if a code is supplied it is trimmed, must be ≤ 30 characters and unique (`409 "Project code already exists."`). A blank value on create means "generate"; on update it means "keep the current code". The UI never asks for one, and shows it read-only on Edit |
+| `projectCode` | **Generated by the server** on create: the next `PRJ-####` after the highest existing `PRJ-` code (`ProjectService.generateProjectCode`, which takes a database lock until the transaction ends so that simultaneous creates cannot choose the same number; the seed data uses `PRJ-2001`…`PRJ-2010`). The request field is optional; if a code is supplied it is trimmed, must be ≤ 30 characters and unique (`409 "Project code already exists."`). A blank value on create means "generate"; on update it means "keep the current code". The UI never asks for one, and shows it read-only on Edit |
 | `name` | required, ≤ 200 |
 | `description` | optional text |
 | `startDate`, `endDate` | both required; `endDate` ≥ `startDate` (form, plus a database `CHECK`) |
@@ -46,6 +46,7 @@ The user directory (`GET /api/users`) is scoped: an administrator sees everyone;
 | `priority` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` (default `MEDIUM`) |
 | `status` | `PLANNING` (default), `IN_PROGRESS`, `ON_HOLD`, `COMPLETED`, `CANCELLED` |
 | `progress` | **Derived** — see below; any value sent is overwritten by the database |
+| `completedAt` | **Derived** — response only; the database sets it when the status becomes `COMPLETED` and clears it otherwise (see below) |
 | `createdAt`, `updatedAt` | maintained by the database |
 
 **Progress** = `100 × completed tasks ÷ non-cancelled tasks` (0 when there are no tasks), recomputed by triggers whenever a task is created, changed, moved or deleted, and on every direct update of the project row (`fn_compute_project_progress`, `trg_tasks_progress_sync`, `trg_projects_progress_derived`).
@@ -62,7 +63,8 @@ The user directory (`GET /api/users`) is scoped: an administrator sees everyone;
 
 Observations:
 
-- **No rule links project status to its tasks.** Nothing prevents setting a project to `COMPLETED` while tasks are open, and `projects` has no completion-date column (only `tasks.completed_at` exists). *(Confirmed by reading `ProjectService` and the schema.)*
+- **No rule links project status to its tasks.** Nothing prevents setting a project to `COMPLETED` while tasks are open. *(Confirmed by reading `ProjectService` and the schema.)*
+- **Completion date (since 2026-10-12, `V14`).** `projects.completed_at` is stamped by the trigger `trg_projects_completed_at` when the status becomes `COMPLETED`, kept while a completed project is edited, and cleared when it is reopened. It is returned as `completedAt`, shown as *Completed on <date>* on the project page and listed in the Project and Project Status reports; the application never writes it. Projects that were already completed when `V14` ran got their last update time.
 - The Projects page search matches the project name, description, code, manager, status and dates.
 - **Filter** (since 2026-10-09): status (Planning, Active, On Hold, Completed, Cancelled), priority and project manager; they combine with AND and with the search, and **Clear filters** resets them. **Sort**: Default (fully complete 100% projects last), name, start date, end date, priority, progress. Both work in the browser over the projects the server already limited to the caller, so they never reveal a project the user cannot open.
 - The Projects page subtitle reads "N active projects" but counts every project the caller can see.
@@ -84,7 +86,7 @@ Two ways a row appears:
 1. **Direct add** — `POST /api/project-members` (`MEMBER:CREATE`). Becomes `ACTIVE` immediately. Used internally when a project is created (the creator → `OWNER`). Adding as `OWNER` is refused; making a member the owner is a transfer (below). Inactive/suspended users are refused.
 2. **Invitation** — see below.
 
-Other operations: `PUT /api/project-members/{id}` (change role; `MEMBER:EDIT`; role `OWNER` = transfer ownership, `PROJECT:ASSIGN`, one step, previous owner becomes `ADMIN`), `DELETE /api/project-members/{id}` (remove; `MEMBER:DELETE`; blocked if it would remove the last active owner). In the UI, **removal** is on the Team page (an ✕ beside a project in a member's list). **Role changes** are on the project page since 2026-10-09: each member (except you and the Owner) has a role picker — *Team Leader*, *Team Member*, *Viewer* for the Owner and an Administrator, only *Team Member* / *Viewer* for a Team Leader (who cannot touch another leader) — and *Owner (transfer ownership)* appears for a member who can own projects, behind a confirmation. The project page also links to **Team tasks**, **Workload** (for people who can assign tasks) and **Timeline** (everyone); see [frontend.md](frontend.md).
+Other operations: `PUT /api/project-members/{id}` (change role; `MEMBER:EDIT`; role `OWNER` = transfer ownership, `PROJECT:ASSIGN`, one step, previous owner becomes `ADMIN`), `DELETE /api/project-members/{id}` (remove; `MEMBER:DELETE`; blocked if it would remove the last active owner). In the UI, **removal** is on the Team page (an ✕ beside a project in a member's list). **Role changes** are on the project page since 2026-10-09: each member (except you and the Owner) has a role picker — *Team Leader*, *Team Member*, *Viewer* for the Owner and an Administrator, only *Team Member* / *Viewer* for a Team Leader (who cannot touch another leader) — and *Owner (transfer ownership)* appears for a member who can own projects, behind a confirmation. The project page also links to **Team tasks**, **Workload** (for people who can assign tasks), **Timeline** and **Gantt** (everyone); see [frontend.md](frontend.md).
 
 Reads: `GET /api/project-members` and `GET /api/project-members/project/{id}` return **active** members only; `GET /api/project-members/{id}` requires access to that row's project; `GET /api/project-members/user/{userId}` is **scoped**: an administrator gets every row, anyone else only the user's *active* memberships in projects the caller also belongs to. `PUT /api/project-members/{id}` can change only the **role** — the row's project and user cannot be re-pointed (`400`).
 
@@ -118,7 +120,7 @@ Rules, in order (`ProjectMemberService.inviteMember`):
 5. If a row already exists: `ACTIVE` → `400 "…is already a member of this team"`; `PENDING` → `400 "An invitation is already pending for …"`; `DECLINED` → the row is reused and set back to `PENDING`.
 6. A `TEAM_INVITATION` notification is created for the invitee (unless they turned notifications off).
 
-Invitees always join as `MEMBER`. The invitation request has no role field.
+The API default is `MEMBER`. The Team page sends the chosen role; the project page's *Add Member* dialog sends none, so the invitee joins as a Team Member and the Owner or a Team Leader changes the role afterwards (section 3).
 
 ### 4.3 Accepting or declining
 

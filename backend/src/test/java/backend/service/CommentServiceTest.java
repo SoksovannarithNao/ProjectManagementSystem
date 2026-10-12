@@ -46,6 +46,8 @@ class CommentServiceTest {
     private ProjectAccessGuard projectAccessGuard;
     @Mock
     private ActivityLogService activityLogService;
+    @Mock
+    private UpdateNotificationService updateNotificationService;
 
     private CommentService service;
     private User caller;
@@ -55,7 +57,7 @@ class CommentServiceTest {
     @BeforeEach
     void setUp() {
         service = new CommentService(commentRepository, taskRepository, userRepository, projectAccessGuard,
-                activityLogService);
+                activityLogService, updateNotificationService);
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 1L);
         caller.setUsername("dev.chen");
@@ -101,6 +103,24 @@ class CommentServiceTest {
 
         verify(projectAccessGuard).assertCan(caller, 10L, Resource.COMMENT, Action.CREATE);
         verify(activityLogService).record(eq(caller), eq(task), eq("COMMENT_ADDED"), contains("Comment added: \"Looks good to me\""));
+    }
+
+    @Test
+    void aComment_tellsThePeopleAroundTheTask() {
+        service.createComment(request(5L, "Looks good to me", null), "dev.chen");
+
+        verify(updateNotificationService).notifyCommentAdded(any(Comment.class), eq(caller));
+    }
+
+    @Test
+    void aRefusedComment_notifiesNobody() {
+        org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("no"))
+                .when(projectAccessGuard).assertCan(caller, 10L, Resource.COMMENT, Action.CREATE);
+
+        assertThatThrownBy(() -> service.createComment(request(5L, "hi", null), "dev.chen"))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+
+        verify(updateNotificationService, never()).notifyCommentAdded(any(), any());
     }
 
     @Test

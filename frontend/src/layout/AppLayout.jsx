@@ -1,10 +1,12 @@
 import { Outlet } from 'react-router-dom'
 import { LayoutProvider } from './LayoutContext'
 import { Sidebar } from './Sidebar'
+import { IdleLogout } from '../auth/IdleLogout'
 
 export function AppLayout() {
   return (
     <LayoutProvider>
+      <IdleLogout />
       <div className="bg-canvas flex min-h-[100svh]">
         <Sidebar />
         <main className="ml-[var(--sidebar-width)] min-w-0 flex-1 max-lg:ml-0">

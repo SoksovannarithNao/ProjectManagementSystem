@@ -19,6 +19,8 @@ public class ProjectResponse {
     private String priority;
     private String status;
     private BigDecimal progress;
+    // When the project became Completed; null while it is not (set by the database).
+    private OffsetDateTime completedAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
     // Calculated, never stored (assignment-brief.md B1.3): the end date has
@@ -37,6 +39,7 @@ public class ProjectResponse {
         this.priority = project.getPriority();
         this.status = project.getStatus();
         this.progress = project.getProgress();
+        this.completedAt = project.getCompletedAt();
         this.createdAt = project.getCreatedAt();
         this.updatedAt = project.getUpdatedAt();
         LocalDate today = LocalDate.now();
@@ -90,6 +93,10 @@ public class ProjectResponse {
 
     public BigDecimal getProgress() {
         return progress;
+    }
+
+    public OffsetDateTime getCompletedAt() {
+        return completedAt;
     }
 
     public OffsetDateTime getCreatedAt() {
