@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class RolePermissionServiceTest {
@@ -40,11 +41,14 @@ class RolePermissionServiceTest {
     @Mock
     private PermissionService permissionService;
 
+    @Mock
+    private AuditLogService auditLogService;
+
     private RolePermissionService service;
 
     @BeforeEach
     void setUp() {
-        service = new RolePermissionService(roleRepository, permissionRepository, rolePermissionRepository, permissionService);
+        service = new RolePermissionService(roleRepository, permissionRepository, rolePermissionRepository, permissionService, auditLogService);
 
         List<Permission> catalog = new ArrayList<>();
         long id = 1;
@@ -162,5 +166,76 @@ class RolePermissionServiceTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("resource");
         assertThatThrownBy(() -> service.replaceGrants(3L, grants("PROJECT:TASK:FLY")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("permission");
+    }
+
+    @Test
+    void aSystemWideGrant_cannotBeOnAProjectLevelResource_soASystemRoleNeverWidensAProjectRole() {
+        role(6L, "AUDITOR", "SYSTEM", null);
+
+        assertThatThrownBy(() -> service.replaceGrants(6L, grants("SYSTEM:TASK:EDIT")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("system-wide permission");
+        verify(rolePermissionRepository, never()).deleteAllByRoleId(any());
+    }
+
+    @Test
+    void anExtraRole_cannotCreateProjects_butItCanReadReportsAndViewUsers() {
+        role(6L, "AUDITOR", "SYSTEM", null);
+
+        assertThatThrownBy(() -> service.replaceGrants(6L, grants("SYSTEM:PROJECT:CREATE")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot create projects");
+
+        var result = service.replaceGrants(6L, grants(
+                "SYSTEM:PROJECT:VIEW", "SYSTEM:REPORT:GENERATE_REPORTS", "SYSTEM:USER:VIEW"));
+        assertThat(result.getGrants()).hasSize(3);
+        verify(permissionService).refresh();
+    }
+
+    @Test
+    void aBuiltInSystemRole_keepsTheRightToCreateProjects() {
+        Role manager = role(2L, "PROJECT_MANAGER", "SYSTEM", null);
+        manager.setBuiltIn(true);
+
+        var result = service.replaceGrants(2L, grants("SYSTEM:PROJECT:CREATE", "SYSTEM:REPORT:GENERATE_REPORTS"));
+
+        assertThat(result.getGrants()).hasSize(2);
+    }
+
+    // ---- the audit log (#44) ---------------------------------------------------------
+
+    private static backend.repository.RolePermissionRepository.GrantRow existing(String role, String scope, String resource, String code) {
+        backend.repository.RolePermissionRepository.GrantRow row = org.mockito.Mockito.mock(backend.repository.RolePermissionRepository.GrantRow.class);
+        lenient().when(row.getRoleName()).thenReturn(role);
+        lenient().when(row.getScope()).thenReturn(scope);
+        lenient().when(row.getResource()).thenReturn(resource);
+        lenient().when(row.getPermissionCode()).thenReturn(code);
+        return row;
+    }
+
+    @Test
+    void changingARolesPermissions_isAudited_withTheFullListBeforeAndAfter() {
+        role(3L, "ADMIN", "PROJECT", "ADMIN");
+        var rows = List.of(
+                existing("ADMIN", "PROJECT", "PROJECT", "VIEW"),
+                existing("ADMIN", "PROJECT", "TASK", "VIEW"),
+                existing("MEMBER", "PROJECT", "TASK", "EDIT"));
+        when(rolePermissionRepository.findAllGrants()).thenReturn(rows);
+
+        service.replaceGrants(3L, grants("PROJECT:PROJECT:VIEW", "PROJECT:TASK:APPROVE"));
+
+        verify(auditLogService).record(AuditLogService.PERMISSIONS_CHANGED, AuditLogService.ROLE, 3L, "ADMIN", null,
+                "PROJECT:PROJECT:VIEW, PROJECT:TASK:VIEW", "PROJECT:PROJECT:VIEW, PROJECT:TASK:APPROVE");
+    }
+
+    @Test
+    void savingTheSamePermissions_isNotAudited() {
+        role(3L, "ADMIN", "PROJECT", "ADMIN");
+        var rows = List.of(existing("ADMIN", "PROJECT", "PROJECT", "VIEW"));
+        when(rolePermissionRepository.findAllGrants()).thenReturn(rows);
+
+        service.replaceGrants(3L, grants("PROJECT:PROJECT:VIEW"));
+
+        verify(auditLogService, never()).record(any(String.class), any(), any(), any(), any(), any(), any());
     }
 }

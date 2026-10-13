@@ -46,7 +46,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 .
 ├── backend/               Spring Boot API
 │   └── src/main/java/backend/
-│       ├── controller/    25 REST controllers (119 endpoints)
+│       ├── controller/    26 REST controllers (122 endpoints)
 │       ├── service/       business rules, transactions, ProjectAccessGuard
 │       ├── repository/    Spring Data JPA repositories
 │       ├── entity/        22 JPA entities
@@ -63,7 +63,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 │   └── e2e/               Playwright specs
 ├── database/
 │   ├── init/              01-init.sql (schema), 02-seed.sql (demo data), 03-app-role.sh, 04-flyway-baseline.sql
-│   ├── taskmanager/       Flyway project (migrations V1–V14) — applied by the Compose `migrate` service, not by the app
+│   ├── taskmanager/       Flyway project (migrations V1–V16) — applied by the Compose `migrate` service, not by the app
 │   └── verify_invariants.sql
 ├── api/                   openapi.yaml (partly out of date — see issues.md)
 ├── docs/                  this documentation

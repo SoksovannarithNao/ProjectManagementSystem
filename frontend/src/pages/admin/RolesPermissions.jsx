@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react'
-import { Lock, ShieldCheck } from 'lucide-react'
+import { Lock, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import { TopBar } from '../../layout/TopBar'
 import { Badge } from '../../components/ui/Badge'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { RoleFormPanel } from '../../components/RoleFormPanel'
+import { Checkbox } from '../../components/ui/Checkbox'
 import { useToast } from '../../components/ui/Toast'
 import { useAuth } from '../../auth/AuthContext'
 import { useApi } from '../../api/useApi'
-import { getPermissionMatrix, updateRolePermissions } from '../../api/roles'
+import { getPermissionMatrix, updateRolePermissions, deleteRole } from '../../api/roles'
 import { humanizeEnum } from '../../api/format'
 
 // Role & Permission management (Role_Requirment.md). Shows each role, the 7
@@ -15,7 +18,8 @@ import { humanizeEnum } from '../../api/format'
 // Someone with ROLE:EDIT can change the grants of any role except
 // Administrator (which always holds everything). A change applies on the
 // server immediately after Save - the backend reads this same table for
-// every request.
+// every request. Extra system roles can be created, renamed and deleted here
+// (D-14); the seven built-in roles cannot.
 
 const ACTION_LABELS = {
   VIEW: 'View',
@@ -89,8 +93,14 @@ export function RolesPermissions() {
   // Unsaved edits per role (role id -> Set of keys), so switching roles never loses work.
   const [drafts, setDrafts] = useState(() => new Map())
   const [saving, setSaving] = useState(false)
+  // null, 'new', or the extra role being renamed.
+  const [roleForm, setRoleForm] = useState(null)
+  const [deletingRole, setDeletingRole] = useState(null)
+  const [deletingBusy, setDeletingBusy] = useState(false)
 
   const canEdit = canSys('ROLE', 'EDIT')
+  const canCreateRole = canSys('ROLE', 'CREATE')
+  const canDeleteRole = canSys('ROLE', 'DELETE')
   const roles = useMemo(() => matrix?.roles ?? [], [matrix])
   const selected = roles.find((r) => r.role.id === (selectedId ?? roles[0]?.role.id))
 
@@ -144,6 +154,27 @@ export function RolesPermissions() {
     }
   }
 
+  const confirmDelete = async () => {
+    setDeletingBusy(true)
+    try {
+      await deleteRole(deletingRole.id)
+      notify(`${roleLabel(deletingRole.name)} was deleted`, { tone: 'success' })
+      setDrafts((prev) => {
+        const next = new Map(prev)
+        next.delete(deletingRole.id)
+        return next
+      })
+      setSelectedId(null)
+      setDeletingRole(null)
+      refetch()
+    } catch (err) {
+      notify(err.message || 'Could not delete the role', { tone: 'error' })
+      setDeletingRole(null)
+    } finally {
+      setDeletingBusy(false)
+    }
+  }
+
   return (
     <div>
       <TopBar title="Roles & Permissions" subtitle="What each role may do" />
@@ -177,7 +208,9 @@ export function RolesPermissions() {
                   </span>
                   <span className={`text-[12px] ${active ? 'opacity-80' : 'text-muted'}`}>
                     {r.role.scope === 'SYSTEM'
-                      ? 'System role'
+                      ? r.role.builtIn
+                        ? 'System role'
+                        : 'Extra system role'
                       : r.role.scope === 'PROJECT'
                         ? 'Project role'
                         : 'System and project role'}
@@ -185,6 +218,11 @@ export function RolesPermissions() {
                 </button>
               )
             })}
+            {canCreateRole && (
+              <button type="button" className="btn btn-secondary mt-1 justify-center" onClick={() => setRoleForm('new')}>
+                <Plus size={14} /> New role
+              </button>
+            )}
           </nav>
 
           <section className="flex min-w-0 flex-col gap-5" aria-label={`Permissions of ${roleLabel(selected.role.name)}`}>
@@ -205,7 +243,27 @@ export function RolesPermissions() {
                 ) : !canEdit ? (
                   <Badge>View only</Badge>
                 ) : (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!selected.role.builtIn && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary px-2"
+                        aria-label={`Edit ${roleLabel(selected.role.name)}`}
+                        onClick={() => setRoleForm(selected.role)}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                    {!selected.role.builtIn && canDeleteRole && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-danger-ink px-2"
+                        aria-label={`Delete ${roleLabel(selected.role.name)}`}
+                        onClick={() => setDeletingRole(selected.role)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                     {dirty(selected.role.id) && (
                       <button type="button" className="btn btn-secondary" onClick={discard} disabled={saving}>
                         Discard
@@ -235,6 +293,7 @@ export function RolesPermissions() {
                 locked={selected.locked}
                 onToggle={toggle}
                 roleName={roleLabel(selected.role.name)}
+                extraRole={!selected.role.builtIn}
               />
             )}
             {(selected.role.scope === 'PROJECT' || selected.role.scope === 'BOTH') && (
@@ -248,16 +307,39 @@ export function RolesPermissions() {
                 locked={selected.locked}
                 onToggle={toggle}
                 roleName={roleLabel(selected.role.name)}
+                extraRole={!selected.role.builtIn}
               />
             )}
           </section>
         </div>
       )}
+
+      {roleForm && (
+        <RoleFormPanel
+          role={roleForm === 'new' ? null : roleForm}
+          onClose={() => setRoleForm(null)}
+          onSaved={(saved) => {
+            if (roleForm === 'new') setSelectedId(saved.id)
+            refetch()
+          }}
+        />
+      )}
+
+      {deletingRole && (
+        <ConfirmDialog
+          title="Delete role"
+          message={`Delete ${roleLabel(deletingRole.name)} and its permissions? This cannot be undone. A role that accounts still hold cannot be deleted.`}
+          confirmLabel="Delete"
+          loading={deletingBusy}
+          onConfirm={confirmDelete}
+          onClose={() => setDeletingRole(null)}
+        />
+      )}
     </div>
   )
 }
 
-function PermissionTable({ title, description, scope, resources, draft, editable, locked, onToggle, roleName }) {
+function PermissionTable({ title, description, scope, resources, draft, editable, locked, onToggle, roleName, extraRole }) {
   const columns = Object.keys(ACTION_LABELS)
   const resourceLabel = (r) => humanizeEnum(r)
   return (
@@ -295,6 +377,9 @@ function PermissionTable({ title, description, scope, resources, draft, editable
                 {columns.map((action) => {
                   const applies = APPLICABLE[resource]?.includes(action)
                   const checked = locked || draft.has(key(scope, resource, action))
+                  // The creator of a project becomes its owner, and only a Project Manager or an
+                  // Administrator can own one, so an extra role cannot hold this one.
+                  const blocked = extraRole && scope === 'SYSTEM' && resource === 'PROJECT' && action === 'CREATE'
                   return (
                     <td key={action} className="px-2 py-2.5 text-center">
                       {!applies ? (
@@ -302,12 +387,12 @@ function PermissionTable({ title, description, scope, resources, draft, editable
                           ·
                         </span>
                       ) : editable ? (
-                        <input
-                          type="checkbox"
-                          className="accent-charcoal h-4 w-4 cursor-pointer"
+                        <Checkbox
                           checked={checked}
+                          disabled={blocked}
+                          title={blocked ? 'Only a Project Manager or an Administrator can own a project, so an extra role cannot create one' : undefined}
                           onChange={() => onToggle(scope, resource, action)}
-                          aria-label={`${roleName} may ${ACTION_LABELS[action].toLowerCase()} ${resourceLabel(resource).toLowerCase()}`}
+                          label={`${roleName} may ${ACTION_LABELS[action].toLowerCase()} ${resourceLabel(resource).toLowerCase()}`}
                         />
                       ) : checked ? (
                         <span className="text-success-ink font-bold" role="img" aria-label="allowed">

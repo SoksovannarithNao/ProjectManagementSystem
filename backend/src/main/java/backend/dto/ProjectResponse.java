@@ -16,6 +16,8 @@ public class ProjectResponse {
     private LocalDate startDate;
     private LocalDate endDate;
     private UserResponse manager;
+    // The Team Leader named as the project's lead; null when there is none.
+    private UserResponse lead;
     private String priority;
     private String status;
     private BigDecimal progress;
@@ -36,6 +38,7 @@ public class ProjectResponse {
         this.startDate = project.getStartDate();
         this.endDate = project.getEndDate();
         this.manager = new UserResponse(project.getManager());
+        this.lead = project.getLead() != null ? new UserResponse(project.getLead()) : null;
         this.priority = project.getPriority();
         this.status = project.getStatus();
         this.progress = project.getProgress();
@@ -77,6 +80,10 @@ public class ProjectResponse {
 
     public LocalDate getEndDate() {
         return endDate;
+    }
+
+    public UserResponse getLead() {
+        return lead;
     }
 
     public UserResponse getManager() {

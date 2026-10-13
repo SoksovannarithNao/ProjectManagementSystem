@@ -138,7 +138,7 @@ New accounts (self-registration, or an administrator creating one without choosi
 
 Guards: `@PreAuthorize("@permissions.require(authentication,'USER','CREATE')")` (class `security/PermissionChecker`) on user, role, position, department and permission endpoints; `ProjectAccessGuard.assertCan / assertSystemCan` inside services. A refused check throws `AccessDeniedException` → **403** with a specific sentence (`GlobalExceptionHandler`), for example *"Only a Project Manager or an Administrator can create a project"*.
 
-**Editing the matrix:** an Administrator can change the grants of any role except `ADMINISTRATOR` (`PUT /api/roles/{id}/permissions`, which replaces the role's full grant list). `RolePermissionService` rejects unknown resources/permissions/scopes, grants in a scope the role does not have (a system role holds only system grants; a project role only project grants), and removing `PROJECT:VIEW` from a project role (members would be locked out). Built-in roles cannot be renamed or deleted. **The last Administrator cannot be demoted** (`400`). Creating *additional* system roles is a specified requirement (D-14) that is **not built yet**.
+**Editing the matrix:** an Administrator can change the grants of any role except `ADMINISTRATOR` (`PUT /api/roles/{id}/permissions`, which replaces the role's full grant list). `RolePermissionService` rejects unknown resources/permissions/scopes, grants in a scope the role does not have (a system role holds only system grants; a project role only project grants), and removing `PROJECT:VIEW` from a project role (members would be locked out). A system-wide grant (scope `SYSTEM`) is only accepted on projects, reports, users, roles and positions/departments, so a system role never widens a project role (D-02). Built-in roles cannot be renamed or deleted. **The last Administrator cannot be demoted** (`400`). **Extra system roles (D-14, built 2026-10-13):** an Administrator creates, renames and deletes them (`POST` / `PUT` / `DELETE /api/roles`, `RoleService`); a new role is `scope` `SYSTEM`, has no project role, is not built in and holds no grants until the matrix is edited. The name is stored in upper case (`Quality auditor` → `QUALITY_AUDITOR`); a name in use is a `409`; a role that accounts still hold cannot be deleted (`409`); an extra role cannot hold *create projects*, because the creator of a project becomes its owner and only a Project Manager or an Administrator can own one (D-04). Custom *project* roles remain undefined by the specification.
 
 ## 4. Password policy
 
@@ -194,7 +194,7 @@ These are the `role_permissions` rows with `scope = PROJECT` seeded by `V10` and
 
 | Resource | Owner (`OWNER`) | Team Leader (`ADMIN`) | Team Member (`MEMBER`) | Viewer |
 |---|---|---|---|---|
-| `PROJECT` | View, Edit, Delete, Assign (transfer ownership) | View, Edit | View | View |
+| `PROJECT` | View, Edit, Delete, Assign (transfer ownership, name the project lead) | View, Edit | View | View |
 | `MILESTONE` | View, Create, Edit, Delete | View, Create, Edit, Delete | View | View |
 | `MEMBER` (invite, direct add, change role, remove) | View, Create, Edit, Delete | View, Create, Edit, Delete | View | View |
 | `TASK` | View, Create, Edit (every field), Delete, Assign, **Approve** | same | **View only** | View |
@@ -222,6 +222,7 @@ Rules the table cannot express (they depend on *who did it*, so they stay in cod
 | A Team Member edits a **subtask** only if the task is assigned to them or the subtask is assigned to them (`403 "You can only change subtasks of tasks assigned to you"`); deleting a subtask needs `SUBTASK:DELETE` | `SubtaskService` |
 | Accept / decline an invitation — the invited user only | `ProjectMemberService` |
 | Change a project's manager — `ADMINISTRATOR` only; it transfers ownership | `ProjectService` → `ProjectOwnership` |
+| Read the audit log — `ADMINISTRATOR` only (the Owner reads that project's ownership transfers, D-11) | `AuditLogService` |
 | The owner cannot be demoted or removed; ownership is transferred, and only to a Project Manager or Administrator | `ProjectMemberService`, `ProjectOwnership` |
 | The last Administrator cannot be demoted; a person who owns a project cannot be moved to `USER` | `UserService` |
 
@@ -253,7 +254,7 @@ The database dependency/subtask/date triggers apply regardless of role.
 
 | Action | Who | Where |
 |---|---|---|
-| Create, update, delete any user | `USER:CREATE/EDIT/DELETE` (Administrator) | `UserController`; UI: *Add member* creates an account with a temporary password and an optional system role (default `USER`) |
+| Create, update, delete any user | `USER:CREATE/EDIT/DELETE` (Administrator) | `UserController`; UI: *Add member* creates an account with a temporary password and an optional system role (default `USER`); *Administration → Users* edits an account, changes its status and deletes it (never the last Administrator, the sole owner of a project or your own account) |
 | Give an account a system role | `USER:ASSIGN` (Administrator) | `PUT /api/users/{id}/role`; UI: *Administration → Users*. Refused for the project-only roles, for demoting the last Administrator, and for moving a person who owns a project to `USER` |
 | List users | everyone, **scoped**: an administrator sees all; others see themselves plus people who share an active project with them | `UserService.getAllUsers` |
 | Look up one user by id or username | **scoped** — an administrator, the user themself, or someone who shares an active project with them; anyone else gets `404` | `UserService.assertCanView` |

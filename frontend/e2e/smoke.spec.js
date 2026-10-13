@@ -14,6 +14,7 @@ const SCREENS = [
   ['/reports', 'Reports'],
   ['/admin/users', 'User administration'],
   ['/admin/roles', 'Roles and permissions'],
+  ['/admin/audit', 'Audit log'],
   ['/profile', 'Profile'],
   ['/settings', 'Settings'],
   ['/help', 'Help'],

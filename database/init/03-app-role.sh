@@ -59,6 +59,10 @@ psql -v ON_ERROR_STOP=1 \
     -- role_permissions above is the editable role x resource x action matrix.
     GRANT SELECT ON permissions TO taskmanager_app;
 
+    -- The audit log is append-only: the backend may add and read entries, never change or
+    -- remove them (a trigger refuses it as well).
+    GRANT SELECT, INSERT ON audit_logs TO taskmanager_app;
+
     -- GENERATED ALWAYS AS IDENTITY columns still back onto a real sequence;
     -- a non-owner role needs USAGE on it to INSERT (the implicit nextval()
     -- call during identity generation is subject to the same ACL check as an

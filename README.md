@@ -78,10 +78,10 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 ```
 backend/src/main/java/backend/
 ├── BackendApplication.java   # Entry point
-├── controller/                # REST controllers — bind/validate requests, delegate to services (25 controllers)
+├── controller/                # REST controllers — bind/validate requests, delegate to services (26 controllers)
 ├── service/                   # Business logic, transaction boundaries, DTO <-> entity mapping
 │                               # (includes ProjectAccessGuard — the shared project-scoped authorization check)
-├── entity/                    # JPA entities (22 of the schema's 24 tables mapped; `report_exports` and `kpi_snapshots` are not)
+├── entity/                    # JPA entities (23 of the schema's 25 tables mapped; `report_exports` and `kpi_snapshots` are not)
 ├── repository/                # Spring Data JPA repositories
 ├── dto/                       # Request/response DTOs — no controller binds/returns raw entities
 ├── security/                  # Resource and Action enums, PermissionChecker (the @permissions bean used in @PreAuthorize)
@@ -99,13 +99,13 @@ frontend/src/
 ├── pages/               # One file per route — Login, Register, VerifyOtp, Dashboard, Projects, ProjectDetail,
 │                        # ProjectViews (team tasks / workload / timeline / Gantt), Tasks, Kanban, Team, Calendar, Reports,
 │                        # Profile, Settings, Help (Help & Support), ErrorPage (404, 403, 500 … for every error status),
-│                        # admin/UsersAdmin, admin/RolesPermissions
+│                        # admin/UsersAdmin, admin/RolesPermissions, admin/AuditLog
 ├── components/          # Shared components (ProjectCard, StatCard, TaskDetailPanel, TaskFormModal, NewProjectModal,
-│                        # AddMemberModal, AddProjectMemberModal, AddLookupModal, TimeTracking, ChecklistSection,
+│                        # AddMemberModal, EditUserModal, RoleFormPanel, AddProjectMemberModal, AddLookupModal, TimeTracking, ChecklistSection,
 │                        # AttachmentsSection, ApprovalChip, DelayedBadge, ProjectActivity, TeamTasksView, WorkloadTable,
 │                        # TimelineView, GanttChart, MilestoneFormModal, DueSoonBadge) and components/reports/ (the Reports tabs)
 ├── components/ui/       # Presentational primitives (Avatar, Badge, ProgressBar, ProgressRing, LookupSelect, Modal,
-│                        # Dropdown, ConfirmDialog, Toast, Skeleton, EmptyState, Logo, PasswordChecklist, TimeChip,
+│                        # SidePanel, Checkbox, Dropdown, ConfirmDialog, Toast, Skeleton, EmptyState, Logo, PasswordChecklist, TimeChip,
 │                        # useDirtyForm)
 ├── layout/              # App shell — Sidebar, TopBar (search/filter/notifications bell), layout state (React Context)
 ├── auth/                # AuthContext (JWT/login/logout/refreshProfile/permissions), ProtectedRoute, RequirePermission, IdleLogout (inactivity warning and sign-out)
@@ -467,7 +467,7 @@ curl http://localhost:8080/api/projects -H "Authorization: Bearer $TOKEN"
 
 Or just log into the frontend directly at http://localhost:5173 with any seeded `ACTIVE` username (e.g. `admin.system`, `pm.olivia`) and password `DevPassword123!`.
 
-Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgres matching the schema — currently 328 tests across 30 classes — the Spring context load, the exception handler, the services (users, projects, members, tasks, approvals, milestones, comments, attachments, checklists, reports, team views, activity log, work logs), the permission matrix itself and the JWT validator; service logic is covered with mocked repositories, there are no controller or repository integration tests yet). Automated frontend tests: `cd frontend && npm run test:e2e` — a Playwright end-to-end suite (145 tests across the `auth`, `registration`, `smoke`, `core-workflow`, `projects`, `project-team`, `team`, `permissions`, `time-tracking`, `roles-permissions`, `batch1`, `approvals`, `collaboration`, `manager-views`, `reports`, `gantt`, `help-errors`, `quick-wins` and `idle-and-updates` specs; run with `npx playwright test --workers=4`, since the default 8 workers are intermittently flaky) that drives the real app against the real backend (requires `docker compose up -d` first); see [docs/frontend.md](docs/frontend.md#testing). Frontend unit tests: `cd frontend && npm test` (Vitest, 128 tests for the pure logic in `src/api` and `src/auth`, no browser or backend needed). Lint, the unit tests, the backend tests and the whole Playwright suite all run in CI. Every test case with its steps and expected result: [docs/test-cases.md](docs/test-cases.md). Full inventory, regression-test map and coverage gaps: [docs/testing.md](docs/testing.md).
+Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgres matching the schema — currently 374 tests across 32 classes — the Spring context load, the exception handler, the services (users, projects, members, tasks, approvals, milestones, comments, attachments, checklists, reports, team views, activity log, work logs), the permission matrix itself and the JWT validator; service logic is covered with mocked repositories, there are no controller or repository integration tests yet). Automated frontend tests: `cd frontend && npm run test:e2e` — a Playwright end-to-end suite (170 tests across the `auth`, `registration`, `smoke`, `core-workflow`, `projects`, `project-team`, `team`, `permissions`, `time-tracking`, `roles-permissions`, `batch1`, `approvals`, `collaboration`, `manager-views`, `reports`, `gantt`, `help-errors`, `quick-wins`, `idle-and-updates`, `user-management`, `custom-roles`, `project-lead` and `audit-log` specs; run with `npx playwright test --workers=4`, since the default 8 workers are intermittently flaky) that drives the real app against the real backend (requires `docker compose up -d` first); see [docs/frontend.md](docs/frontend.md#testing). Frontend unit tests: `cd frontend && npm test` (Vitest, 128 tests for the pure logic in `src/api` and `src/auth`, no browser or backend needed). Lint, the unit tests, the backend tests and the whole Playwright suite all run in CI. Every test case with its steps and expected result: [docs/test-cases.md](docs/test-cases.md). Full inventory, regression-test map and coverage gaps: [docs/testing.md](docs/testing.md).
 
 ## Troubleshooting
 
@@ -504,5 +504,4 @@ See [Contributing.md](Contributing.md) and [Role_Requirment.md](Role_Requirment.
 - Administrator-defined extra system roles (the three built-in system roles and four project roles can have their grants edited, but not be added to).
 - Broader automated test coverage (backend controller/integration tests; more Playwright coverage for Settings, Kanban and Profile — see [docs/testing.md](docs/testing.md)).
 - An actual deploy target for the CD pipeline's built images (currently build-and-push only).
-- A per-user or administrator audit view — the activity log API serves a task feed, a project feed and a recent-activity list (`/api/activity-logs/task/{id}`, `/project/{id}`, `/recent`), but no cross-project audit screen.
-- Keep `database/init/03-app-role.sh` and `.github/workflows/ci.yml`'s duplicated grant list in step by hand — they match today (21 read-write tables), but nothing enforces it (see [docs/database.md](docs/database.md#7-least-privilege-application-role)).
+- Keep `database/init/03-app-role.sh` and `.github/workflows/ci.yml`'s duplicated grant list in step by hand — they match today (21 read-write tables plus `SELECT, INSERT` on `audit_logs`), but nothing enforces it (see [docs/database.md](docs/database.md#7-least-privilege-application-role)).

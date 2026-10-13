@@ -30,8 +30,8 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | Self-registration with emailed OTP | Done | ✓ | ✓ | ✓ | None | Mailpit locally; no cleanup of unverified accounts |
 | Profile, password change, photo, theme, notification preference | Done | ✓ | ✓ | ✓ | None | |
 | Password policy and live checklist | Done | ✓ | ✓ | — | None | UI + backend; manually verified only |
-| Administrator user management | Partial | create + give a role | ✓ create/update/delete | ✓ | Partial | No UI to edit other fields, deactivate or delete a user |
-| Roles and permissions management | Partial | ✓ *Administration → Roles & Permissions* grid | ✓ | ✓ | Good | The grants of every role but the Administrator's can be edited; built-in roles cannot be renamed or deleted (F-21); extra system roles cannot be created from the UI (G-06) |
+| Administrator user management | Done (2026-10-13) | create, edit, set status, delete, give a role | ✓ create/update/delete | ✓ | Partial | `user-management.spec.js` and `UserRoleServiceTest` cover edit, deactivate, delete and the guards; creating an account from the UI has no dedicated test |
+| Roles and permissions management | Done (2026-10-13) | ✓ *Administration → Roles & Permissions* grid, *New role*, rename, delete | ✓ | ✓ | Good | The grants of every role but the Administrator's can be edited; built-in roles cannot be renamed or deleted (F-21); extra system roles can be created, renamed and deleted (G-06, D-14); `RoleServiceTest` and `custom-roles.spec.js` cover them |
 | Positions and departments | Partial | ✓ | create + list | ✓ | None | No update/delete; users pick their own on the Profile page; "+ Add New" is hidden without `LOOKUP:CREATE` (F-22) |
 | Project-level authorization | Done | ✓ (hides controls) | ✓ | ✓ | Good | A data-driven role × resource × action matrix; `PermissionServiceTest` checks every grant and every refusal. The 2026-10-06 data-isolation and `VIEWER` defects (former I-01…I-07) are fixed and tested |
 
@@ -106,7 +106,7 @@ Database tables exist for several of these, but **no entity, API or UI**:
 | ~~KPI calculation~~ | done 2026-10-09 | `GET /api/reports/kpis`, calculated live; `kpi_snapshots` is still never written |
 | ~~Gantt chart~~ | done 2026-10-10 (prototype) | `GanttChart.jsx`, the project's *Gantt* tab; no backend |
 | Refresh tokens, forgot-password | — | Listed as future work in the READMEs (auto-logout was built 2026-10-12) |
-| Per-user / administrator audit view | task and project feeds only | Optional ("may") item |
+| Administrator audit log | Done (2026-10-13) | `audit_logs` (`V16`), `GET /api/audit-logs`, *Administration → Audit log* | Optional ("may") item; `audit-log.spec.js`, `AuditLogServiceTest` |
 | ~~Server-side report endpoints~~ | Done 2026-10-09 | `GET /api/reports/*` check `REPORT:GENERATE_REPORTS` on the server |
 | Pagination and server-side search/filter | — | Listed in the READMEs; filtering runs in the browser (G-16) |
 
@@ -124,8 +124,8 @@ From the root `README.md` (*Future Enhancements*), `backend.md` (*Next Steps*), 
 8. ~~Endpoints over the reporting views~~ — the reports are calculated in Java instead (2026-10-09); `report_exports` (PDF / Excel export) and `kpi_snapshots` remain.
 9. More backend tests (controller and repository). ~~Playwright in CI~~ — done 2026-10-12.
 10. A deploy target for the CD pipeline.
-11. ~~A project-wide activity feed~~ — done 2026-10-09; a per-user / administrator audit view remains.
-12. ~~Closing the CI vs `03-app-role.sh` grant drift~~ — the lists match (21 tables, checked 2026-10-10).
+11. ~~A project-wide activity feed~~ — done 2026-10-09; ~~an administrator audit view~~ — done 2026-10-13.
+12. ~~Closing the CI vs `03-app-role.sh` grant drift~~ — the lists match (21 tables plus `audit_logs`, checked 2026-10-13).
 
 Requirement-document items that are **not** on any of the project's own lists (so there is no stated plan for them): Kanban drag-and-drop. (Email login and the per-member Team Tasks view were on this list until 2026-10-09; the "Today / Upcoming" task views, calendar milestones, the project completion date and editing a milestone until 2026-10-12.)
 
@@ -136,9 +136,9 @@ Work needed to bring the application to the model in [ADR-0015](adr/0015-two-lev
 1. ~~**Role model migration**~~ — **done 2026-10-08** (`V10`): the `TEAM_LEADER` / `TEAM_MEMBER` system roles are retired, new accounts are `USER`, one `OWNER` per project with single-step transfer. The stored status was renamed `TO_DO` → `TODO` on 2026-10-09 (`V11`, D-15).
 2. ~~**Matrix changes**~~ — **done 2026-10-08** (`V10`): Team Member loses task creation and "edit any subtask"; report access comes through the project roles; a Team Leader may delete everything except the project (D-01); a system role never widens a project role (D-02).
 3. ~~**Approval workflow:** approval records, designated approver, Approved / Changes requested / Rejected, notifications, activity entries.~~ — **done 2026-10-09** (`V12`).
-4. **Profile and roles:** ~~users edit their own position/department (D-16)~~ — **done 2026-10-09**; administrators create and edit extra system roles (D-14) — still open.
+4. **Profile and roles:** ~~users edit their own position/department (D-16)~~ — **done 2026-10-09**; ~~administrators create and edit extra system roles (D-14)~~ — **done 2026-10-13**.
 5. **Required features still missing:** none. *(Auto-logout and the comment, project and milestone notifications: done 2026-10-12. Deadline reminders and overdue notifications: done 2026-10-10.)* *(Checklists, attachments, comment replies and project activity: 3a; the project timeline, Team Tasks, Delayed projects, the workload page, dashboard statistics and role / ownership UI: 3b; the five KPIs and the seven named reports, server-side: 3c; all 2026-10-09.)*
-6. **Optional, if time allows:** Kanban moving, time-tracking polish (exists), report export, documents, audit log. (The Gantt prototype was built on 2026-10-10.)
+6. **Optional, if time allows:** Kanban moving, time-tracking polish (exists), report export, documents. (The Gantt prototype was built on 2026-10-10 and the audit log on 2026-10-13.)
 
 ## 4. In progress
 
@@ -159,6 +159,6 @@ Not a commitment — an ordering derived from the risks and gaps found. Items re
 |---|---|---|---|
 | 1 | ~~Close the data-isolation and permission holes~~ **Done 2026-10-06** | I-01 … I-07 (now F-12 … F-18) | Fixed with tests. Follow-up: extend to a full role × action test for every write endpoint; guard the system roles (I-10) |
 | 2 | **Make the demo flow complete** | ~~named reports~~, ~~dashboard project counts~~, ~~email login~~ (all done 2026-10-09); ~~deadline/overdue notifications~~ (done 2026-10-10); ~~comment notifications~~ (done 2026-10-12) | The requirement flow expects reminders |
-| 3 | **Finish half-built features** | pending-invitation list/cancel, admin user screens (edit / deactivate / delete), a role picker in the project page's Add Member dialog (~~role assignment UI~~, ~~comment replies~~, ~~search/filter/sort~~, ~~milestone edit + calendar milestones~~, ~~project completion date~~, ~~"Today / Upcoming" views~~ are done) | Each is a small gap in an otherwise working feature |
+| 3 | **Finish half-built features** | pending-invitation list/cancel, ~~admin user screens (edit / deactivate / delete)~~ (done 2026-10-13), a role picker in the project page's Add Member dialog (~~role assignment UI~~, ~~comment replies~~, ~~search/filter/sort~~, ~~milestone edit + calendar milestones~~, ~~project completion date~~, ~~"Today / Upcoming" views~~ are done) | Each is a small gap in an otherwise working feature |
 | 4 | **Quality and delivery** | ~~Playwright in CI~~ (done 2026-10-12), service/controller tests, fix migration drift, regenerate OpenAPI (~~CI grants~~ are in step) | Protects everything above |
-| 5 | **Optional modules** | report export, audit view, Kanban drag-and-drop, document management (~~attachments~~, ~~time tracking~~, ~~KPIs~~, ~~Gantt~~ are done) | The requirement documents mark most of these as optional |
+| 5 | **Optional modules** | report export, ~~audit view~~, Kanban drag-and-drop, document management (~~attachments~~, ~~time tracking~~, ~~KPIs~~, ~~Gantt~~ are done) | The requirement documents mark most of these as optional |

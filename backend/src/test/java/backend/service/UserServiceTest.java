@@ -59,6 +59,9 @@ class UserServiceTest {
     // not just that some method got called.
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
+    @Mock
+    private AuditLogService auditLogService;
+
     private UserService userService;
 
     // An arbitrary role fixture for generic "assign a role by id" tests
@@ -71,7 +74,7 @@ class UserServiceTest {
     void setUp() {
         userService = new UserService(
                 userRepository, roleRepository, positionRepository, departmentRepository,
-                projectMemberRepository, passwordEncoder, projectAccessGuard, permissionService);
+                projectMemberRepository, passwordEncoder, projectAccessGuard, permissionService, auditLogService);
 
         assignedRole = new Role();
         assignedRole.setName("USER");

@@ -37,16 +37,23 @@ public class RolePermissionService {
     private static final List<String> ROLE_ORDER = List.of(
             Role.ADMINISTRATOR, Role.PROJECT_MANAGER, Role.USER, Role.OWNER, Role.ADMIN, Role.MEMBER, Role.VIEWER);
 
+    // The resources a system-wide grant can be on (the "Anywhere in the system" table).
+    private static final Set<Resource> SYSTEM_RESOURCES = Set.of(
+            Resource.PROJECT, Resource.REPORT, Resource.USER, Resource.ROLE, Resource.LOOKUP);
+
     private final RoleRepository roleRepository;
     private final PermissionRepository permissionRepository;
     private final RolePermissionRepository rolePermissionRepository;
     private final PermissionService permissionService;
+    private final AuditLogService auditLogService;
 
     public RolePermissionService(
             RoleRepository roleRepository,
             PermissionRepository permissionRepository,
             RolePermissionRepository rolePermissionRepository,
-            PermissionService permissionService) {
+            PermissionService permissionService,
+            AuditLogService auditLogService) {
+        this.auditLogService = auditLogService;
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
         this.rolePermissionRepository = rolePermissionRepository;
@@ -109,6 +116,7 @@ public class RolePermissionService {
             Action action = Action.parse(item.getPermission())
                     .orElseThrow(() -> new IllegalArgumentException("Unknown permission '" + item.getPermission() + "'"));
             assertScopeAllowed(role, scope);
+            assertGrantAllowed(role, scope, resource, action);
 
             if (!seen.add(scope + "|" + resource + "|" + action)) {
                 continue;
@@ -130,6 +138,12 @@ public class RolePermissionService {
                     "A project role must keep 'view projects' so its members can still open their project");
         }
 
+        List<String> before = rolePermissionRepository.findAllGrants().stream()
+                .filter(row -> role.getName().equals(row.getRoleName()))
+                .map(row -> row.getScope() + ":" + row.getResource() + ":" + row.getPermissionCode())
+                .sorted()
+                .toList();
+
         rolePermissionRepository.deleteAllByRoleId(role.getId());
         rolePermissionRepository.saveAll(wanted);
         permissionService.refresh();
@@ -137,7 +151,36 @@ public class RolePermissionService {
         List<Grant> grants = wanted.stream()
                 .map(rp -> new Grant(rp.getScope(), rp.getResource(), codeOf(permissionsByCode, rp.getPermissionId())))
                 .toList();
+        List<String> after = grants.stream()
+                .map(g -> g.scope() + ":" + g.resource() + ":" + g.permission())
+                .sorted()
+                .toList();
+        // The audit log keeps the full list before and after; nothing is recorded for a save
+        // that changed nothing.
+        if (!before.equals(after)) {
+            auditLogService.record(AuditLogService.PERMISSIONS_CHANGED, AuditLogService.ROLE, role.getId(),
+                    role.getName(), null, String.join(", ", before), String.join(", ", after));
+        }
         return new RoleGrants(role, false, grants);
+    }
+
+    // A system-wide grant is only for the things that are not inside one project. Giving a
+    // system role a project-level resource (say TASK:EDIT) would let it override the role a
+    // person holds in a project, which the specification forbids (D-02). Creating a project
+    // makes the creator its owner, and only a Project Manager or an Administrator can own
+    // one (D-04), so an extra role cannot hold that grant.
+    private static void assertGrantAllowed(Role role, String scope, Resource resource, Action action) {
+        if (!RolePermission.SCOPE_SYSTEM.equals(scope)) {
+            return;
+        }
+        if (!SYSTEM_RESOURCES.contains(resource)) {
+            throw new IllegalArgumentException(
+                    "A system-wide permission can only be on projects, reports, users, roles or positions and departments, not on " + resource.label());
+        }
+        if (!role.isBuiltIn() && resource == Resource.PROJECT && action == Action.CREATE) {
+            throw new IllegalArgumentException(
+                    "An extra role cannot create projects: the creator becomes the project's owner, and only a Project Manager or an Administrator can own one");
+        }
     }
 
     private static void assertScopeAllowed(Role role, String scope) {

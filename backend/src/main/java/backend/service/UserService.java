@@ -56,6 +56,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final ProjectAccessGuard projectAccessGuard;
     private final PermissionService permissionService;
+    private final AuditLogService auditLogService;
 
     public UserService(
             UserRepository userRepository,
@@ -65,7 +66,9 @@ public class UserService {
             ProjectMemberRepository projectMemberRepository,
             PasswordEncoder passwordEncoder,
             ProjectAccessGuard projectAccessGuard,
-            PermissionService permissionService) {
+            PermissionService permissionService,
+            AuditLogService auditLogService) {
+        this.auditLogService = auditLogService;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.positionRepository = positionRepository;
@@ -183,11 +186,16 @@ public class UserService {
             user.setAccountStatus(request.getAccountStatus());
         }
 
-        return new UserResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        auditLogService.record(AuditLogService.ACCOUNT_CREATED, AuditLogService.USER, saved.getId(), auditLabel(saved), null,
+                null, describe(saved));
+        return new UserResponse(saved);
     }
 
     public UserResponse updateUser(Long id, UserUpdateRequest request) {
         User user = getUserEntityById(id);
+        String roleBefore = roleName(user);
+        String statusBefore = user.getAccountStatus();
 
         user.setFullName(request.getFullName());
         user.setUsername(request.getUsername());
@@ -201,6 +209,7 @@ public class UserService {
         if (request.getAccountStatus() != null) {
             if (!"ACTIVE".equals(request.getAccountStatus()) && "ACTIVE".equals(user.getAccountStatus())) {
                 assertNotSoleOwnerOfAnyProject(user.getId());
+                assertNotLastAdministrator(user, "deactivated");
             }
             user.setAccountStatus(request.getAccountStatus());
         }
@@ -211,7 +220,33 @@ public class UserService {
             user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         }
 
-        return new UserResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        auditRoleAndStatusChange(saved, roleBefore, statusBefore);
+        return new UserResponse(saved);
+    }
+
+    // The two changes an Administrator makes to an account that the audit log keeps.
+    private void auditRoleAndStatusChange(User user, String roleBefore, String statusBefore) {
+        if (!roleBefore.equals(roleName(user))) {
+            auditLogService.record(AuditLogService.USER_ROLE_CHANGED, AuditLogService.USER, user.getId(), auditLabel(user),
+                    null, roleBefore, roleName(user));
+        }
+        if (!java.util.Objects.equals(statusBefore, user.getAccountStatus())) {
+            auditLogService.record(AuditLogService.ACCOUNT_STATUS_CHANGED, AuditLogService.USER, user.getId(), auditLabel(user),
+                    null, statusBefore, user.getAccountStatus());
+        }
+    }
+
+    private static String roleName(User user) {
+        return user.getRole() != null ? user.getRole().getName() : "none";
+    }
+
+    private static String auditLabel(User user) {
+        return user.getFullName() + " (@" + user.getUsername() + ")";
+    }
+
+    private static String describe(User user) {
+        return "role " + roleName(user) + ", status " + user.getAccountStatus();
     }
 
     // Self-service variant of updateUser: no roleId/accountStatus (a user
@@ -391,8 +426,11 @@ public class UserService {
         Role next = assignableRole(roleId);
         assertNotRemovingLastAdministrator(user, next);
         assertStillCanOwnProjects(user, next);
+        String roleBefore = roleName(user);
         user.setRole(next);
-        return new UserResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        auditRoleAndStatusChange(saved, roleBefore, saved.getAccountStatus());
+        return new UserResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -447,10 +485,26 @@ public class UserService {
         return new UserResponse(userRepository.save(user));
     }
 
-    public void deleteUser(Long id) {
-        assertNotSoleOwnerOfAnyProject(id);
+    public void deleteUser(Long id, String actingUsername) {
         User user = getUserEntityById(id);
+        if (user.getUsername().equalsIgnoreCase(actingUsername)) {
+            throw new IllegalArgumentException("You cannot delete your own account");
+        }
+        assertNotSoleOwnerOfAnyProject(id);
+        assertNotLastAdministrator(user, "deleted");
+        auditLogService.record(AuditLogService.ACCOUNT_DELETED, AuditLogService.USER, user.getId(), auditLabel(user), null,
+                describe(user), null);
         userRepository.delete(user);
+    }
+
+    // Deactivating or deleting the only Administrator would leave nobody able
+    // to manage users or roles, same rule as assertNotRemovingLastAdministrator.
+    private void assertNotLastAdministrator(User user, String action) {
+        boolean isAdministrator = user.getRole() != null && Role.ADMINISTRATOR.equals(user.getRole().getName());
+        if (isAdministrator && userRepository.countByRoleName(Role.ADMINISTRATOR) <= 1) {
+            throw new IllegalArgumentException(
+                    "The last Administrator cannot be " + action + ". Make someone else an Administrator first");
+        }
     }
 
     // Refuses to deactivate/delete an account that is the sole ACTIVE OWNER
@@ -498,7 +552,10 @@ public class UserService {
         user.setAccountStatus("PENDING_VERIFICATION");
         user.setRole(defaultUserRole());
 
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        auditLogService.record(saved, AuditLogService.ACCOUNT_CREATED, AuditLogService.USER, saved.getId(), auditLabel(saved),
+                null, null, describe(saved));
+        return saved;
     }
 
     // The USER role seeded in database/init/01-init.sql (migration V10 for
@@ -513,7 +570,10 @@ public class UserService {
 
     public void activateUser(String username) {
         User user = getUserEntityByUsername(username);
+        String statusBefore = user.getAccountStatus();
         user.setAccountStatus("ACTIVE");
         userRepository.save(user);
+        auditLogService.record(user, AuditLogService.ACCOUNT_STATUS_CHANGED, AuditLogService.USER, user.getId(),
+                auditLabel(user), null, statusBefore, "ACTIVE");
     }
 }

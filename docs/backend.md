@@ -54,7 +54,7 @@ How the layers and services relate: [architecture.md](architecture.md#2-backend-
 
 ## API endpoints
 
-The complete endpoint-by-endpoint reference (all 119 endpoints, permissions, request and response shapes, error codes) is [api-reference.md](api-reference.md). Resource groups:
+The complete endpoint-by-endpoint reference (all 122 endpoints, permissions, request and response shapes, error codes) is [api-reference.md](api-reference.md). Resource groups:
 
 | Resource | Base path | Notes |
 |---|---|---|
@@ -122,9 +122,9 @@ Configured in `config/SecurityConfig.java`. The rules in full: [authentication-a
 
 ## Database
 
-The backend connects to the schema owned by [database/init/01-init.sql](../database/init/01-init.sql). 22 of its 24 tables have JPA entities and controllers or services: `users`, `roles`, `permissions`, `role_permissions`, `positions`, `departments`, `otp_verifications`, `projects`, `project_members`, `milestones`, `tasks`, `subtasks`, `comments`, `task_assignees`, `task_dependencies`, `notifications`, `activity_logs`, `work_logs`, `task_approvals`, `checklist_items`, `attachments`, `attachment_contents`. The other 2 (`report_exports`, `kpi_snapshots`) have none yet. `spring.jpa.hibernate.ddl-auto=validate` makes Hibernate check the mappings on startup and never alter the schema. Schema, seed data, triggers and migrations: [database.md](database.md).
+The backend connects to the schema owned by [database/init/01-init.sql](../database/init/01-init.sql). 23 of its 25 tables have JPA entities and controllers or services: `users`, `roles`, `permissions`, `role_permissions`, `positions`, `departments`, `otp_verifications`, `projects`, `project_members`, `milestones`, `tasks`, `subtasks`, `comments`, `task_assignees`, `task_dependencies`, `notifications`, `activity_logs`, `work_logs`, `task_approvals`, `checklist_items`, `attachments`, `attachment_contents`. The other 2 (`report_exports`, `kpi_snapshots`) have none yet. `spring.jpa.hibernate.ddl-auto=validate` makes Hibernate check the mappings on startup and never alter the schema. Schema, seed data, triggers and migrations: [database.md](database.md).
 
-**Connects as a least-privileged role, not the superuser.** `database/init/03-app-role.sh` creates `taskmanager_app` (`SELECT`/`INSERT`/`UPDATE`/`DELETE` on the 21 read-write tables above (plus `SELECT` on `permissions`), plus `USAGE` on the sequences behind their identity primary keys; no `SUPERUSER`, `CREATEDB` or `CREATEROLE`, so it cannot touch other tables or change the schema). The backend connects as that role by default (`SPRING_DATASOURCE_USERNAME` / `PASSWORD`, `TASKMANAGER_APP_PASSWORD` in `.env.example` and `docker-compose.yml`) and does not reuse the `POSTGRES_USER` superuser, which stays reserved for container initialization and migrations. Giving a new table an entity means adding a matching `GRANT` line to that script (and to the equivalent step in `.github/workflows/ci.yml`). Grants only take effect on a fresh volume (`docker compose down -v && docker compose up -d`); on an existing database apply the `GRANT` once by hand. Forgetting this produces a runtime `permission denied for table …` and a `500` on any endpoint that reads the table (this happened with `work_logs`).
+**Connects as a least-privileged role, not the superuser.** `database/init/03-app-role.sh` creates `taskmanager_app` (`SELECT`/`INSERT`/`UPDATE`/`DELETE` on the 21 read-write tables above (plus `SELECT` on `permissions` and `SELECT`/`INSERT` only on the append-only `audit_logs`), plus `USAGE` on the sequences behind their identity primary keys; no `SUPERUSER`, `CREATEDB` or `CREATEROLE`, so it cannot touch other tables or change the schema). The backend connects as that role by default (`SPRING_DATASOURCE_USERNAME` / `PASSWORD`, `TASKMANAGER_APP_PASSWORD` in `.env.example` and `docker-compose.yml`) and does not reuse the `POSTGRES_USER` superuser, which stays reserved for container initialization and migrations. Giving a new table an entity means adding a matching `GRANT` line to that script (and to the equivalent step in `.github/workflows/ci.yml`). Grants only take effect on a fresh volume (`docker compose down -v && docker compose up -d`); on an existing database apply the `GRANT` once by hand. Forgetting this produces a runtime `permission denied for table …` and a `500` on any endpoint that reads the table (this happened with `work_logs`).
 
 ## Logging
 
@@ -176,8 +176,8 @@ Known integration gaps: there is no per-user or cross-project audit view of the 
 Backend project setup         done
 Spring Boot / Java 25         done
 Database connection           done (least-privilege role, ddl-auto=validate)
-JPA entities and repositories done (22 entities)
-Business REST APIs            done: 25 controllers, 119 endpoints (17 resources + auth + health + photos + work logs + permissions)
+JPA entities and repositories done (23 entities)
+Business REST APIs            done: 26 controllers, 122 endpoints (17 resources + auth + health + photos + work logs + permissions)
 DTOs (no raw entities in/out) done
 Bean Validation on requests   done
 Global exception handling     done (404/400/401/403/429, no leaked stack traces)
@@ -187,7 +187,7 @@ Authorization                 done (data-driven role x resource x action matrix,
 CORS, password hashing        done
 Login rate limiting           done (in-memory, 5 attempts / 15 min per IP+username)
 Least-privilege DB role       done
-Unit tests                    partial: 328 unit/context tests, no controller or repository tests; see testing.md
+Unit tests                    partial: 374 unit/context tests, no controller or repository tests; see testing.md
 File logging                  done (rotating backend/logs/log.txt)
 Notifications                 done: all 11 types produced (comments, project and milestone updates since 2026-10-12)
 Deadline reminders, overdue   done (2026-10-10): @Scheduled daily 08:00 + at startup

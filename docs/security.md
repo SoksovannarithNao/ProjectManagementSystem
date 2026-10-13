@@ -123,7 +123,7 @@ Full catalogue in [database.md](database.md). The security-relevant ones:
 
 ## 8. Infrastructure and browser-facing measures
 
-- **Least-privilege database role:** the backend connects as `taskmanager_app` (no `SUPERUSER`/`CREATEDB`/`CREATEROLE`; DML only on the 21 read-write tables, `SELECT` on `permissions`) — [ADR-0011](adr/0011-least-privilege-database-role.md).
+- **Least-privilege database role:** the backend connects as `taskmanager_app` (no `SUPERUSER`/`CREATEDB`/`CREATEROLE`; DML only on the 21 read-write tables, `SELECT` on `permissions`, `SELECT` and `INSERT` only on the append-only `audit_logs`) — [ADR-0011](adr/0011-least-privilege-database-role.md).
 - **Container:** the backend image runs as a non-root user `spring`.
 - **CORS:** allow-list from `app.cors.allowed-origins` (`CORS_ALLOWED_ORIGINS`; default `http://localhost:5173`, `http://localhost:80`), all headers, methods `GET POST PUT PATCH DELETE OPTIONS`, credentials allowed.
 - **CSRF:** disabled — acceptable because authentication is a bearer header, not a cookie.

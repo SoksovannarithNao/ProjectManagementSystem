@@ -34,6 +34,12 @@ public class Project {
     @JoinColumn(name = "manager_id", nullable = false)
     private User manager;
 
+    // A Team Leader listed beside the Owner as the project's lead (D-09); null when none.
+    // Must be an active Team Leader of the project - the database keeps that true.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "lead_id")
+    private User lead;
+
     @Column(nullable = false, length = 20)
     private String priority = "MEDIUM";
 
@@ -102,6 +108,14 @@ public class Project {
 
     public User getManager() {
         return manager;
+    }
+
+    public User getLead() {
+        return lead;
+    }
+
+    public void setLead(User lead) {
+        this.lead = lead;
     }
 
     public void setManager(User manager) {

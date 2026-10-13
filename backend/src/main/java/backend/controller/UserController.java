@@ -149,7 +149,7 @@ public class UserController {
     @PreAuthorize("@permissions.require(authentication, 'USER', 'DELETE')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/{id}")
-    public void deleteUser(@PathVariable Long id) {
-        userService.deleteUser(id);
+    public void deleteUser(@PathVariable Long id, Authentication authentication) {
+        userService.deleteUser(id, authentication.getName());
     }
 }

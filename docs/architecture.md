@@ -158,7 +158,8 @@ The UI no longer carries its own copy of the rules. After login `AuthContext` lo
 | `/calendar` | `Calendar` | Month / Week / Day views of task due dates and milestones |
 | `/team` | `Team` | Directory, per-member projects, invite to a project, remove from a project, position/department |
 | `/reports` | `Reports` | Needs `REPORT:GENERATE_REPORTS`. Tabs: Overview charts, KPIs and the seven named reports (data from `GET /api/reports/*`) |
-| `/admin/users`, `/admin/roles` | `UsersAdmin`, `RolesPermissions` | Administration: system role per account (`USER:VIEW`), and the role × resource × action grid (`ROLE:VIEW`) |
+| `/admin/users`, `/admin/roles` | `UsersAdmin`, `RolesPermissions` | Administration: system role per account, edit / status / delete (`USER:VIEW`; the buttons need `USER:EDIT` / `USER:DELETE`), and the role × resource × action grid (`ROLE:VIEW`) |
+| `/admin/audit` | `AuditLog` | Administration → Audit log: the append-only administrator log (Administrator role only; `GET /api/audit-logs`) |
 | `/profile`, `/settings` | `Profile`, `Settings` | Personal info, password, photo; theme and notification preference |
 | `/help` | `Help` | Help & Support (static FAQ) |
 | `/error/:status`, any unknown path | `ErrorPage` | One page for every error status (404 for unknown paths, 403 from the permission guard) |

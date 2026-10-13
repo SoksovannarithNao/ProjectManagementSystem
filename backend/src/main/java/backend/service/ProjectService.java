@@ -30,6 +30,7 @@ public class ProjectService {
     private final ProjectOwnership projectOwnership;
     private final ActivityLogService activityLogService;
     private final UpdateNotificationService updateNotificationService;
+    private final AuditLogService auditLogService;
 
     public ProjectService(
             ProjectRepository projectRepository,
@@ -38,7 +39,9 @@ public class ProjectService {
             ProjectAccessGuard projectAccessGuard,
             ProjectOwnership projectOwnership,
             ActivityLogService activityLogService,
-            UpdateNotificationService updateNotificationService) {
+            UpdateNotificationService updateNotificationService,
+            AuditLogService auditLogService) {
+        this.auditLogService = auditLogService;
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.userRepository = userRepository;
@@ -153,12 +156,46 @@ public class ProjectService {
         }
     }
 
+    // The project keeps one responsible person, the Owner (D-09); a Team Leader can be
+    // listed beside them as the lead. Only an active Team Leader of this project can be
+    // named, and a null userId clears it. Needs PROJECT:ASSIGN, like an ownership transfer.
+    public ProjectResponse setLead(Long projectId, Long userId, String callerUsername) {
+        User caller = requireUser(callerUsername);
+        projectAccessGuard.assertCan(caller, projectId, Resource.PROJECT, Action.ASSIGN);
+        Project project = getProjectEntityById(projectId);
+        User lead = null;
+        if (userId != null) {
+            lead = userRepository.findById(userId).orElseThrow(() -> new NotFoundException("User not found"));
+            boolean isTeamLeader = projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
+                    .filter(pm -> "ACTIVE".equals(pm.getStatus()) && "ADMIN".equals(pm.getProjectRole()))
+                    .isPresent();
+            if (!isTeamLeader) {
+                throw new IllegalArgumentException(lead.getFullName() + " is not a Team Leader of this project. Only a Team Leader can be its lead");
+            }
+        }
+        if (java.util.Objects.equals(idOf(project.getLead()), idOf(lead))) {
+            return new ProjectResponse(project);
+        }
+        project.setLead(lead);
+        Project saved = projectRepository.save(project);
+        activityLogService.recordProjectEvent(caller, saved, "PROJECT_LEAD_CHANGED",
+                lead != null ? lead.getFullName() + " was named the project lead" : "The project lead was cleared");
+        return new ProjectResponse(saved);
+    }
+
+    private static Long idOf(User user) {
+        return user == null ? null : user.getId();
+    }
+
     // OWNER-only (or system ADMINISTRATOR) — matches ADMIN's project-level
     // permissions excluding delete/transfer-ownership.
     public void deleteProject(Long id, String callerUsername) {
         User caller = requireUser(callerUsername);
         projectAccessGuard.assertCan(caller, id, Resource.PROJECT, Action.DELETE);
         Project project = getProjectEntityById(id);
+        auditLogService.record(AuditLogService.PROJECT_DELETED, AuditLogService.PROJECT, project.getId(),
+                project.getProjectCode() + " " + project.getName(), null,
+                project.getStatus() + ", managed by " + project.getManager().getFullName(), null);
         projectRepository.delete(project);
     }
 

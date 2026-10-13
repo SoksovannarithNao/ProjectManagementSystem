@@ -102,3 +102,14 @@ WHERE t.status = 'IN_REVIEW'
 SELECT id, project_code, status, completed_at
 FROM projects
 WHERE (status = 'COMPLETED') <> (completed_at IS NOT NULL);
+
+-- 13. A project lead is an active Team Leader of that project
+--     (trg_projects_lead_is_team_leader and trg_project_members_clear_lead; V15).
+SELECT p.id, p.project_code, p.lead_id
+FROM projects p
+WHERE p.lead_id IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM project_members m
+      WHERE m.project_id = p.id AND m.user_id = p.lead_id
+        AND m.project_role = 'ADMIN' AND m.status = 'ACTIVE'
+  );

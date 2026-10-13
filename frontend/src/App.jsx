@@ -19,6 +19,8 @@ import { Settings } from './pages/Settings'
 import { Help } from './pages/Help'
 import { ErrorPage } from './pages/ErrorPage'
 import { UsersAdmin } from './pages/admin/UsersAdmin'
+import { AuditLog } from './pages/admin/AuditLog'
+import { RequireAdministrator } from './auth/RequireAdministrator'
 import { RolesPermissions } from './pages/admin/RolesPermissions'
 
 function App() {
@@ -45,6 +47,9 @@ function App() {
           </Route>
           <Route element={<RequirePermission resource="ROLE" action="VIEW" />}>
             <Route path="/admin/roles" element={<RolesPermissions />} />
+          </Route>
+          <Route element={<RequireAdministrator />}>
+            <Route path="/admin/audit" element={<AuditLog />} />
           </Route>
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />

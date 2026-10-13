@@ -6,6 +6,91 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-13 (Roles & Permissions look) — no schema change, no checklist item
+
+**Changed** (front end only)
+- *New role* and *Edit role* now open in a **right-hand side panel** (`SidePanel`, the frame of the task panel) instead of a centred dialog: header with the close button, scrolling body, footer with Cancel and Create; closing with typed text asks *Discard changes?* (also on Escape and a click on the scrim). `RoleFormModal` became `RoleFormPanel`.
+- The permission grid's checkboxes are a new `Checkbox` primitive: a rounded square that fills with the Charcoal accent and shows a check mark when ticked, with hover, focus and disabled states and a 24px click target, in light and dark (checked in screenshots of both). Read-only cells keep their ✓ / – marks.
+
+**Tests:** Playwright 169 → **170** (`custom-roles.spec.js` +1: the panel is docked right, Escape and the discard prompt); three full runs in a row at 4 workers; ESLint clean. Backend unchanged (374).
+
+**Docs:** `DESIGN.md` (side panel, checkbox), `frontend.md`, `README.md`, `testing.md`, `test-cases.md`, `checklist/done.md`, `checklist/not_fully_satisfy.md`
+
+---
+
+## 2026-10-13 (audit log) — Checklist #44 closed; migration `V16`
+
+Seventh batch from [checklist/partially_done.md](checklist/partially_done.md) (2 rows → 1). Backend, front end and database redeployed to the running stack (a `pg_dump` was taken first) and verified there.
+
+**Database**
+- `V16__audit_log.sql`: table `audit_logs` (no foreign keys; indexes on `created_at`, `action`, `project_id`), the trigger `trg_audit_logs_append_only` (refuses `UPDATE` and `DELETE`), and `SELECT, INSERT` for `taskmanager_app`. Idempotent (run twice); same end state in `01-init.sql`; the grant added to `03-app-role.sh` and `ci.yml`. Checked in PostgreSQL: the owner cannot update or delete an entry, the application role cannot update, delete or truncate.
+
+**Added**
+- `AuditLogService`, `GET /api/audit-logs` (Administrator: search, action / target / date filters, paging, size cap 100) and `GET /api/audit-logs/project/{id}` (Administrator, or the project's Owner for the ownership transfers) — 122 endpoints, 26 controllers.
+- Entries for: system role changed, role permissions changed (full list before and after), project role changed, ownership transferred, account created / activated / suspended or deactivated / deleted, project deleted, extra role created / renamed / deleted; written in the action's own transaction, nothing for a save that changes nothing.
+- *Administration → Audit log* (`/admin/audit`, `AuditLog.jsx`, guarded by `RequireAdministrator`, sidebar link for the Administrator only).
+
+**Tests:** backend 354 → **374** (`AuditLogServiceTest` 7, plus 13 audit cases in `UserRoleServiceTest`, `RoleServiceTest`, `RolePermissionServiceTest`, `ProjectMemberServiceTest`, `ProjectServiceTest`); frontend unit tests **128**; Playwright 161 → **169** (`audit-log.spec.js` 8, and the audit screen added to `smoke.spec.js`); four full runs in a row at 4 workers; ESLint clean.
+
+**Docs:** `checklist/*` (#44 moved to done), `assignment-brief.md` (B10, G-14, D-11), `workflow-conformance.md` (§19, A7), `database.md` (table, trigger, `V16`, 25 tables, 28 triggers, grants), `api-reference.md` (§14b, 122 endpoints), `testing.md`, `test-cases.md` (ROLE-15 … ROLE-18), `frontend.md`, `architecture.md`, `backend.md`, `overview.md`, `security.md`, `roadmap.md`, `authentication-authorization.md`, `issues.md` (F-43), `README.md`, `docs/README.md`
+
+---
+
+## 2026-10-13 (project lead) — Checklist #18 closed; migration `V15`
+
+Sixth batch from [checklist/partially_done.md](checklist/partially_done.md) (3 rows → 2). Backend, front end and database redeployed to the running stack (a `pg_dump` was taken first) and verified there.
+
+**Database**
+- `V15__project_lead.sql`: `projects.lead_id` (FK `users`, `SET NULL`), `trg_projects_lead_is_team_leader` (the lead must be an active Team Leader of the project) and `trg_project_members_clear_lead` (cleared when that member is demoted, set aside or removed), and `PROJECT_LEAD_CHANGED` in the `activity_logs.action` check. Idempotent (run twice); same end state in `01-init.sql`; new invariant 13 in `verify_invariants.sql`.
+
+**Added**
+- `PUT /api/projects/{id}/lead` (`PROJECT:ASSIGN`: the Owner or an Administrator) and `lead` on `ProjectResponse` (120 endpoints). The project page has *Make lead* / *Remove as lead* beside each Team Leader, a Lead field and a Lead badge; the header and the project card name the lead. The change is logged as `PROJECT_LEAD_CHANGED`.
+
+**Changed**
+- `ProjectMemberService` and `ProjectOwnership` clear the lead when that Team Leader is demoted, removed or made the Owner (F-42).
+
+**Fixed**
+- A race between two Playwright specs: `manager-views.spec.js` made `dev.chen` a Team Leader while `reports.spec.js` expected him to be refused every report, so the full suite failed twice in a row once the new spec shifted the timing. The first now promotes `dev.raj`.
+
+**Tests:** backend 345 → **354** (`ProjectServiceTest` +5, `ProjectMemberServiceTest` +4); frontend unit tests **128**; Playwright 154 → **161** (`project-lead.spec.js`, 7); ESLint clean.
+
+**Docs:** `checklist/*` (#18 moved to done), `assignment-brief.md` (D-09), `database.md` (column, two triggers, `V15`, 27 triggers, 13 invariants), `api-reference.md` (120 endpoints), `users-and-projects.md`, `authentication-authorization.md`, `testing.md`, `test-cases.md` (MEM-07, MEM-08), `frontend.md`, `backend.md`, `overview.md`, `issues.md` (F-42), `README.md`, `docs/README.md`
+
+---
+
+## 2026-10-13 (extra system roles) — Checklist #7b and G-06 closed; no schema change
+
+Fifth batch from [checklist/partially_done.md](checklist/partially_done.md) (4 rows → 3). Backend and front end redeployed to the running stack and verified there.
+
+**Added**
+- **Extra system roles (D-14).** *Administration → Roles & Permissions* has a *New role* button (`RoleFormModal`), and an extra role has Edit (rename) and Delete (with a confirmation) beside its permission grid. A new role is a system role with no project role and no grants; the permissions are ticked on the grid afterwards.
+
+**Changed**
+- `RoleService` now stores the name in upper case (`Quality auditor` → `QUALITY_AUDITOR`, 2 to 50 letters, digits, spaces or hyphens, starting with a letter), answers `409` for a name in use (any letter case) instead of a raw database message, refuses to delete a role that accounts hold (`409`), and reloads the permission cache after a create, rename or delete. A built-in role still keeps its name and cannot be deleted.
+- `RolePermissionService` accepts a system-wide grant only on projects, reports, users, roles and positions/departments (before, the API accepted one on any resource, which would have let a system role override a project role, D-02), and refuses *create projects* for an extra role: the creator of a project becomes its owner and only a Project Manager or an Administrator can own one (D-04). The grid disables that box for an extra role. F-41.
+
+**Tests:** backend 331 → **345** (`RoleServiceTest` 11 new, `RolePermissionServiceTest` +3); frontend unit tests **128**; Playwright 149 → **154** (`custom-roles.spec.js`, 5); ESLint clean.
+
+**Docs:** `checklist/*` (#7b and G-06 moved to done), `assignment-brief.md` (G-06), `workflow-conformance.md` (§18), `testing.md`, `test-cases.md` (ROLE-12 … ROLE-14), `api-reference.md`, `authentication-authorization.md`, `frontend.md`, `DESIGN.md`, `roadmap.md`, `issues.md` (F-41), `README.md`, `docs/README.md`, `backend.md`
+
+---
+
+## 2026-10-13 (user management) — Checklist #7 and #59 closed; no schema change
+
+Fourth batch from [checklist/partially_done.md](checklist/partially_done.md) (6 rows → 4). Backend and front end redeployed to the running stack and verified there.
+
+**Added**
+- **Edit and delete users** in *Administration → Users*: an Edit dialog (`EditUserModal`: name, username, e-mail, gender, date of birth, phone, position, department, account status, optional new password) and a Delete button with a confirmation, shown only to holders of `USER:EDIT` / `USER:DELETE`. Delete is hidden on your own row and your own status is locked.
+
+**Fixed**
+- The server let the **last Administrator be deactivated or deleted** and let an account **delete itself**. `UserService.updateUser` now refuses to deactivate the last Administrator; `deleteUser(id, actingUsername)` refuses the last Administrator and your own account (`400`, F-40).
+
+**Tests:** backend 328 → **331** (`UserRoleServiceTest` +3); frontend unit tests **128**; Playwright 145 → **149** (`user-management.spec.js`, 4); ESLint clean.
+
+**Docs:** `checklist/*` (#7 and #59 moved to done), `testing.md`, `test-cases.md` (ROLE-09 … ROLE-11), `users-and-projects.md`, `authentication-authorization.md`, `architecture.md`, `frontend.md`, `backend.md`, `roadmap.md`, `issues.md` (F-40), `README.md`, `docs/README.md`
+
+---
+
 ## 2026-10-12 (testing and CI) — Checklist #65 and #67 closed; no schema change
 
 Third batch from [checklist/partially_done.md](checklist/partially_done.md) (8 rows → 6). Backend redeployed to the running stack and verified there.

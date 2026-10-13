@@ -39,7 +39,7 @@ import { AttachmentsSection } from '../components/AttachmentsSection'
 import { ProjectActivity } from '../components/ProjectActivity'
 import { useApi } from '../api/useApi'
 import { useAuth } from '../auth/AuthContext'
-import { getProjectById, updateProject, deleteProject, projectResponseToRequest } from '../api/projects'
+import { getProjectById, updateProject, deleteProject, projectResponseToRequest, setProjectLead } from '../api/projects'
 import { getMembersByProjectId, getPendingInvitationCount, updateProjectMemberRole } from '../api/projectMembers'
 import { getTasksByProjectId } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
@@ -145,6 +145,20 @@ export function ProjectDetail() {
   const [roleBusyId, setRoleBusyId] = useState(null)
   const [transferTarget, setTransferTarget] = useState(null)
 
+  // The project's lead is a Team Leader listed beside the Owner (D-09); userId null clears it.
+  const changeLead = async (member, userId) => {
+    setRoleBusyId(member.id)
+    try {
+      await setProjectLead(projectId, userId)
+      notify(userId ? `${member.user.fullName} is now the project lead` : 'The project lead was cleared', { tone: 'success' })
+      refetch()
+    } catch (err) {
+      notify(err.message || 'Failed to change the project lead', { tone: 'error' })
+    } finally {
+      setRoleBusyId(null)
+    }
+  }
+
   // One role change. OWNER is the ownership transfer: the current Owner becomes
   // a Team Leader in the same step, so this person's own permissions change too.
   const changeRole = async (member, role) => {
@@ -158,8 +172,9 @@ export function ProjectDetail() {
         { tone: 'success' }
       )
       refetchMembers()
+      // The lead is cleared when a Team Leader is demoted or becomes the Owner.
+      refetch()
       if (role === 'OWNER') {
-        refetch()
         await refreshProfile()
       }
     } catch (err) {
@@ -318,7 +333,7 @@ export function ProjectDetail() {
             <span className="truncate">{project.name}</span>
           </span>
         }
-        subtitle={`${project.projectCode} · Managed by ${project.manager?.fullName ?? '—'}`}
+        subtitle={`${project.projectCode} · Managed by ${project.manager?.fullName ?? '—'}${project.lead ? ` · Lead ${project.lead.fullName}` : ''}`}
         actions={
           <>
             {canSeeTeamViews && (
@@ -431,6 +446,24 @@ export function ProjectDetail() {
                 </span>
               ) : (
                 <span className="text-ink text-[13px] font-semibold">—</span>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
+                <Flag size={14} /> Lead
+              </span>
+              {project.lead ? (
+                <span data-testid="project-lead" className="text-ink inline-flex items-center gap-1.5 text-[13px] font-semibold">
+                  <Avatar
+                    initials={initialsFor(project.lead.fullName)}
+                    color={colorForId(project.lead.id)}
+                    photoUrl={project.lead.profilePhotoUrl}
+                    size={20}
+                  />
+                  {project.lead.fullName}
+                </span>
+              ) : (
+                <span className="text-faint text-[13px] font-semibold">None</span>
               )}
             </div>
           </div>
@@ -651,6 +684,17 @@ export function ProjectDetail() {
                     <p className="text-ink truncate text-[13px] font-semibold">{m.user.fullName}</p>
                     {m.user.positionName && <p className="text-faint truncate text-[12px]">{m.user.positionName}</p>}
                   </div>
+                  {project.lead?.id === m.user.id && <Badge tone="completed">Lead</Badge>}
+                  {canTransferOwnership && m.projectRole === 'ADMIN' && (
+                    <button
+                      type="button"
+                      className="hit-area text-muted hover:text-ink text-[12px] font-semibold"
+                      disabled={roleBusyId === m.id}
+                      onClick={() => changeLead(m, project.lead?.id === m.user.id ? null : m.user.id)}
+                    >
+                      {project.lead?.id === m.user.id ? 'Remove as lead' : 'Make lead'}
+                    </button>
+                  )}
                   {(() => {
                     // A role the viewer may change shows as a picker; everything else as a badge.
                     const mine = m.user.id === profile?.id
