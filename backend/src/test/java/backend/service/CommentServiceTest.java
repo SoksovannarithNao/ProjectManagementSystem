@@ -48,6 +48,8 @@ class CommentServiceTest {
     private ActivityLogService activityLogService;
     @Mock
     private UpdateNotificationService updateNotificationService;
+    @Mock
+    private backend.repository.ProjectMemberRepository projectMemberRepository;
 
     private CommentService service;
     private User caller;
@@ -57,7 +59,7 @@ class CommentServiceTest {
     @BeforeEach
     void setUp() {
         service = new CommentService(commentRepository, taskRepository, userRepository, projectAccessGuard,
-                activityLogService, updateNotificationService);
+                activityLogService, updateNotificationService, projectMemberRepository);
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 1L);
         caller.setUsername("dev.chen");
@@ -109,7 +111,7 @@ class CommentServiceTest {
     void aComment_tellsThePeopleAroundTheTask() {
         service.createComment(request(5L, "Looks good to me", null), "dev.chen");
 
-        verify(updateNotificationService).notifyCommentAdded(any(Comment.class), eq(caller));
+        verify(updateNotificationService).notifyCommentAdded(any(Comment.class), eq(caller), any());
     }
 
     @Test
@@ -120,7 +122,7 @@ class CommentServiceTest {
         assertThatThrownBy(() -> service.createComment(request(5L, "hi", null), "dev.chen"))
                 .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
 
-        verify(updateNotificationService, never()).notifyCommentAdded(any(), any());
+        verify(updateNotificationService, never()).notifyCommentAdded(any(), any(), any());
     }
 
     @Test
@@ -157,5 +159,85 @@ class CommentServiceTest {
 
         assertThatThrownBy(() -> service.createComment(request(5L, "Agreed", 99L), "dev.chen"))
                 .isInstanceOf(NotFoundException.class);
+    }
+
+    // ---- @mentions (G-14, D-21) -----------------------------------------------------------
+
+    private User member(Long id, String username, String status) {
+        User u = new User();
+        ReflectionTestUtils.setField(u, "id", id);
+        u.setUsername(username);
+        u.setFullName(username + " full");
+        u.setAccountStatus(status);
+        return u;
+    }
+
+    private void membersOfTheProject(User... users) {
+        java.util.List<backend.entity.ProjectMember> rows = new java.util.ArrayList<>();
+        for (User u : users) {
+            backend.entity.ProjectMember m = new backend.entity.ProjectMember();
+            m.setUser(u);
+            m.setStatus("ACTIVE");
+            rows.add(m);
+        }
+        when(projectMemberRepository.findByProjectIdAndStatus(10L, "ACTIVE")).thenReturn(rows);
+    }
+
+    @Test
+    void aMentionedMember_isTold_andNotATimeAgainByTheGenericNotice() {
+        User mia = member(2L, "dev.mia", "ACTIVE");
+        membersOfTheProject(caller, mia);
+
+        CommentResponse response = service.createComment(request(5L, "Can you look, @dev.mia?", null), "dev.chen");
+
+        org.mockito.ArgumentCaptor<java.util.Collection<User>> told = org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(updateNotificationService).notifyMentioned(any(Comment.class), eq(caller), told.capture());
+        assertThat(told.getValue()).containsExactly(mia);
+        verify(updateNotificationService).notifyCommentAdded(any(Comment.class), eq(caller), eq(java.util.Set.of(2L)));
+        assertThat(response.getMentions()).extracting(CommentResponse.Mention::username).containsExactly("dev.mia");
+    }
+
+    @Test
+    void youCannotMentionYourself_aNonMember_orAnInactiveAccount_toNotifyThem() {
+        User gone = member(3L, "contractor.felix", "INACTIVE");
+        membersOfTheProject(caller, gone);
+
+        CommentResponse response = service.createComment(
+                request(5L, "@dev.chen @contractor.felix @someone.else hello", null), "dev.chen");
+
+        org.mockito.ArgumentCaptor<java.util.Collection<User>> told = org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(updateNotificationService).notifyMentioned(any(Comment.class), eq(caller), told.capture());
+        assertThat(told.getValue()).isEmpty();
+        // the author's own @name is still a highlighted mention in the response, but nobody is told
+        assertThat(response.getMentions()).extracting(CommentResponse.Mention::username).containsExactly("dev.chen");
+    }
+
+    @Test
+    void editingAComment_tellsOnlyThePeopleItNewlyMentions() {
+        User mia = member(2L, "dev.mia", "ACTIVE");
+        User raj = member(4L, "dev.raj", "ACTIVE");
+        membersOfTheProject(caller, mia, raj);
+        Comment existing = comment(50L, task);
+        existing.setMessage("Please check @dev.mia");
+
+        service.updateComment(50L, request(5L, "Please check @dev.mia and @dev.raj", null), "dev.chen");
+
+        org.mockito.ArgumentCaptor<java.util.Collection<User>> told = org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(updateNotificationService).notifyMentioned(any(Comment.class), eq(caller), told.capture());
+        assertThat(told.getValue()).containsExactly(raj);
+        verify(updateNotificationService, never()).notifyCommentAdded(any(), any(), any());
+    }
+
+    @Test
+    void theCommentList_namesTheMembersEachCommentMentions() {
+        User mia = member(2L, "dev.mia", "ACTIVE");
+        membersOfTheProject(caller, mia);
+        Comment c = comment(60L, task);
+        c.setMessage("ping @dev.mia");
+        when(commentRepository.findByTaskIdOrderByCreatedAtAsc(5L)).thenReturn(java.util.List.of(c));
+
+        java.util.List<CommentResponse> list = service.getCommentsByTaskId(5L, "dev.chen");
+
+        assertThat(list.get(0).getMentions()).extracting(CommentResponse.Mention::fullName).containsExactly("dev.mia full");
     }
 }

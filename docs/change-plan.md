@@ -160,7 +160,7 @@ Both items are built, deployed and verified live (details: [changelog.md](change
 |---|---|---|
 | The five KPIs | `GET /api/reports/kpis[?projectId=]` and a *KPIs* tab: project completion, task completion, overdue, average task completion time (days) and on-time completion rate, with the counts they were calculated from | The formulas are exactly the approved D-12 / B8 table (cancelled work left out of the denominators). **A rate whose denominator is empty is `null` and shown as "—", not 0%.** Percentages carry one decimal |
 | The seven named reports | `GET /api/reports/project`, `/tasks`, `/project-status`, `/task-completion`, `/overdue`, `/team-performance`, `/workload`; one tab each on the Reports page, each with its filters and an explicit *Generate* step | **Who may generate follows B8 and is enforced on the server:** Administrator all projects; anyone else only the projects where they hold `REPORT:GENERATE_REPORTS` (Owner, Team Leader, and the Project Manager through the Owner role); everyone else `403`; a project outside that set is `404` for a stranger and `403` for a member without the right. Task Completion = completed ÷ non-cancelled tasks due in the (required) date range, grouped by project, member or due month. Team Performance shows *To Do* (the B1.3 "pending"), *In Progress* and *In Review* apart. Project Status has a *Delayed* group that is calculated and overlaps the others. The Workload Report reuses the 3b classification |
-| Reports page | Kept the four charts as an *Overview* tab (still computed in the browser from `/tasks`); the KPIs and the seven reports are new tabs (`?tab=`) | PDF / Excel export is optional (batch 4) and not built |
+| Reports page | Kept the four charts as an *Overview* tab (still computed in the browser from `/tasks`); the KPIs and the seven reports are new tabs (`?tab=`) | PDF / Excel export was built on 2026-10-13, in the browser (D-22) |
 
 Delivery followed §2 except the backup and migration, which a change without schema needs not: `docker compose build backend frontend` and `up -d`, then verified against the running stack as `admin.system`, `pm.olivia`, `lead.owen` (200) and `dev.chen` (403 on every endpoint). Backend tests 290/290, Playwright 99/99 (run twice), ESLint clean.
 
@@ -182,7 +182,7 @@ Delivery followed §2 except the backup and migration, which a change without sc
 
 Not acceptance criteria. Build only if wanted; if shown they are labelled "Optional feature demonstration".
 
-~~Kanban drag-to-move (same status rules as §15)~~ (built 2026-10-13) · report export to PDF/Excel · ~~Gantt chart prototype~~ (built 2026-10-10, outside the batches) · document management · audit log (B10) · @mentions (undefined in both sources).
+~~Kanban drag-to-move (same status rules as §15)~~ (built 2026-10-13) · ~~report export to PDF/Excel~~ (built 2026-10-13, D-22) · ~~Gantt chart prototype~~ (built 2026-10-10, outside the batches) · document management · audit log (B10) · ~~@mentions~~ (undefined in both sources; built 2026-10-13, D-21).
 
 ## 7. Batch 5 — Housekeeping (2 left)
 

@@ -107,6 +107,7 @@ Table `comments`: `message` (required, ≤ 4000), `task`, `user`, optional `pare
 | Delete | the author, or a holder of `COMMENT:DELETE` (Project Manager, Team Leader, administrator) |
 | UI | add, edit own, delete, and **reply** (task panel): replies are nested under their comment and the composer shows "Replying to …" |
 | Notification | `COMMENT_ADDED` (since 2026-10-12): the task's assignees, the project's Owner and Team Leaders and, for a reply, the author of the comment it answers; never the author ([notifications.md](notifications.md#9-comments-project-updates-and-milestone-updates-since-2026-10-12)) |
+| Mentions | `@username` in a comment (since 2026-10-13, D-21): the person, if an active member of the project, is told with a `MENTION` notification **instead of** the line above; the author never is; an edit tells only the newly mentioned. The task panel offers the project's members while you type `@` and highlights the mentioned ones |
 | Activity | `COMMENT_ADDED` is written to the task feed (`CommentService`) |
 | Reply validation | the parent comment must exist and belong to the same task (`400 "The comment you are replying to belongs to another task"`, since 2026-10-09) |
 | Deleting a comment with replies | database `ON DELETE CASCADE` removes the replies |

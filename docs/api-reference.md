@@ -271,12 +271,12 @@ Allowed types (`util/FileTypeGuard`): png, jpg, jpeg, gif, webp, pdf, txt, md, c
 
 ## 13. Comments
 
-Controller: `CommentController` · base `/api/comments`. `CommentResponse`: `id, taskId, userId, authorName, parentCommentId, message, createdAt, updatedAt`.
+Controller: `CommentController` · base `/api/comments`. `CommentResponse`: `id, taskId, userId, authorName, parentCommentId, message, createdAt, updatedAt, mentions` — `mentions` is `[{ id, username, fullName }]`: the active members of the project that the message mentions with `@username` (D-21; empty when none), on the list, create and update responses.
 
 | Method & path | Auth | Request | Success | Notes |
 |---|---|---|---|---|
 | `GET /api/comments/task/{taskId}` | Member | — | `200[]` oldest first | |
-| `POST /api/comments` | Content | `{ taskId ★, message (≤4000) ★, parentCommentId }` | `201` | `403` for a `VIEWER` (changed 2026-10-06; reading is still allowed); parent must exist (`404 "Parent comment not found"`) and belong to the same task (`400 "The comment you are replying to belongs to another task"`); writes `COMMENT_ADDED` to the activity feed and notifies the task's assignees, the project's Owner and Team Leaders and, for a reply, the parent comment's author (never the author) |
+| `POST /api/comments` | Content | `{ taskId ★, message (≤4000) ★, parentCommentId }` | `201` | `403` for a `VIEWER` (changed 2026-10-06; reading is still allowed); parent must exist (`404 "Parent comment not found"`) and belong to the same task (`400 "The comment you are replying to belongs to another task"`); writes `COMMENT_ADDED` to the activity feed and notifies the task's assignees, the project's Owner and Team Leaders and, for a reply, the parent comment's author (never the author); a member `@mentioned` in the message gets a `MENTION` notification instead (an edit via `PUT` tells only the newly mentioned) |
 | `PUT /api/comments/{id}` | author only | `{ taskId ★, message ★ }` | `200` | `403 "You do not have permission…"` for anyone else, including administrators |
 | `DELETE /api/comments/{id}` | author, or Manager | — | `204` | replies are deleted too |
 

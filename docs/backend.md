@@ -41,7 +41,7 @@ src/main/java/backend/
 ├── security/                  # Resource and Action enums, PermissionChecker (the @permissions bean used in @PreAuthorize)
 ├── exception/                 # NotFoundException, ConflictException, TooManyRequestsException + GlobalExceptionHandler (@RestControllerAdvice)
 ├── config/                    # SecurityConfig (JWT, CORS, method security), JwtSecretGuard, ActiveAccountJwtValidator, DeadlineScheduler
-└── util/                      # TextFormat, Derived (delayed / overdue), WorkloadClassifier, FileTypeGuard (attachment types)
+└── util/                      # TextFormat, Derived (delayed / overdue), WorkloadClassifier, FileTypeGuard (attachment types), Mentions (@username in comments)
 
 src/main/resources/
 ├── application.properties     # Application configuration
@@ -159,10 +159,10 @@ Beyond the database gates (a task cannot become `COMPLETED` while a subtask is i
 - `TaskAssigneeService.createTaskAssignee` → `notifyTaskAssigned`: every new assignment.
 - `TaskService.updateTask` → `notifyTaskStatusChanged`: only when `status` actually changed (compared before and after `applyRequest`), to every current assignee.
 - `ProjectMemberService.inviteMember` → `notifyTeamInvitation`: every new or re-sent invitation, to the invitee.
-- `CommentService.createComment` → `UpdateNotificationService.notifyCommentAdded`: a comment or reply tells the task's assignees, the project's Owner and Team Leaders and, for a reply, the author of the comment it answers. `ProjectService.updateProject` → `notifyProjectUpdated` (the assignees of the project's tasks plus the Owner and Team Leaders) and `MilestoneService.updateMilestone` → `notifyMilestoneUpdated` (the assignees of the milestone's linked tasks plus the Owner and Team Leaders), only when something changed. Never the person who acted; the full rules are in [notifications.md](notifications.md#9-comments-project-updates-and-milestone-updates-since-2026-10-12).
+- `CommentService.createComment` → `UpdateNotificationService.notifyCommentAdded`: a comment or reply tells the task's assignees, the project's Owner and Team Leaders and, for a reply, the author of the comment it answers; `CommentService` also resolves the comment's `@username` mentions against the project's active members (`util/Mentions`) and `UpdateNotificationService.notifyMentioned` sends each of them a `MENTION` notice instead of the generic one (an edit tells only the newly mentioned). `ProjectService.updateProject` → `notifyProjectUpdated` (the assignees of the project's tasks plus the Owner and Team Leaders) and `MilestoneService.updateMilestone` → `notifyMilestoneUpdated` (the assignees of the milestone's linked tasks plus the Owner and Team Leaders), only when something changed. Never the person who acted; the full rules are in [notifications.md](notifications.md#9-comments-project-updates-and-milestone-updates-since-2026-10-12).
 - `ProjectMemberService.respondToInvitation` → `notifyInvitationResponded`: when the invitee accepts or declines, to whoever sent the invitation (`project_members.invited_by`). This "notify an Admin of a member's action" case did not exist anywhere before; it is new, not a repaired bug.
 
-Of the 11 `type` values the `notifications.type` `CHECK` allows, all 11 are produced today: task assignment, status change, approval requested and decided, the invitation and its response, and — since 2026-10-10 — `DEADLINE_REMINDER` and `OVERDUE_TASK`. Those last two are not triggered by a user action: `DeadlineScheduler` runs `DeadlineNotificationService` every day at 08:00 and once at startup (3 days and 1 day before a task, milestone or project deadline, and when a task is overdue, to the assignees and the project Owner; at most once each — see [notifications.md](notifications.md#8-deadline-reminders-and-overdue-notices-since-2026-10-10)). `COMMENT_ADDED`, `PROJECT_UPDATED` and `MILESTONE_UPDATED` (since 2026-10-12, `UpdateNotificationService`: see below) complete the set.
+Of the 12 `type` values the `notifications.type` `CHECK` allows, all 12 are produced today: task assignment, status change, approval requested and decided, the invitation and its response, and — since 2026-10-10 — `DEADLINE_REMINDER` and `OVERDUE_TASK`. Those last two are not triggered by a user action: `DeadlineScheduler` runs `DeadlineNotificationService` every day at 08:00 and once at startup (3 days and 1 day before a task, milestone or project deadline, and when a task is overdue, to the assignees and the project Owner; at most once each — see [notifications.md](notifications.md#8-deadline-reminders-and-overdue-notices-since-2026-10-10)). `COMMENT_ADDED`, `PROJECT_UPDATED` and `MILESTONE_UPDATED` (since 2026-10-12, `UpdateNotificationService`: see below) and `MENTION` (since 2026-10-13) complete the set.
 
 ## Frontend integration
 
@@ -187,9 +187,9 @@ Authorization                 done (data-driven role x resource x action matrix,
 CORS, password hashing        done
 Login rate limiting           done (in-memory, 5 attempts / 15 min per IP+username)
 Least-privilege DB role       done
-Unit tests                    partial: 381 unit/context tests, no controller or repository tests; see testing.md
+Unit tests                    partial: 397 unit/context tests, no controller or repository tests; see testing.md
 File logging                  done (rotating backend/logs/log.txt)
-Notifications                 done: all 11 types produced (comments, project and milestone updates since 2026-10-12)
+Notifications                 done: all 12 types produced (comments, project and milestone updates since 2026-10-12; mentions since 2026-10-13)
 Deadline reminders, overdue   done (2026-10-10): @Scheduled daily 08:00 + at startup
 Attachments, checklists       done (2026-10-09)
 Self-service profile update   done (/me, /me/password, /me/photo, /me/preferences)
@@ -209,7 +209,7 @@ Roughly in priority order. The prioritised plan with reasoning is in [roadmap.md
 
 1. ~~Server-side report endpoints gated by `REPORT:GENERATE_REPORTS`~~ — done 2026-10-09 (`GET /api/reports/*`).
 2. Pagination and search/filter on list endpoints (`GET /api/projects`, `/api/tasks`, and so on return everything; the pages filter in the browser).
-3. PDF / Excel export, with entities for the remaining DB-only tables (`report_exports`, `kpi_snapshots`).
+3. ~~PDF / Excel export~~ — built in the browser on 2026-10-13 (no endpoint); entities for the remaining DB-only tables (`report_exports`, `kpi_snapshots`) are still not built.
 4. ~~A project-wide activity feed~~ — done 2026-10-09; a per-user or administrator audit view remains.
 5. Broader test coverage: controller and integration tests, not only service and handler unit tests.
 6. Flyway now runs as a one-shot Compose service (`migrate`); wiring it into CI and a production deployment is still open (see [database.md](database.md#8-migrations-vs-the-init-script)).

@@ -21,6 +21,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 // "Something changed around you" notifications: a comment or reply on a task, an edit
 // to a project, an edit to a milestone (brief B9; recipients proposed as D-10).
@@ -36,6 +37,7 @@ import java.util.Map;
 public class UpdateNotificationService {
 
     static final String COMMENT_ADDED = "COMMENT_ADDED";
+    static final String MENTION = "MENTION";
     static final String PROJECT_UPDATED = "PROJECT_UPDATED";
     static final String MILESTONE_UPDATED = "MILESTONE_UPDATED";
 
@@ -60,6 +62,14 @@ public class UpdateNotificationService {
 
     /** A comment or reply was added to a task; returns how many notifications were created. */
     public int notifyCommentAdded(Comment comment, User author) {
+        return notifyCommentAdded(comment, author, Set.of());
+    }
+
+    /**
+     * Same, but never to the people in {@code alreadyNotified} (those @mentioned in the comment were
+     * told by {@link #notifyMentioned} and do not get a second notification for the same comment).
+     */
+    public int notifyCommentAdded(Comment comment, User author, Set<Long> alreadyNotified) {
         Task task = comment.getTask();
         Project project = task.getProject();
         boolean reply = comment.getParentComment() != null;
@@ -71,9 +81,23 @@ public class UpdateNotificationService {
             recipients.add(comment.getParentComment().getUser());
         }
 
+        recipients.removeIf(user -> user != null && alreadyNotified.contains(user.getId()));
+
         String message = author.getFullName() + (reply ? " replied on \"" : " commented on \"") + task.getTitle()
                 + "\" in \"" + project.getName() + "\": " + TextFormat.shorten(comment.getMessage(), COMMENT_PREVIEW);
         return deliver(COMMENT_ADDED, reply ? "New reply" : "New comment", message, project, task, recipients, author);
+    }
+
+    /** People @mentioned in a comment (or newly mentioned by an edit); returns how many were told. */
+    public int notifyMentioned(Comment comment, User author, Collection<User> mentioned) {
+        if (mentioned.isEmpty()) {
+            return 0;
+        }
+        Task task = comment.getTask();
+        Project project = task.getProject();
+        String message = author.getFullName() + " mentioned you on \"" + task.getTitle() + "\" in \""
+                + project.getName() + "\": " + TextFormat.shorten(comment.getMessage(), COMMENT_PREVIEW);
+        return deliver(MENTION, "You were mentioned", message, project, task, mentioned, author);
     }
 
     /** A project was edited ({@code changed} names the fields) or completed. */

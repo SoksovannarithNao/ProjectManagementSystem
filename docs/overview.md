@@ -10,7 +10,7 @@ The application is built to the requirements in [assignment-brief.md](../assignm
 
 **In scope and implemented:** authentication with self-registration, a two-level role model with an editable permission matrix, projects, project membership and invitations, milestones, tasks, subtasks, checklists, attachments, task dependencies, comments, time tracking, the task approval workflow, task / project / recent activity feeds, notifications with deadline reminders, a dashboard, Kanban board, calendar, project team / workload / timeline / Gantt views, server-side KPIs and the seven named reports, administration (users, roles and permissions), profile, settings, a Help page and error pages.
 
-**In the requirements but not implemented** (see [roadmap.md](roadmap.md)): PDF/Excel export of the reports.
+**In the requirements but not implemented** (see [roadmap.md](roadmap.md)): document management (optional).
 
 ## 2. Main functionality
 
@@ -84,14 +84,14 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Project membership, invitations, accept/decline, member search | Done |
 | Milestones | Done (2026-10-12) — add, edit and delete in the UI; shown on the calendar; the task forms have no milestone picker |
 | Tasks, subtasks, dependencies, assignment | Done |
-| Comments | Partial — replies work; no notification |
+| Comments | Done — replies and @mentions (2026-10-13); the people around the task are notified (2026-10-12) |
 | Activity feed (task, project, recent) | Done (2026-10-09); time logs are not written |
-| Notifications | Done (2026-10-12) — all 11 types are produced, including comments, project updates and milestone updates |
+| Notifications | Done (2026-10-12) — all 12 types are produced, including comments, project updates, milestone updates and @mentions |
 | Dashboard, project timeline, team tasks, workload | Done (2026-10-09) |
 | Kanban | Done (2026-10-13) — drag a card to another column or use its *Move to* menu |
 | Calendar | Done (2026-10-12) — month, week and day views of task due dates and milestones |
 | Task approval workflow | Done (2026-10-09) |
-| Reports and KPIs | Done (2026-10-09) — overview charts, five KPIs, seven named reports; no PDF / Excel export |
+| Reports and KPIs | Done (2026-10-09) — overview charts, five KPIs, seven named reports; each can be saved as an Excel or PDF file (2026-10-13) |
 | Error page for every status, Help & Support page | Done (2026-10-10) — `pages/ErrorPage.jsx`, `pages/Help.jsx` |
 | Attachments, work logs, checklist items | Done (work logs earlier; attachments and checklists 2026-10-09) |
 | Deadline reminders, overdue notifications | Done (2026-10-10) — a daily scheduled job |

@@ -76,8 +76,8 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 
 | Feature | Status | UI | API | DB | Tests | Notes / gap |
 |---|---|---|---|---|---|---|
-| In-app notifications (bell, read, dismiss) | Done (2026-10-12) | ✓ | ✓ | ✓ | Good | All 11 types produced (assignment, status change, approval requested / decided, invitation and response, deadline reminders and overdue notices since 2026-10-10, and since 2026-10-12 comments, project updates and milestone updates); none for a member added or removed (D-10); no live refresh |
-| Reports page | Done (export optional) | ✓ | `/api/reports/*` | views unused | Good | Overview charts, the KPIs and the seven named reports (2026-10-09); `ReportServiceTest` (25) and `reports.spec.js` (13), the Overview charts are untested; no PDF/Excel export |
+| In-app notifications (bell, read, dismiss) | Done (2026-10-12) | ✓ | ✓ | ✓ | Good | All 12 types produced (assignment, status change, approval requested / decided, invitation and response, deadline reminders and overdue notices since 2026-10-10, since 2026-10-12 comments, project updates and milestone updates, and since 2026-10-13 @mentions); none for a member added or removed (D-10); no live refresh |
+| Reports page | Done | ✓ | `/api/reports/*` | views unused | Good | Overview charts, the KPIs and the seven named reports (2026-10-09); `ReportServiceTest` (25) and `reports.spec.js` (13), the Overview charts are untested; every report and the KPIs can be saved as an Excel or PDF file (2026-10-13, `report-export.spec.js`) |
 | Workload view | Done (2026-10-09) | ✓ | `/projects/{id}/workload`, `/workload` | computed in Java | unit + e2e | assigned / active / overdue, estimated and actual hours, overloaded / underloaded (D-13) |
 
 ### Platform and delivery
@@ -102,7 +102,7 @@ Database tables exist for several of these, but **no entity, API or UI**:
 | ~~Deadline reminders~~ | done 2026-10-10 | 3 and 1 days before a task, milestone or project deadline, to the assignees and the Owner |
 | ~~Overdue notifications at runtime~~ | done 2026-10-10 | Spring `@Scheduled`, daily 08:00 and at startup; once per person and due date |
 | ~~Named reports~~ | done 2026-10-09 | The seven reports are `GET /api/reports/*`, calculated live |
-| PDF / Excel export of reports | `report_exports` table | No endpoint or UI; optional |
+| PDF / Excel export of reports | `report_exports` table | Built 2026-10-13 in the browser; no endpoint, so the table stays unused |
 | ~~KPI calculation~~ | done 2026-10-09 | `GET /api/reports/kpis`, calculated live; `kpi_snapshots` is still never written |
 | ~~Gantt chart~~ | done 2026-10-10 (prototype) | `GanttChart.jsx`, the project's *Gantt* tab; no backend |
 | Refresh tokens, forgot-password | — | Listed as future work in the READMEs (auto-logout was built 2026-10-12) |
@@ -121,7 +121,7 @@ From the root `README.md` (*Future Enhancements*), `backend.md` (*Next Steps*), 
 5. Pagination, search and filtering on list endpoints.
 6. Flyway in CI and a production deployment (locally the Compose `migrate` service runs it).
 7. ~~Entities and controllers for `checklist_items`, `attachments`, `work_logs`.~~ Done.
-8. ~~Endpoints over the reporting views~~ — the reports are calculated in Java instead (2026-10-09); `report_exports` (PDF / Excel export) and `kpi_snapshots` remain.
+8. ~~Endpoints over the reporting views~~ — the reports are calculated in Java instead (2026-10-09); `kpi_snapshots` remains, and `report_exports` stays unused (the export is made in the browser, 2026-10-13).
 9. More backend tests (controller and repository). ~~Playwright in CI~~ — done 2026-10-12.
 10. A deploy target for the CD pipeline.
 11. ~~A project-wide activity feed~~ — done 2026-10-09; ~~an administrator audit view~~ — done 2026-10-13.
@@ -138,7 +138,7 @@ Work needed to bring the application to the model in [ADR-0015](adr/0015-two-lev
 3. ~~**Approval workflow:** approval records, designated approver, Approved / Changes requested / Rejected, notifications, activity entries.~~ — **done 2026-10-09** (`V12`).
 4. **Profile and roles:** ~~users edit their own position/department (D-16)~~ — **done 2026-10-09**; ~~administrators create and edit extra system roles (D-14)~~ — **done 2026-10-13**.
 5. **Required features still missing:** none. *(Auto-logout and the comment, project and milestone notifications: done 2026-10-12. Deadline reminders and overdue notifications: done 2026-10-10.)* *(Checklists, attachments, comment replies and project activity: 3a; the project timeline, Team Tasks, Delayed projects, the workload page, dashboard statistics and role / ownership UI: 3b; the five KPIs and the seven named reports, server-side: 3c; all 2026-10-09.)*
-6. **Optional, if time allows:** time-tracking polish (exists), report export, documents. (The Gantt prototype was built on 2026-10-10; the audit log and Kanban moving on 2026-10-13.)
+6. **Optional, if time allows:** time-tracking polish (exists), documents. (The Gantt prototype was built on 2026-10-10; the audit log, Kanban moving, @mentions and report export on 2026-10-13.)
 
 ## 4. In progress
 
@@ -148,7 +148,7 @@ Work needed to bring the application to the model in [ADR-0015](adr/0015-two-lev
 
 **None recorded.** No document in the repository names a blocker. Dependencies worth knowing before scheduling:
 
-- PDF/Excel export needs a library choice on either side — none is currently in `pom.xml` or `package.json`.
+- PDF/Excel export is made in the browser with `write-excel-file` and `jspdf` + `jspdf-autotable` (2026-10-13, loaded on first use); nothing was added to `pom.xml`.
 - Deployment depends on a target environment that is **Unknown**.
 
 ## 6. Suggested order of work (proposal)
@@ -161,4 +161,4 @@ Not a commitment — an ordering derived from the risks and gaps found. Items re
 | 2 | **Make the demo flow complete** | ~~named reports~~, ~~dashboard project counts~~, ~~email login~~ (all done 2026-10-09); ~~deadline/overdue notifications~~ (done 2026-10-10); ~~comment notifications~~ (done 2026-10-12) | The requirement flow expects reminders |
 | 3 | **Finish half-built features** | pending-invitation list/cancel, ~~admin user screens (edit / deactivate / delete)~~ (done 2026-10-13), a role picker in the project page's Add Member dialog (~~role assignment UI~~, ~~comment replies~~, ~~search/filter/sort~~, ~~milestone edit + calendar milestones~~, ~~project completion date~~, ~~"Today / Upcoming" views~~ are done) | Each is a small gap in an otherwise working feature |
 | 4 | **Quality and delivery** | ~~Playwright in CI~~ (done 2026-10-12), service/controller tests, fix migration drift, regenerate OpenAPI (~~CI grants~~ are in step) | Protects everything above |
-| 5 | **Optional modules** | report export, ~~audit view~~, ~~Kanban drag-and-drop~~, document management (~~attachments~~, ~~time tracking~~, ~~KPIs~~, ~~Gantt~~ are done) | The requirement documents mark most of these as optional |
+| 5 | **Optional modules** | ~~report export~~, ~~@mentions~~, ~~audit view~~, ~~Kanban drag-and-drop~~, document management (~~attachments~~, ~~time tracking~~, ~~KPIs~~, ~~Gantt~~ are done) | The requirement documents mark most of these as optional |

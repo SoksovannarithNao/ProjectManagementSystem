@@ -4,7 +4,7 @@ In-app notifications only (no email, push or SMS apart from the registration cod
 
 ## 1. Notification types
 
-The `notifications.type` CHECK constraint allows 11 values and **all eleven are produced by the application today** (the approval pair since 2026-10-09; the deadline reminder and the overdue notice since 2026-10-10; comments, project updates and milestone updates since 2026-10-12).
+The `notifications.type` CHECK constraint allows 12 values and **all twelve are produced by the application today** (the approval pair since 2026-10-09; the deadline reminder and the overdue notice since 2026-10-10; comments, project updates and milestone updates since 2026-10-12; `MENTION` since 2026-10-13).
 
 | Type | Produced? | Producer | Recipient |
 |---|---|---|---|
@@ -15,6 +15,7 @@ The `notifications.type` CHECK constraint allows 11 values and **all eleven are 
 | `APPROVAL_REQUESTED` | ✅ | `TaskApprovalService.openRequest` / `designateApprover` → `notifyApprovalRequested` | the approver named for the task; otherwise every active member of the project who may approve; never the person asking |
 | `APPROVAL_DECIDED` | ✅ | `TaskApprovalService.decide` / `recordDirectCompletion` → `notifyApprovalDecided` | the person who asked for the review (not when they decided it themselves) |
 | `COMMENT_ADDED` | ✅ | `CommentService.createComment` → `UpdateNotificationService.notifyCommentAdded` (see §9) | the task's assignees, the project's Owner and Team Leaders, and for a reply the author of the comment it answers; never the author |
+| `MENTION` | ✅ | `CommentService.createComment` / `updateComment` → `UpdateNotificationService.notifyMentioned` (see §9) | each active member of the task's project that the comment @mentions (an edit tells only the newly mentioned); never the author. They are not also sent the generic `COMMENT_ADDED` for that comment |
 | `PROJECT_UPDATED` | ✅ | `ProjectService.updateProject` → `UpdateNotificationService.notifyProjectUpdated` (see §9) | the assignees of the project's tasks and the project's Owner and Team Leaders; never the person who edited |
 | `MILESTONE_UPDATED` | ✅ | `MilestoneService.updateMilestone` → `UpdateNotificationService.notifyMilestoneUpdated` (see §9) | the assignees of the milestone's linked tasks and the project's Owner and Team Leaders; never the person who edited |
 | `DEADLINE_REMINDER` | ✅ | `DeadlineNotificationService.sendReminders`, run by `DeadlineScheduler` (see §8) | the assignees of the task and the project's active Owner; for a milestone or a project, the Owner |
@@ -31,6 +32,7 @@ The `notifications.type` CHECK constraint allows 11 values and **all eleven are 
 | `TEAM_INVITATION` | a project invitation is created or re-sent | "Team invitation" | `<inviter name> invited you to join "<project name>"` |
 | `TEAM_INVITATION_RESPONDED` | the invitee accepts or declines (and the inviter still exists) | "Invitation accepted" / "Invitation declined" | `<invitee name> accepted|declined your invitation to join "<project name>"` |
 | `COMMENT_ADDED` | a comment or a reply is added to a task | "New comment" / "New reply" | `<author> commented on\|replied on "<task>" in "<project>": <the first 100 characters>` |
+| `MENTION` | a comment, or an edited comment, contains `@username` of an active member of the task's project | "You were mentioned" | `<author> mentioned you on "<task>" in "<project>": <the first 100 characters>` |
 | `PROJECT_UPDATED` | a project is saved with at least one change (name, status, priority, dates or description), or becomes Completed | "Project updated" / "Project completed" | `<editor> updated "<project>" (status, end date)` / `<editor> marked "<project>" as completed` |
 | `MILESTONE_UPDATED` | a milestone is saved with at least one change (title, description, due date, status), or becomes Completed | "Milestone updated" / "Milestone completed" | `<editor> updated milestone "<title>" in "<project>" (due date)` / `<editor> completed milestone "<title>" in "<project>"` |
 | `DEADLINE_REMINDER` | 3 days or 1 day before a task's or milestone's due date or a project's end date, while it is not finished | "Deadline approaching" | `"<task>" in "<project>" is due in 3 days (<yyyy-mm-dd>)` / `… is due tomorrow (<date>)`; `Milestone "<title>" in "<project>" is due …`; `Project "<name>" ends in 3 days (<date>)` |
@@ -104,10 +106,13 @@ Created by `service/UpdateNotificationService.java`, called by `CommentService`,
 | Event | Recipients |
 |---|---|
 | A comment or reply on a task | the task's assignees; the project's active Owner and Team Leaders; for a reply, also the author of the comment it answers |
+| A person is @mentioned in a comment (since 2026-10-13) | that person, if they are an active member of the project with an active account; **instead of** the line above for them. See below |
 | A project is edited or completed | the assignees of any task in the project; the project's active Owner and Team Leaders |
 | A milestone is edited or completed | the assignees of the tasks linked to the milestone; the project's active Owner and Team Leaders |
 
-Rules that apply to all three:
+**Mentions (since 2026-10-13, D-21).** A mention is `@` followed by a username (letters, digits, dots, underscores and hyphens), not glued to a word or another `@` (so an e-mail address is not one); punctuation after the name (`@dev.chen,`) is not part of it, and `@dev.chenx` is never read as `dev.chen`. The case is ignored. Only the project's **active members with an active account** count, and only in comments; the author is never notified, and a name that is not a member mentions nobody. A mentioned person gets `MENTION` and not also `COMMENT_ADDED` for that comment. Editing a comment tells only the people it newly mentions. `CommentResponse.mentions` lists who is mentioned (`id`, `username`, `fullName`), so the screen can highlight them. The rules live in `util/Mentions.java` (mirrored by `api/mentions.js` for the autocomplete and the highlighting).
+
+Rules that apply to all of them:
 
 - **Never the person who made the change**, and each person at most once (an assignee who is also the Owner gets one notification).
 - People who switched task notifications off, and accounts that are not `ACTIVE`, are skipped (the same preference as every other notification, section 5).

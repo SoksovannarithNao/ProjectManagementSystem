@@ -1,6 +1,6 @@
 # Test cases
 
-The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-13** against the running stack: backend 381/381, frontend unit tests 142/142, Playwright 182 tests in 25 files (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
+The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-13** against the running stack: backend 397/397, frontend unit tests 166/166, Playwright 194 tests in 27 files (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
 
 **Reading the tables**
 
@@ -155,6 +155,8 @@ The formal list of what the application is tested for: one row per case, with th
 | COL-05 | Comments and replies | Comment, and reply to a comment | A reply stays in its own task; comments are logged | `collaboration.spec.js`; `CommentServiceTest` |
 | COL-06 | Project feed | Open a project's activity | Project, milestone, task, comment and file events, newest first; a Viewer reads but cannot write; a stranger gets `404` | `collaboration.spec.js`; `ActivityLogServiceTest` |
 | COL-07 | A Viewer's page | Open a project as a Viewer | Files are visible; no upload or checklist controls | `collaboration.spec.js` |
+| COL-08 | @mention a member | Comment `@dev.mia` on a task of a project she belongs to; also mention yourself, a non-member and an inactive member | Only Mia is mentioned and told; the response lists who is mentioned | `mentions.spec.js`; `CommentServiceTest`; `MentionsTest` |
+| COL-09 | Mention in the browser | Type `@mi` in the comment box, pick the member, send | Only the project's members are offered, never yourself; Escape closes the list; the sent comment shows the mention highlighted | `mentions.spec.js`; `mentions.test.js` |
 
 ## 9. Time tracking
 
@@ -192,6 +194,7 @@ The formal list of what the application is tested for: one row per case, with th
 | REP-03 | Each report | Generate the Project, Task, Project Status, Task Completion, Overdue, Team Performance and Workload reports | Content and filters are right; bad filters return `400` | `reports.spec.js`; `ReportServiceTest` |
 | REP-04 | In the interface | Open every tab; generate a report; leave a required filter empty | Every tab loads; figures match the server; the filter is checked first | `reports.spec.js` |
 | REP-05 | Formatting | Display a date, a rate, hours | `Oct 12, 2026`, `50.0%`, `1.5`; a dash when there is nothing | `reportFormat.test.js` |
+| REP-06 | Export | Generate each report (and open the KPIs); press *Excel*, then *PDF*; look at the page before generating | No buttons before *Generate*; an `.xlsx` and a `.pdf` named after the report and the day are saved, holding its title, scope and tables | `report-export.spec.js`; `reportExport.test.js` |
 
 ## 13. Notifications
 
@@ -203,6 +206,7 @@ The formal list of what the application is tested for: one row per case, with th
 | NTF-04 | The bell | Open the notification bell | The comment notification is shown | `idle-and-updates.spec.js` |
 | NTF-05 | Deadline reminders | A task, milestone or project is 3 or 1 days from its end | The assignee and Owner get one reminder; overdue work gets one notice; finished work, switched-off and inactive accounts are skipped | `DeadlineNotificationServiceTest` |
 | NTF-06 | Approvals | Submit and decide | Approvers are told of a request, the requester of the decision | `approvals.spec.js`; `TaskApprovalServiceTest` |
+| NTF-07 | Mentions | @mention a member in a comment; edit it to mention another | The mentioned member gets "You were mentioned" instead of the generic comment notice, the assignee and Owner still get that one, the author and an outsider get nothing; an edit tells only the newly mentioned | `mentions.spec.js`; `UpdateNotificationServiceTest`; `CommentServiceTest` |
 
 ## 14. Errors, help and every screen
 
@@ -249,6 +253,8 @@ Small, fast tests of the logic in `frontend/src` that has no screen of its own. 
 | UNIT-07 | API client | The bearer token is sent; error replies become `ApiError`s with the server message and field errors; `401` signs out (not for login); network and non-JSON failures read plainly; downloads | `client.test.js` |
 | UNIT-08 | Auto-logout storage | The limits (15 minutes, 60 seconds); shared activity; the sign-out notice; blocked storage does no harm | `idleTimeout.test.js` |
 | UNIT-09 | Report formatting | Dates, rates and hours | `reportFormat.test.js` |
+| UNIT-10 | @mention helpers | The `@word` being typed before the caret and what replaces it; who is offered; a message split into plain and mentioned parts | `mentions.test.js` |
+| UNIT-11 | Report export documents | The tables of each report as written to Excel and PDF, the sheet layout, the file name | `reportExport.test.js` |
 
 ## 18. Cases with no automated test
 

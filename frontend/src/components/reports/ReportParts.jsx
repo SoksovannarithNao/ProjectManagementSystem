@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { FileBarChart } from 'lucide-react'
+import { FileBarChart, FileSpreadsheet, FileText } from 'lucide-react'
 import { EmptyState } from '../ui/EmptyState'
 import { Skeleton } from '../ui/Skeleton'
-import { fullDate } from './reportFormat'
+import { useToast } from '../ui/Toast'
+import { buildDocument, downloadExcel, downloadPdf, scopeText } from './reportExport'
 import { useReportableProjects } from './useReportableProjects'
 import { useMembers } from '../../data/UsersContext'
 
@@ -52,11 +53,42 @@ export function SummaryTiles({ items }) {
   )
 }
 
+// "Excel" and "PDF" buttons: the report on the screen as a file, made in the browser.
+// `document` is { title, scope, tables } (see reportExport.js).
+export function ExportButtons({ document }) {
+  const notify = useToast()
+  const [busy, setBusy] = useState(false)
+
+  const save = async (write, label) => {
+    setBusy(true)
+    try {
+      await write(document)
+      notify(`${label} file saved`, { tone: 'success' })
+    } catch (err) {
+      notify(err.message || `The ${label} file could not be made`, { tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2" data-testid="report-export">
+      <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => save(downloadExcel, 'Excel')}>
+        <FileSpreadsheet size={15} /> Excel
+      </button>
+      <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => save(downloadPdf, 'PDF')}>
+        <FileText size={15} /> PDF
+      </button>
+    </div>
+  )
+}
+
 // One report: its filter bar, an explicit "Generate" step (workflow flow 32) and the
 // result below. `fields` describe the filters; `run(values)` calls the API;
 // `children(data)` draws the result.
 //   field: { name, label, type: 'project' | 'user' | 'select' | 'date', options?, required?, noneLabel? }
-export function ReportRunner({ title, hint, fields, initial = {}, run, children, testId }) {
+// `exportTables(data)` lists the tables of the Excel / PDF file (reportExport.js).
+export function ReportRunner({ title, hint, fields, initial = {}, run, children, testId, exportTables }) {
   const projects = useReportableProjects()
   const { members } = useMembers()
   const [values, setValues] = useState(initial)
@@ -139,13 +171,10 @@ export function ReportRunner({ title, hint, fields, initial = {}, run, children,
       )}
       {state.phase === 'done' && (
         <div data-testid="report-result">
-          <p className="text-faint mb-3 text-[12px]">
-            {state.data.scope.projectName ?? `All your projects (${state.data.scope.projects})`}
-            {state.data.scope.from || state.data.scope.to
-              ? ` · ${fullDate(state.data.scope.from)} – ${fullDate(state.data.scope.to)}`
-              : ''}
-            {' · '}generated {new Date(state.data.scope.generatedAt).toLocaleString()}
-          </p>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-faint text-[12px]">{scopeText(state.data.scope)}</p>
+            {exportTables && <ExportButtons document={buildDocument(title, state.data.scope, exportTables(state.data))} />}
+          </div>
           {children(state.data)}
         </div>
       )}

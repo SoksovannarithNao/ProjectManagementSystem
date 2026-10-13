@@ -6,6 +6,26 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-13 (@mentions and report export) — migration `V18`; checklist G-14 closed
+
+The last two optional features of the specification (G-14). Decisions D-21 and D-22 in the brief are proposals, not yet approved. Backend, front end and database redeployed (a `pg_dump` taken first) and verified there.
+
+**Added**
+- **@mentions in comments (D-21).** `@username` in a comment, or in an edit of one, mentions a person. Only an **active member of the task's project** with an active account counts, in comments only; the author is never notified. A mentioned person gets a `MENTION` notification ("You were mentioned") **instead of** the generic new-comment one for that comment, and an edit tells only the people it newly mentions. `CommentResponse.mentions` lists who is mentioned. The rules are in `util/Mentions.java` (an e-mail address is not a mention, trailing punctuation is peeled, `@dev.chenx` is never read as `dev.chen`); `CommentService` resolves them against the project's members and `UpdateNotificationService.notifyMentioned` sends the notices. In the task panel, typing `@` in the comment box (also when replying or editing) lists the project's members (`MentionInput`, arrow keys + Enter/Tab, Escape), and a comment shows its mentions highlighted (`CommentText`, built from text nodes, never HTML).
+- **Report export (D-22).** Every report and the KPIs have *Excel* and *PDF* buttons once generated. The files are made in the browser from the report on the screen (`components/reports/reportExport.js`), so there is no endpoint, no stored file and no new permission; the `report_exports` table stays unused. New front-end dependencies: `write-excel-file` 4.1, `jspdf` 4.2, `jspdf-autotable` 5.0 (no audit findings of their own); they are separate chunks loaded the first time a file is asked for, so the main bundle is not larger. The PDF uses a standard Latin font, so a character outside it may not print.
+
+**Changed**
+- `permissions.spec.js` suspends a throw-away account instead of the seeded `newuser`. Adding two specs shifted the parallel schedule so that `project-team.spec.js` could not find `newuser` in about half of the full runs (F-47, R-6).
+
+**Database**
+- `V18__mention_notification.sql`: `notifications_type_check` also allows `MENTION`; idempotent (run twice). Same end state in `01-init.sql`; `04-flyway-baseline.sql` records version 18.
+
+**Tests:** backend 381 → **397** (`MentionsTest` 9, `CommentServiceTest` +4, `UpdateNotificationServiceTest` +3); frontend unit tests 142 → **166** (`mentions.test.js` 12, `reportExport.test.js` 12); Playwright 182 → **194** (`mentions.spec.js` 3, `report-export.spec.js` 9); four full runs in a row at 4 workers; no server error in the log apart from browsers closing connections; ESLint clean.
+
+**Docs:** `assignment-brief.md` (G-14 resolved, D-21, D-22, the feature table, the data model, B8, B9), `checklist/*` (G-14 moved to resolved, #41, #45, #54, #65, #67, R-6, R-7, R-10), `notifications.md` (12 types, §1, §2, §9), `database.md` and `setup.md` (`V18`, baseline 18), `backend.md`, `api-reference.md` (§13), `tasks.md`, `frontend.md`, `testing.md`, `test-cases.md` (141 cases), `overview.md`, `PRODUCT.md`, `roadmap.md`, `change-plan.md`, `issues.md` (F-47), `workflow-conformance.md`, ADR-0007, `README.md`
+
+---
+
 ## 2026-10-13 (demo seed) — `02-seed.sql` rebuilt; no schema change
 
 **Changed**

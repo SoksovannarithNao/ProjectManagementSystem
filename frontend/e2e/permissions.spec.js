@@ -216,33 +216,38 @@ test.describe('permissions and data isolation', () => {
 
   test('a token issued before an account was suspended stops working, and works again once it is reactivated', async ({ request }) => {
     const admin = await auth(request, 'admin.system')
-    const all = await (await request.get('/api/users', { headers: admin })).json()
-    const target = all.find((u) => u.username === 'newuser')
-    const body = (status) => ({
-      fullName: target.fullName,
-      username: target.username,
-      email: target.email,
-      accountStatus: status,
+    // A throw-away account: suspending a seeded one (newuser) would break the specs that look it up
+    // while this runs in parallel.
+    const username = `suspend.${Date.now()}`
+    const profile = { fullName: 'Suspend Probe', username, email: `${username}@example.com` }
+    const created = await request.post('/api/users', {
+      headers: admin,
+      data: { ...profile, password: SEED_PASSWORD, accountStatus: 'ACTIVE' },
     })
-
-    const tokenBefore = await auth(request, 'newuser')
-    expect((await request.get('/api/users/username/newuser', { headers: tokenBefore })).status()).toBe(200)
+    expect(created.status()).toBe(201)
+    const target = await created.json()
+    const body = (status) => ({ ...profile, accountStatus: status })
 
     try {
+      const tokenBefore = await auth(request, username)
+      expect((await request.get(`/api/users/username/${username}`, { headers: tokenBefore })).status()).toBe(200)
+
       const suspended = await request.put(`/api/users/${target.id}`, { headers: admin, data: body('SUSPENDED') })
       expect(suspended.status()).toBe(200)
 
       // the already-issued token is rejected right away (401, empty body)...
-      expect((await request.get('/api/users/username/newuser', { headers: tokenBefore })).status()).toBe(401)
+      expect((await request.get(`/api/users/username/${username}`, { headers: tokenBefore })).status()).toBe(401)
       // ...and so is a fresh login
-      const relogin = await request.post('/api/auth/login', { data: { username: 'newuser', password: SEED_PASSWORD } })
+      const relogin = await request.post('/api/auth/login', { data: { username, password: SEED_PASSWORD } })
       expect(relogin.status()).toBe(401)
-    } finally {
+
       const restored = await request.put(`/api/users/${target.id}`, { headers: admin, data: body('ACTIVE') })
       expect(restored.status()).toBe(200)
-    }
 
-    // the same token is accepted again after reactivation (it never expired)
-    expect((await request.get('/api/users/username/newuser', { headers: tokenBefore })).status()).toBe(200)
+      // the same token is accepted again after reactivation (it never expired)
+      expect((await request.get(`/api/users/username/${username}`, { headers: tokenBefore })).status()).toBe(200)
+    } finally {
+      await request.delete(`/api/users/${target.id}`, { headers: admin })
+    }
   })
 })

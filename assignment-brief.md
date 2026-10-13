@@ -441,7 +441,7 @@ Classification of every feature named in only one source or marked inconsistentl
 | Document management | OPTIONAL | Part A "can" | missing |
 | Comments with replies | REQUIRED | Part A | done (replies in the UI since 2026-10-09) |
 | Task discussion (threads) | OPTIONAL | Part A "can" | same as above |
-| @mentions | UNDEFINED | in neither source; requested for notifications only | missing |
+| @mentions | UNDEFINED | in neither source; requested for notifications only | **built 2026-10-13** (comments only, D-21) |
 | Notifications (7 kinds) | REQUIRED | Part A | 7 of 7 produced (2026-10-12) |
 | Deadline reminders, overdue notifications | REQUIRED | Part A | built 2026-10-10: a daily `@Scheduled` job (08:00 and at startup) |
 | Time tracking, work logs | OPTIONAL | Part A "can … as a prototype"; work-log fields are listed as "must" if it is built | done |
@@ -449,7 +449,7 @@ Classification of every feature named in only one source or marked inconsistentl
 | KPIs (five) | REQUIRED | Part A | done (2026-10-09: `GET /api/reports/kpis`, the *KPIs* tab) |
 | Team performance | OPTIONAL | Part A "can" (but the Team Performance Report is REQUIRED) | done as the Team Performance Report (2026-10-09) |
 | Reports (seven named) | REQUIRED | Part A | done (2026-10-09: `GET /api/reports/*`, one tab each) |
-| Report export (PDF/Excel) | OPTIONAL | Part A "can … as a prototype" | missing |
+| Report export (PDF/Excel) | OPTIONAL | Part A "can … as a prototype" | **built 2026-10-13** (in the browser, D-22) |
 | Activity log | REQUIRED | Part A | done (2026-10-09): per task, per project and recent activity |
 | Audit log | OPTIONAL | Part A "can" | **built 2026-10-13** (B10, D-11) |
 | Approvals | REQUIRED | the permission `APPROVE` is required; its workflow is defined by this specification (B3.8) | done (2026-10-09, `V12`) |
@@ -724,7 +724,7 @@ Conceptual model required by Part A *Architecture & Logic*. "Current" says wheth
 | **Subtask** | title, assignee, due date, status, completion | child of a task | yes |
 | **Checklist item** | task, text, completed | child of a task; **not** a task | yes (2026-10-09, `V13`) |
 | **Approval record** | task, requested by/at, decided by/at, decision, comment | many per task over time | yes (2026-10-09, `V12`: table `task_approvals`) |
-| **Comment** | task, user, message, date/time, parent comment (reply), mentions *(undefined)* | belongs to a task | yes (replies in the UI since 2026-10-09; no mentions) |
+| **Comment** | task, user, message, date/time, parent comment (reply), mentions *(undefined, D-21)* | belongs to a task | yes (replies in the UI since 2026-10-09; mentions since 2026-10-13) |
 | **Attachment** | project or task, file name, type, size, uploaded by, uploaded at | belongs to a project **or** a task | yes (2026-10-09, `V13`) |
 | **Work log** *(optional)* | task, user, work date, hours, description | belongs to a task | yes |
 | **Notification** | recipient, type, message, task/project reference, read flag, created at | per user | yes |
@@ -785,7 +785,7 @@ The **seven named reports** are the authoritative requirement. A generic "genera
 | 6 | **Team Performance Report** | per member: assigned, completed, pending, overdue tasks and completion rate | project, date range | assignees, completion data |
 | 7 | **Workload Report** | per member: assigned, active, overdue tasks, estimated hours, actual hours | project | **actual hours need Time Tracking (OPTIONAL)** — without it, actual hours are shown as unavailable |
 
-*Current implementation (2026-10-09, change-plan 3c):* all seven exist as server endpoints (`GET /api/reports/project`, `/tasks`, `/project-status`, `/task-completion`, `/overdue`, `/team-performance`, `/workload`) and as tabs of the Reports page, each with an explicit *Generate* step. The server enforces who may generate: an Administrator reports on every project, anyone else only on the projects where they hold `GENERATE_REPORTS` (Owner, Team Leader, and the Project Manager through the Owner role); everyone else gets `403`, and a project outside that set `404` (stranger) or `403`. Task Completion needs the date range and counts completed ÷ non-cancelled tasks due in it; Team Performance shows To Do (the "pending" of B1.3), In Progress and In Review apart; the Project Status *Delayed* group is calculated and overlaps the others. The page's first tab, *Overview*, keeps the earlier charts, computed in the browser. Export is not built.
+*Current implementation (2026-10-09, change-plan 3c):* all seven exist as server endpoints (`GET /api/reports/project`, `/tasks`, `/project-status`, `/task-completion`, `/overdue`, `/team-performance`, `/workload`) and as tabs of the Reports page, each with an explicit *Generate* step. The server enforces who may generate: an Administrator reports on every project, anyone else only on the projects where they hold `GENERATE_REPORTS` (Owner, Team Leader, and the Project Manager through the Owner role); everyone else gets `403`, and a project outside that set `404` (stranger) or `403`. Task Completion needs the date range and counts completed ÷ non-cancelled tasks due in it; Team Performance shows To Do (the "pending" of B1.3), In Progress and In Review apart; the Project Status *Delayed* group is calculated and overlaps the others. The page's first tab, *Overview*, keeps the earlier charts, computed in the browser. Export to Excel and PDF was built on 2026-10-13 (D-22): once a report is generated, its tab offers both files.
 
 **KPIs (REQUIRED, five).** Part A names them without formulas. Definitions **approved (D-12)** and implemented on 2026-10-09 (`GET /api/reports/kpis`; percentages with one decimal; a rate whose denominator is empty is shown as "—", not 0%):
 
@@ -810,7 +810,7 @@ Part A requires seven kinds (task assignment, status change, comment, project up
 | Task assigned | the new assignee. Content: task name, project, due date, assigned by | Part A | yes |
 | Task status changed | **pending** (D-10) | none | yes (recipients as built) |
 | Comment added | "the people involved" — **pending** who (D-10) | workflow §24 | yes (2026-10-12): the task's assignees, the Owner and Team Leaders, and a reply's parent author; never the author |
-| Mention | **UNDEFINED** — mentions are in neither source | — | no |
+| Mention | the person @mentioned in a comment: an active member of the task's project, never the author. An edit tells only the people it newly mentions. It replaces the generic comment notice for them | D-21 (proposal; mentions are in neither source) | yes (2026-10-13) |
 | Deadline approaching (3 days and 1 day before; task, milestone, project) | the assignee and the project's `OWNER` | workflow §27 | yes (2026-10-10) |
 | Deadline passed / task overdue | the assignee and the project's `OWNER` | Part A, workflow §28 | yes (2026-10-10), once per person and due date |
 | Approval requested | the designated approver; otherwise everyone who may approve — **pending** (D-10) | this spec | yes (2026-10-09) |
@@ -919,7 +919,7 @@ Status after the role-model migration `V10` (2026-10-08), change-plan batches 1,
 | G-11 | Status name | **Resolved** | stored `TODO` since `V11` (2026-10-09) |
 | G-12 | Ownership transfer | **Resolved** | `PUT /api/project-members/{id}` with role `OWNER`, one step; previous owner becomes `ADMIN` |
 | G-13 | Administrator creating for others | **Resolved** | the named manager must be able to own projects; becomes the owner |
-| G-14 | Missing features | Open | @mentions and report export (B1.4), both optional. (Deadline reminders, overdue notices and the Gantt prototype were built 2026-10-10; auto-logout and the missing notification types 2026-10-12; Kanban moving and the audit log 2026-10-13.) |
+| G-14 | Missing features | **Resolved** | the optional features, all built: deadline reminders, overdue notices and the Gantt prototype (2026-10-10); auto-logout and the missing notification types (2026-10-12); Kanban moving, the audit log, @mentions (D-21) and report export to Excel and PDF (D-22) (2026-10-13). Document management stays unbuilt (optional) |
 | G-19 | Dashboard statistics, Delayed, Team Tasks, Workload, Timeline, role / ownership UI | **Resolved** | built 2026-10-09 (change-plan 3b); see D-13 |
 | G-18 | Checklists, attachments, comment replies, project / comment / file activity | **Resolved** | built 2026-10-09 (`V13`, change-plan 3a); see D-07 and D-17 |
 | G-15 | A project with a single owner could not be deleted | **Resolved** | the owner check is deferred and skipped for a project being deleted |
@@ -928,7 +928,7 @@ Status after the role-model migration `V10` (2026-10-08), change-plan batches 1,
 
 ### B13.2 Decisions
 
-**Approved by the project owner on 2026-10-08:** D-01 to D-18. D-01 was changed from the provisional rule (a Team Leader may delete everything except the project, not nothing); D-13 was refined; all others were approved as written. **No decision is open** except the proposals D-19 and D-20. Each row shows the rule now in force.
+**Approved by the project owner on 2026-10-08:** D-01 to D-18. D-01 was changed from the provisional rule (a Team Leader may delete everything except the project, not nothing); D-13 was refined; all others were approved as written. **No decision is open** except the proposals D-19, D-20, D-21 and D-22. Each row shows the rule now in force.
 
 | ID | Question | Rule in force |
 |---|---|---|
@@ -953,6 +953,8 @@ Status after the role-model migration `V10` (2026-10-08), change-plan batches 1,
 | D-18 | Calendar views | at least month; day and week are the target. |
 | D-19 | **Proposal, not yet approved** (2026-10-12): what are "Tasks Near Deadline", "Today" and "Upcoming" (Part A names them without definitions)? | Near deadline (*Due soon*) = an open task due today or within 3 days, matching the first reminder day. In *My Tasks*, **Today** = open tasks due today and **Upcoming** = open tasks due after today. *In Progress*, *Completed* and *Overdue* use the statuses and B1.3. **Implemented 2026-10-12** (`Derived.DUE_SOON_DAYS`, the Tasks quick views); change the value or the wording if the owner prefers another window. |
 | D-20 | **Proposal, not yet approved** (2026-10-12): the auto-logout timing (Part A leaves it undefined) | 15 minutes without activity, then a 60-second warning with *Stay signed in*, then sign-out. Activity in any open tab counts. It is a browser-side prototype: the token is not revoked on the server. **Implemented 2026-10-12** (`IDLE_LIMIT_MS`, `IDLE_WARNING_MS` in `frontend/src/auth/idleTimeout.js`). |
+| D-21 | **Proposal, not yet approved** (2026-10-13): what is an @mention (the specification names none; the brief only says "requested for notifications only")? | A comment, or an edit of one, may mention a person with `@username`. Only an **active member of the task's project** with an active account can be mentioned, and only in **comments** (not task descriptions). The person gets their own `MENTION` notification ("You were mentioned") **instead of** the generic new-comment one for that comment; the author is never notified; editing a comment tells only the people it newly mentions. The comment response lists who is mentioned, and the UI highlights them and offers the project's members while you type `@`. **Implemented 2026-10-13** (`Mentions`, `CommentService`, `UpdateNotificationService.notifyMentioned`, `V18`, `MentionInput`). |
+| D-22 | **Proposal, not yet approved** (2026-10-13): how is report export done (Part A: "can … as a prototype")? | In the browser, from the report on the screen: **Excel (.xlsx)** and **PDF** buttons on each of the seven reports and on the KPIs, shown once the report has been generated. No server endpoint, no stored file and no extra permission (the report was already authorised when it was generated), so the `report_exports` table stays unused. Each file holds the report's title, its scope line and every table of the screen. The PDF uses a standard Latin font, so characters outside it may not print. **Implemented 2026-10-13** (`reportExport.js`; `write-excel-file` and `jspdf` are loaded the first time a file is asked for). |
 
 ### B13.3 Requirements that still conflict or are still open
 
