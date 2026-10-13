@@ -28,7 +28,7 @@ The requirements talk about "teams" and "adding team members" to a project, and 
 - One row to query for "who is on this project", with a single status filter everywhere.
 - Declined and pending rows persist forever (no audit table, no expiry); there is no UI to cancel or list pending invitations.
 - Accepting is only offered through the **notification bell**; a user who disabled notifications is never shown the invitation (issue I-12).
-- The invite request takes an optional role (since 2026-10-09 the Team page sends it); the project page's *Add Member* dialog sends none, so that invitee joins as `MEMBER` and a role change goes through the project page's role picker.
+- The invite request takes an optional role (since 2026-10-09 the Team page sends it, and since 2026-10-14 so does the project page's *Add Member* dialog, which has a *Role in this project* picker with Team Member as the default); a later role change goes through the project page's role picker.
 - `GET /api/project-members/user/{userId}` used to return every status and every project to anyone, exposing membership (and pending invitations) beyond the model; since 2026-10-06 it returns only active memberships in projects the caller belongs to (issue F-13). A membership row's project and user can no longer be changed by update — only its role.
 
 ## Evidence

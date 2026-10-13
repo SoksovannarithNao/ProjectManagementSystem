@@ -6,9 +6,17 @@ import { inviteMember, searchInvitableUsers } from '../api/projectMembers'
 
 const SEARCH_DEBOUNCE_MS = 250
 
+// The roles an invitation can carry (the same three the Team page offers). Owner is not one of
+// them: ownership is transferred, never invited (the project has exactly one Owner).
+const INVITE_ROLES = [
+  { value: 'MEMBER', label: 'Team Member' },
+  { value: 'ADMIN', label: 'Team Leader' },
+  { value: 'VIEWER', label: 'Viewer' },
+]
+
 // Invites a user to one project from its detail page (same POST
 // /api/project-members/invite the Team page uses — the invitee still has to
-// accept, and joins as a MEMBER). Suggestions are searched server-side across
+// accept, and joins with the role chosen here, Team Member by default). Suggestions are searched server-side across
 // every eligible ACTIVE user in the org (not just people the caller already
 // shares a project with) — the backend already leaves out the caller,
 // existing/pending members and INACTIVE/SUSPENDED accounts — and the full
@@ -16,11 +24,12 @@ const SEARCH_DEBOUNCE_MS = 250
 export function AddProjectMemberModal({ projectId, onClose, onInvited }) {
   const notify = useToast()
   const [username, setUsername] = useState('')
+  const [projectRole, setProjectRole] = useState('MEMBER')
   const [suggestions, setSuggestions] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const isDirty = useDirtyForm({ username })
+  const isDirty = useDirtyForm({ username, projectRole })
 
   // Debounced type-ahead. A stale response (the user typed again before it
   // came back) is dropped via the `cancelled` flag. All setState happens in
@@ -50,7 +59,7 @@ export function AddProjectMemberModal({ projectId, onClose, onInvited }) {
     setSubmitting(true)
     setError('')
     try {
-      await inviteMember({ projectId, username: target })
+      await inviteMember({ projectId, username: target, projectRole })
       onInvited?.()
       onClose()
       notify(`Invitation sent to ${target}`, { tone: 'success' })
@@ -85,8 +94,19 @@ export function AddProjectMemberModal({ projectId, onClose, onInvited }) {
                 </option>
               ))}
             </datalist>
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-muted text-[12px] font-semibold">Role in this project</span>
+            <select value={projectRole} onChange={(e) => setProjectRole(e.target.value)} className="field">
+              {INVITE_ROLES.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
             <span className="text-faint text-[12px]">
-              They&apos;ll get an invitation and join as a member once they accept.
+              They&apos;ll get an invitation and join as a {INVITE_ROLES.find((r) => r.value === projectRole).label} once they accept.
             </span>
           </label>
 

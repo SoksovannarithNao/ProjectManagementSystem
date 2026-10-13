@@ -71,7 +71,7 @@ The sidebar entry and page are named **Tasks** (renamed from "My Tasks" on 2026-
 - It needs no backend change: `GET /api/task-assignees` already returns every assignment in the caller's projects, scoped like every other read.
 - A user with no assignments (for example the seeded `admin.system`) sees the empty state "No tasks match your search/filters".
 
-Page behaviour: search matches title, description and project name; search also matches assignee names, priority, status and due date; filters are **status** (multi-select), **priority** (multi-select), **assignee** (or *Unassigned*), **due date** (*Overdue*, *Due today*, *Due in the next 7 days*, *No due date*), project and My Tasks, all combined with AND; sort is *Due date*, *Latest*, *Priority*, *Progress*, *Status* or *Title (A–Z)*. They run in the browser over the tasks the server already limited to the caller. Fully complete projects sink to the bottom.
+Page behaviour: search matches title, description and project name; search also matches assignee names, priority, status and due date; filters are **status** (multi-select), **priority** (multi-select), **assignee** (or *Unassigned*), **due date** (*Overdue*, *Due today*, *Due in the next 7 days*, *No due date*), project and My Tasks, all combined with AND; sort is *Due date*, *Latest*, *Priority*, *Progress*, *Status* or *Title (A–Z)*. They run in the browser over the tasks the server already limited to the caller. `GET /api/tasks` takes the same fields as parameters ([api-reference.md](api-reference.md#9-tasks)). Fully complete projects sink to the bottom.
 
 **Quick views** (since 2026-10-12, the brief's *My Tasks* groups): a bar above the list with **All, Today, Upcoming, In Progress, Completed and Overdue**, each showing how many tasks it holds. A view narrows what the search and the filters (including *My Tasks*) already leave, so *My Tasks* + *Today* is "my tasks due today". *Today* = open tasks due today, *Upcoming* = open tasks due after today, *In Progress* = status In Progress, *Completed* = status Completed, *Overdue* = the server's `overdue` flag; "open" means not Completed or Cancelled. Selecting a view does not count toward the "Filter (N)" badge, and *All* shows everything again.
 
@@ -152,6 +152,7 @@ Events written by code (`ActivityLogService.record` for a task, `recordProjectEv
 | `SUBTASK_ADDED` / `SUBTASK_COMPLETED` / `SUBTASK_DELETED` | subtask events |
 | `COMMENT_ADDED` | a comment or reply is added |
 | `FILE_UPLOADED` | a file is attached to a task or to the project |
+| `WORK_LOGGED` / `WORK_LOG_UPDATED` / `WORK_LOG_DELETED` | a time entry is logged, changed (only when a value changed) or deleted; a delete by someone other than the author names who logged it |
 | `TASK_APPROVAL_REQUESTED` / `TASK_APPROVED` / `TASK_CHANGES_REQUESTED` / `TASK_REJECTED` / `TASK_APPROVER_SET` | the approval workflow |
 | `PROJECT_CREATED` / `PROJECT_UPDATED` / `PROJECT_COMPLETED` | project events (no task link) |
 | `MILESTONE_CREATED` / `MILESTONE_COMPLETED` | milestone events (no task link) |
@@ -159,7 +160,7 @@ Events written by code (`ActivityLogService.record` for a task, `recordProjectEv
 
 Allowed by the database `CHECK` but **never written**: `TASK_COMPLETED` (a completion is recorded as `TASK_APPROVED` and `TASK_STATUS_CHANGED`). There is no per-user feed and no generic audit interceptor. Entries are written inside the same transaction as the change.
 
-Changes to title, description, dates other than due date, estimated hours, project and milestone are not logged, and neither are time logs.
+Changes to title, description, dates other than due date, estimated hours, project and milestone are not logged.
 
 ## 10. Task rules at a glance
 
@@ -185,9 +186,11 @@ Implements the "Estimated Time / Actual Time" part of the assignment (Time Track
 
 - **Estimate** — the optional `estimatedHours` on the task (New Task / Edit Task form).
 - **Actual** — the sum of the task's **work logs** (`work_logs` table; `WorkLog` entity). `TaskResponse.actualHours` is filled from one grouped query for the whole list, so listing tasks does not run a query per task.
-- **Logging** — in the task panel's *Time tracking* section a member types a time (`1h 30m`, `45m`, `1.5`, `2d`), a date (default today, never in the future) and an optional note (≤ 500). One entry is 0.01–24 hours. Anyone who can edit the project's content (`OWNER`/`ADMIN`/`MEMBER`, or a system administrator) can log; a `VIEWER` can read the entries but not add any.
+- **Logging** — in the task panel's *Time tracking* section a member types a time (`1h 30m`, `45m`, `1.5`, `2d`), a date (default today, never in the future; the server accepts a date up to a day ahead of its own, so that someone in a time zone ahead of the server can log "today" just after midnight) and an optional note (≤ 500). One entry is 0.01–24 hours. Anyone who can edit the project's content (`OWNER`/`ADMIN`/`MEMBER`, or a system administrator) can log time **for themselves on any task of the project**, not only on tasks assigned to them (decision D-23, as the permission matrix reads); a `VIEWER` can read the entries but not add any.
 - **Timer** — *Start timer* keeps a clock in the browser (`localStorage`, one running timer per user, survives a reload). *Stop* does not save by itself: it fills the time and date into the form so the person can trim it or add a note. A run under a minute is discarded; one over 24 hours is capped and flagged.
-- **Deleting** — the author, or a holder of `WORK_LOG:DELETE` (Project Manager, Team Leader, administrator), can delete an entry. There is no edit; delete and log again.
+- **Changing** — the pencil on **your own** entry turns it into a small form (time, date, note). Only the author can change an entry, not even an administrator, and only while they can still log time in the project (a `VIEWER` cannot); an entry stays on its task. Saving without a change writes nothing to the feed.
+- **Deleting** — the author, or a holder of `WORK_LOG:DELETE` (Project Manager, Team Leader, administrator), can delete an entry.
+- **Activity** — logging, changing and deleting an entry are written to the task's activity feed (and so the project feed): `WORK_LOGGED`, `WORK_LOG_UPDATED`, `WORK_LOG_DELETED`. They send no notification.
 - **Display** — the panel shows `logged / estimated`, a progress bar and the time left, or in the danger colour how far over the estimate the task is. Task rows and board cards show a small `1h 30m / 13h` chip (danger colour once over).
 
-Not covered: logging does not write to the task's activity history, because `activity_logs.action` has a `CHECK` list with no work-log value (adding one needs a schema migration). Per-person actual hours do appear in the project *Workload* view and the Workload report (`actualHours`, calculated by `TeamViewsService`); the SQL view `v_team_workload` itself is not read by the application.
+Per-person actual hours do appear in the project *Workload* view and the Workload report (`actualHours`, calculated by `TeamViewsService`); the SQL view `v_team_workload` itself is not read by the application.

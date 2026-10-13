@@ -4,6 +4,8 @@ import backend.dto.ProjectLeadRequest;
 import backend.dto.ProjectRequest;
 import backend.dto.ProjectResponse;
 import backend.service.ProjectService;
+import backend.util.PageParams;
+import backend.util.ProjectListQuery;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -21,9 +23,26 @@ public class ProjectController {
         this.projectService = projectService;
     }
 
+    // Every parameter is optional (B1.9, B7.2); filters combine with AND, several values of
+    // status or priority with OR. They only narrow what the caller may already see.
+    // With ?page and/or ?size the answer is a page ({ items, total, page, size }) instead of the
+    // whole list; without them it is the whole list, as before.
     @GetMapping
-    public List<ProjectResponse> getAllProjects(Authentication authentication) {
-        return projectService.getAllProjects(authentication.getName());
+    public Object getAllProjects(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) List<String> priority,
+            @RequestParam(required = false) Long managerId,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            Authentication authentication
+    ) {
+        ProjectListQuery query = new ProjectListQuery(search, status, priority, managerId, sort);
+        PageParams paging = PageParams.of(page, size);
+        return paging == null
+                ? projectService.getAllProjects(authentication.getName(), query)
+                : projectService.getProjectsPage(authentication.getName(), query, paging);
     }
 
     @GetMapping("/{id}")

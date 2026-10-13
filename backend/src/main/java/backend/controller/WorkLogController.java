@@ -11,7 +11,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 // No @PreAuthorize role gates — WorkLogService enforces project access for
-// reads, content-edit rights for logging, and author-or-manager for deletes.
+// reads, content-edit rights for logging, the author alone for changes, and
+// author-or-manager for deletes.
 @RestController
 @RequestMapping("/api/work-logs")
 public class WorkLogController {
@@ -31,6 +32,15 @@ public class WorkLogController {
     @PostMapping
     public WorkLogResponse createWorkLog(@Valid @RequestBody WorkLogRequest request, Authentication authentication) {
         return workLogService.createWorkLog(request, authentication.getName());
+    }
+
+    @PutMapping("/{id}")
+    public WorkLogResponse updateWorkLog(
+            @PathVariable Long id,
+            @Valid @RequestBody WorkLogRequest request,
+            Authentication authentication
+    ) {
+        return workLogService.updateWorkLog(id, request, authentication.getName());
     }
 
     @ResponseStatus(HttpStatus.NO_CONTENT)

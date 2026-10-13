@@ -88,33 +88,33 @@ jobs:
           fi
           echo "All database invariants hold."
 
-      # Mirrors database/init/03-app-role.sh's GRANT list — duplicated (not
-      # sourced) because this job talks to a bare `postgres` service
-      # container directly via psql, not through the postgres Docker image's
-      # own docker-entrypoint-initdb.d mechanism that runs that script
-      # locally/in docker-compose. Keep both in sync if either changes.
+      # Runs the very script the Compose stack runs (database/init/03-app-role.sh), so the role
+      # this job tests with is the role the application uses and its grants live in one place.
+      # The script takes its connection from the postgres image's variables; psql reads the
+      # host and password from PGHOST / PGPASSWORD.
       - name: Create least-privilege app role
+        env:
+          PGHOST: localhost
+          PGPASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: taskmanager_test
+          TASKMANAGER_APP_PASSWORD: taskmanager_app_password
+        run: bash "${{ github.workspace }}/database/init/03-app-role.sh"
+
+      # database/verify_grants.sql lists every table the app role cannot read, apart from the few
+      # that deliberately have no entity. Any output means a new table was added without a GRANT
+      # in 03-app-role.sh, which would otherwise surface as a 500 at run time.
+      - name: Verify the app role can read every table
         env:
           PGPASSWORD: postgres
         run: |
-          psql -h localhost -U postgres -d taskmanager_test -v ON_ERROR_STOP=1 <<-EOSQL
-              CREATE ROLE taskmanager_app LOGIN PASSWORD 'taskmanager_app_password';
-              GRANT CONNECT ON DATABASE taskmanager_test TO taskmanager_app;
-              GRANT USAGE ON SCHEMA public TO taskmanager_app;
-              GRANT SELECT, INSERT, UPDATE, DELETE ON
-                  roles, users, projects, project_members, milestones,
-                  tasks, task_assignees, task_dependencies, notifications,
-                  otp_verifications, positions, departments, subtasks, comments,
-                  activity_logs, work_logs, role_permissions, task_approvals,
-                  attachments, attachment_contents, checklist_items
-                  TO taskmanager_app;
-              GRANT SELECT ON permissions TO taskmanager_app;
-              GRANT SELECT, INSERT ON audit_logs TO taskmanager_app;
-              GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO taskmanager_app;
-              GRANT EXECUTE ON FUNCTION fn_compute_project_progress(BIGINT) TO taskmanager_app;
-              GRANT EXECUTE ON FUNCTION fn_compute_milestone_progress(BIGINT) TO taskmanager_app;
-              GRANT EXECUTE ON FUNCTION fn_generate_overdue_notifications() TO taskmanager_app;
-          EOSQL
+          output=$(psql -h localhost -U postgres -d taskmanager_test -t -A -f "${{ github.workspace }}/database/verify_grants.sql")
+          if [ -n "$output" ]; then
+            echo "::error::These tables have no GRANT for taskmanager_app - add one to database/init/03-app-role.sh (or list the table in database/verify_grants.sql if the backend must not touch it):"
+            echo "$output"
+            exit 1
+          fi
+          echo "The app role can read every table."
 
       - name: Build & test
         env:

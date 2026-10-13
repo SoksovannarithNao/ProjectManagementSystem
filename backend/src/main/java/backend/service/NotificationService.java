@@ -1,13 +1,18 @@
 package backend.service;
 
 import backend.dto.NotificationResponse;
+import backend.dto.PageResponse;
 import backend.entity.Notification;
 import backend.entity.ProjectMember;
 import backend.entity.Task;
 import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.NotificationRepository;
+import backend.util.PageParams;
 import backend.util.TextFormat;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +37,17 @@ public class NotificationService {
                 .stream()
                 .map(NotificationResponse::new)
                 .toList();
+    }
+
+    // The bell lists the newest first and asks for more a page at a time (?page / ?size). The id
+    // breaks ties between notifications created in the same instant, so no page repeats or skips one.
+    @Transactional(readOnly = true)
+    public PageResponse<NotificationResponse> getMyNotificationsPage(String username, PageParams paging) {
+        User user = userService.getUserEntityByUsername(username);
+        Page<Notification> found = notificationRepository.findByUserId(user.getId(),
+                PageRequest.of(paging.getPage(), paging.getSize(), Sort.by(Sort.Direction.DESC, "createdAt", "id")));
+        return new PageResponse<>(found.getContent().stream().map(NotificationResponse::new).toList(),
+                found.getTotalElements(), paging.getPage(), paging.getSize());
     }
 
     @Transactional(readOnly = true)

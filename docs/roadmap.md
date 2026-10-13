@@ -1,6 +1,6 @@
 # Feature & Development Roadmap
 
-What is built, what is incomplete, and what the project's own documents say comes next. Compiled **2026-10-06**; rows brought up to date with the code on **2026-10-09** (change-plan batches 1–3c), **2026-10-10** and **2026-10-12** (a full documentation pass).
+What is built, what is incomplete, and what the project's own documents say comes next. Compiled **2026-10-06**; rows brought up to date with the code on **2026-10-09** (change-plan batches 1–3c), **2026-10-10**, **2026-10-12** and **2026-10-14** (full documentation passes).
 
 **Rule used:** a feature is **Done** only when the UI, the backend API **and** the database all support it end to end. A screen that exists without a working backing is **Partial**. Test coverage is reported separately, because a feature can work without being tested.
 
@@ -26,7 +26,7 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 
 | Feature | Status | UI | API | DB | Tests | Notes / gap |
 |---|---|---|---|---|---|---|
-| Login with JWT, rate limiting | Done | ✓ | ✓ | ✓ | Partial | e2e login tests and the per-request account check are tested; `JwtService` and `LoginRateLimiter` untested. Username **or e-mail** since 2026-10-09; auto-logout after 15 idle minutes with a 60-second warning since 2026-10-12 (`idle-and-updates.spec.js`). A deactivated account's token is rejected immediately (fixed 2026-10-06) |
+| Login with JWT, rate limiting | Done | ✓ | ✓ | ✓ | Partial | e2e login tests, the per-request account check and the refresh session (`session.spec.js`, `RefreshTokenServiceTest`, `AuthServiceTest`) are tested; `LoginRateLimiter` untested. Username **or e-mail** since 2026-10-09; auto-logout after 15 idle minutes with a 60-second warning since 2026-10-12 (`idle-and-updates.spec.js`). A deactivated account's token is rejected immediately (fixed 2026-10-06). Since 2026-10-14 a 15-minute access token in memory is renewed from a 7-day httpOnly refresh cookie that sign-out and a password change delete (D-24) |
 | Self-registration with emailed OTP | Done | ✓ | ✓ | ✓ | None | Mailpit locally; no cleanup of unverified accounts |
 | Profile, password change, photo, theme, notification preference | Done | ✓ | ✓ | ✓ | None | |
 | Password policy and live checklist | Done | ✓ | ✓ | — | None | UI + backend; manually verified only |
@@ -46,7 +46,7 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | Pending-invitation count | Done | ✓ managers | ✓ | ✓ | Good | No list/cancel UI (I-13) |
 | Invitable-user search and eligibility rules | Done | ✓ | ✓ | ✓ | Good | |
 | Member removal | Done | ✓ Team page | ✓ | ✓ | None | |
-| Member role assignment | Done (2026-10-09) | ✓ role picker, ownership transfer | ✓ | ✓ | e2e | The Team page invites with a chosen role; the project page's *Add Member* dialog sends none, so the invitee joins as `MEMBER` and the role is changed afterwards |
+| Member role assignment | Done (2026-10-09) | ✓ role picker, ownership transfer | ✓ | ✓ | e2e | Both the Team page and (since 2026-10-14) the project page's *Add Member* dialog invite with a chosen role; the role can be changed afterwards |
 | Exactly one owner per project | Done | ✓ | ✓ | ✓ deferred trigger | Good | Replaced "last-owner protection" in `V10` |
 
 ### Tasks and planning
@@ -58,8 +58,8 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | *My Tasks* filter (assignee-based) | Done | ✓ | ✓ existing | — | None | Manually verified against live data |
 | Subtasks and subtask-driven progress | Done | ✓ | ✓ | ✓ triggers | None | |
 | Task dependencies and blocked state | Done | ✓ | ✓ | ✓ triggers | None | Cross-project dependencies not prevented (I-15) |
-| Comments | Partial | add/edit/delete/reply | ✓ incl. replies | ✓ | e2e | No notification (2026-10-09: replies in the UI) |
-| Activity feed (task, project, recent) | Done (2026-10-09) | ✓ | ✓ | ✓ | Good | Task, project, milestone, comment, file and approval events are written; time logs are not |
+| Comments | Done | add/edit/delete/reply, @mentions | ✓ incl. replies | ✓ | e2e | Replies in the UI (2026-10-09); the people around the task are notified (2026-10-12); @mentions (2026-10-13) |
+| Activity feed (task, project, recent) | Done (2026-10-09) | ✓ | ✓ | ✓ | Good | Task, project, milestone, comment, file and approval events are written, and since 2026-10-13 time-log events too |
 | Task approval workflow | Done (2026-10-09) | ✓ | ✓ | ✓ `V12` | Good | Request, designated approver, Approved / Changes requested / Rejected |
 | Attachments and checklists | Done (2026-10-09) | ✓ | ✓ | ✓ `V13` | Good | 10 MB, 25 per target, type allow-list; checklist items count in progress |
 | Milestones | Done (2026-10-12) | add / edit / delete | ✓ full CRUD | ✓ | Good | Edit form with a warning when completing with open tasks; shown on the calendar; no picker on the task forms |
@@ -68,7 +68,7 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | Help & Support page | Done (2026-10-10) | ✓ page (was a modal) | — | — | e2e | Static FAQ, corrected and extended |
 | Gantt chart prototype | Done (2026-10-10) | ✓ | uses `/tasks`, `/task-dependencies` | ✓ | e2e | Duration bars, dependency arrows, conflict warning, overlap fading; open to every member; no dragging |
 | Calendar (month/week/day) | Done (2026-10-12) | ✓ | uses `/tasks` and `/milestones` | ✓ | Partial | Task due dates and milestones; only the milestones are covered by a test |
-| Task and project search / filter / sort | Done in the browser (2026-10-09) | ✓ | client-side | — | e2e | Tasks: search, filter by priority, status, project, assignee, due date and My Tasks, six sorts, and (2026-10-12) quick views for Today, Upcoming, In Progress, Completed and Overdue plus a *Due soon* flag on tasks due within 3 days. Projects: search incl. manager and status, filters, sort. The list endpoints take no filter parameters (G-16) |
+| Task and project search / filter / sort | Done in the browser (2026-10-09) | ✓ | client-side | — | e2e | Tasks: search, filter by priority, status, project, assignee, due date and My Tasks, six sorts, and (2026-10-12) quick views for Today, Upcoming, In Progress, Completed and Overdue plus a *Due soon* flag on tasks due within 3 days. Projects: search incl. manager and status, filters, sort. Since 2026-10-13 the project and task list endpoints take the same search, filter and sort fields as parameters (G-16); the screens still filter in the browser |
 | Overdue detection | Done (notices 2026-10-10) | ✓ badge | ✓ computed | ✓ view | Good | Overdue is computed (`util/Derived`); a daily job sends the overdue notice and the 3- and 1-day reminders (`DeadlineNotificationService`, 16 unit tests); the DB function is no longer used by the app |
 | Dashboard | Done (2026-10-09) | ✓ | `/dashboard/stats`, `/activity-logs/recent`, `/workload` | — | e2e | project counts incl. Delayed, recent activity, manager workload; KPIs are separate |
 
@@ -77,7 +77,7 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | Feature | Status | UI | API | DB | Tests | Notes / gap |
 |---|---|---|---|---|---|---|
 | In-app notifications (bell, read, dismiss) | Done (2026-10-12) | ✓ | ✓ | ✓ | Good | All 12 types produced (assignment, status change, approval requested / decided, invitation and response, deadline reminders and overdue notices since 2026-10-10, since 2026-10-12 comments, project updates and milestone updates, and since 2026-10-13 @mentions); none for a member added or removed (D-10); no live refresh |
-| Reports page | Done | ✓ | `/api/reports/*` | views unused | Good | Overview charts, the KPIs and the seven named reports (2026-10-09); `ReportServiceTest` (25) and `reports.spec.js` (13), the Overview charts are untested; every report and the KPIs can be saved as an Excel or PDF file (2026-10-13, `report-export.spec.js`) |
+| Reports page | Done | ✓ | `/api/reports/*` | views unused | Good | Overview charts, the KPIs and the seven named reports (2026-10-09); `ReportServiceTest` (25) and `reports.spec.js` (14), only the Overview workload chart is tested; every report and the KPIs can be saved as an Excel or PDF file (2026-10-13, `report-export.spec.js`) |
 | Workload view | Done (2026-10-09) | ✓ | `/projects/{id}/workload`, `/workload` | computed in Java | unit + e2e | assigned / active / overdue, estimated and actual hours, overloaded / underloaded (D-13) |
 
 ### Platform and delivery
@@ -105,10 +105,11 @@ Database tables exist for several of these, but **no entity, API or UI**:
 | PDF / Excel export of reports | `report_exports` table | Built 2026-10-13 in the browser; no endpoint, so the table stays unused |
 | ~~KPI calculation~~ | done 2026-10-09 | `GET /api/reports/kpis`, calculated live; `kpi_snapshots` is still never written |
 | ~~Gantt chart~~ | done 2026-10-10 (prototype) | `GanttChart.jsx`, the project's *Gantt* tab; no backend |
-| Refresh tokens, forgot-password | — | Listed as future work in the READMEs (auto-logout was built 2026-10-12) |
+| Refresh tokens | Done (2026-10-14) | ✓ | ✓ | ✓ `refresh_tokens` (`V20`) | unit + e2e | A 15-minute access token in memory, renewed from a 7-day httpOnly cookie; sign-out and a password change delete it (D-24) |
+| Forgot-password | — | Listed as future work in the READMEs (auto-logout was built 2026-10-12) |
 | Administrator audit log | Done (2026-10-13) | `audit_logs` (`V16`), `GET /api/audit-logs`, *Administration → Audit log* | Optional ("may") item; `audit-log.spec.js`, `AuditLogServiceTest` |
 | ~~Server-side report endpoints~~ | Done 2026-10-09 | `GET /api/reports/*` check `REPORT:GENERATE_REPORTS` on the server |
-| Pagination and server-side search/filter | — | Listed in the READMEs; filtering runs in the browser (G-16) |
+| Pagination | Partly done (2026-10-14) | Undefined in the specification (B7 item 6); optional `page` / `size` on the project, task and notification lists (D-25), used by the notification bell; the screens that group, chart or count a whole list still read it whole. Server-side search, filter and sort exist on the project and task lists since 2026-10-13 (G-16) |
 
 ## 3. Planned work recorded by the project
 
@@ -118,14 +119,14 @@ From the root `README.md` (*Future Enhancements*), `backend.md` (*Next Steps*), 
 2. ~~Server-side report endpoints gated by `REPORT:GENERATE_REPORTS`~~ — done 2026-10-09 (the matrix itself became data-driven on 2026-10-08, [ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md)).
 3. ~~Scheduled job for overdue notices and deadline reminders~~ — done 2026-10-10 (`DeadlineScheduler`).
 4. ~~Remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `MILESTONE_UPDATED`)~~ — done 2026-10-12 (`UpdateNotificationService`).
-5. Pagination, search and filtering on list endpoints.
+5. ~~Pagination, search and filtering on list endpoints~~ (done on the project, task and notification lists, 2026-10-13 / 2026-10-14).
 6. Flyway in CI and a production deployment (locally the Compose `migrate` service runs it).
 7. ~~Entities and controllers for `checklist_items`, `attachments`, `work_logs`.~~ Done.
 8. ~~Endpoints over the reporting views~~ — the reports are calculated in Java instead (2026-10-09); `kpi_snapshots` remains, and `report_exports` stays unused (the export is made in the browser, 2026-10-13).
 9. More backend tests (controller and repository). ~~Playwright in CI~~ — done 2026-10-12.
 10. A deploy target for the CD pipeline.
 11. ~~A project-wide activity feed~~ — done 2026-10-09; ~~an administrator audit view~~ — done 2026-10-13.
-12. ~~Closing the CI vs `03-app-role.sh` grant drift~~ — the lists match (21 tables plus `audit_logs`, checked 2026-10-13).
+12. ~~Closing the CI vs `03-app-role.sh` grant drift~~ (since 2026-10-14 CI runs the script itself and `verify_grants.sql` fails the build for an ungranted table) — the lists match (22 read-write tables plus `audit_logs`, checked 2026-10-14).
 
 Requirement-document items that are **not** on any of the project's own lists (so there is no stated plan for them): none. (Kanban drag-and-drop was on this list until 2026-10-13; email login and the per-member Team Tasks view were on this list until 2026-10-09; the "Today / Upcoming" task views, calendar milestones, the project completion date and editing a milestone until 2026-10-12.)
 
@@ -159,6 +160,6 @@ Not a commitment — an ordering derived from the risks and gaps found. Items re
 |---|---|---|---|
 | 1 | ~~Close the data-isolation and permission holes~~ **Done 2026-10-06** | I-01 … I-07 (now F-12 … F-18) | Fixed with tests. Follow-up: extend to a full role × action test for every write endpoint; guard the system roles (I-10) |
 | 2 | **Make the demo flow complete** | ~~named reports~~, ~~dashboard project counts~~, ~~email login~~ (all done 2026-10-09); ~~deadline/overdue notifications~~ (done 2026-10-10); ~~comment notifications~~ (done 2026-10-12) | The requirement flow expects reminders |
-| 3 | **Finish half-built features** | pending-invitation list/cancel, ~~admin user screens (edit / deactivate / delete)~~ (done 2026-10-13), a role picker in the project page's Add Member dialog (~~role assignment UI~~, ~~comment replies~~, ~~search/filter/sort~~, ~~milestone edit + calendar milestones~~, ~~project completion date~~, ~~"Today / Upcoming" views~~ are done) | Each is a small gap in an otherwise working feature |
+| 3 | **Finish half-built features** | pending-invitation list/cancel, ~~admin user screens (edit / deactivate / delete)~~ (done 2026-10-13), ~~a role picker in the project page's Add Member dialog~~ (done 2026-10-14) (~~role assignment UI~~, ~~comment replies~~, ~~search/filter/sort~~, ~~milestone edit + calendar milestones~~, ~~project completion date~~, ~~"Today / Upcoming" views~~ are done) | Each is a small gap in an otherwise working feature |
 | 4 | **Quality and delivery** | ~~Playwright in CI~~ (done 2026-10-12), service/controller tests, fix migration drift, regenerate OpenAPI (~~CI grants~~ are in step) | Protects everything above |
 | 5 | **Optional modules** | ~~report export~~, ~~@mentions~~, ~~audit view~~, ~~Kanban drag-and-drop~~, document management (~~attachments~~, ~~time tracking~~, ~~KPIs~~, ~~Gantt~~ are done) | The requirement documents mark most of these as optional |

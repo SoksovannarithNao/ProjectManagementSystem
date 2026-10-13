@@ -1,6 +1,6 @@
 # Checklist — Partially Done (0 items)
 
-Audit date: 2026-10-08, synchronised with the code 2026-10-13 · Compared against [assignment-brief.md](../../assignment-brief.md) and [project-workflow.md](../../project-workflow.md). Roles, permissions, approval and the open decisions follow the approved specification in the brief's Part B (updated 2026-10-08).
+Audit date: 2026-10-08, synchronised with the code 2026-10-14 · Compared against [assignment-brief.md](../../assignment-brief.md) and [project-workflow.md](../../project-workflow.md). Roles, permissions, approval and the open decisions follow the approved specification in the brief's Part B (updated 2026-10-08).
 Sibling lists: [done.md](done.md) · [not_done.md](not_done.md) · [not_fully_satisfy.md](not_fully_satisfy.md) · [unclear.md](unclear.md).
 
 These requirements are implemented but incomplete, or have an issue. Each row says what exists, what is missing, and what is still needed. Item numbers are shared by every file in this folder. Items finished since the first audit are in [done.md](done.md).
@@ -12,11 +12,9 @@ These requirements are implemented but incomplete, or have an issue. Each row sa
 
 Differences between the application and the approved specification that are not separate requirements in the audit above. Source: [assignment-brief.md](../../assignment-brief.md) §B13.1.
 
-**Still open**
+**Still open:** none.
 
-| ID | Gap | Brief |
-|---|---|---|
-| G-16 | The list endpoints take no filter or search parameters; filtering runs in the browser over the already-scoped list | §B13.1 |
+**Resolved on 2026-10-13 (server-side search, filter and sort, backend only, verified live; recorded in [done.md](done.md) #36):** G-16 `GET /api/projects` and `GET /api/tasks` take the B1.9 search, filter and sort fields as optional parameters, applied after the permission scoping. Pagination stays undefined (B7 item 6).
 
 **Resolved on 2026-10-13 (@mentions and report export, migration `V18`, verified live; moved to [done.md](done.md)):** G-14, the last optional features: @mentions in comments (D-21) and report export to Excel and PDF from every report and the KPIs (D-22). Only document management (#42) stays unbuilt.
 

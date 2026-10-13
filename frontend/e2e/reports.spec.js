@@ -208,6 +208,37 @@ test.describe('reports: UI', () => {
     }
   })
 
+  test('the Overview workload chart shows the server figures of a project for a manager, and is hidden from a member', async ({ page, request }) => {
+    const pm = await apiLogin(request, 'pm.olivia')
+    const { project } = await seed(request, pm, `e2e reports workload ${Date.now()}-${Math.floor(Math.random() * 1e6)}`)
+    try {
+      await login(page, 'pm.olivia')
+      await page.goto('/reports')
+      await page.getByRole('button', { name: /Filter/ }).click()
+      await page.getByRole('button', { name: project.name }).click()
+      const chart = page.getByTestId('workload-chart')
+      await expect(chart).toBeVisible()
+      // Chen holds the one assigned task; the legend names the three counts of the server's workload
+      await expect(chart.getByText('Chen', { exact: true })).toBeVisible()
+      for (const label of ['Assigned', 'Active', 'Overdue']) {
+        await expect(chart.getByText(label, { exact: true })).toBeVisible()
+      }
+      // the same numbers the Workload report returns
+      const load = await (await get(request, pm, 'workload', { projectId: project.id })).json()
+      const chen = load.workload.members.find((m) => m.user.username === 'dev.chen')
+      expect([chen.assigned, chen.overdue]).toEqual([1, 1])
+
+      // a Team Member cannot open the Reports page at all, and so never sees the chart
+      const memberPage = await page.context().browser().newPage()
+      await login(memberPage, 'dev.chen')
+      await memberPage.goto('/reports')
+      await expect(memberPage.getByTestId('workload-chart')).toHaveCount(0)
+      await memberPage.close()
+    } finally {
+      await request.delete(`/api/projects/${project.id}`, { headers: pm })
+    }
+  })
+
   test('generating the Task Report, Overdue report and KPIs shows the server figures', async ({ page, request }) => {
     const pm = await apiLogin(request, 'pm.olivia')
     const { project } = await seed(request, pm, `e2e reports ui ${Date.now()}-${Math.floor(Math.random() * 1e6)}`)

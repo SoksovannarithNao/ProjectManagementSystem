@@ -126,7 +126,7 @@ After the seven quick fixes ([change-plan.md](change-plan.md) §3) and migration
 | 1 Login & authentication | PARTIAL | **PASS** | signing in with the e-mail address works (any letter case) on the form and through the API; a wrong password by e-mail and an unknown e-mail both give `401 "Invalid username or password"` |
 | 2 User profile | PARTIAL | **PASS** | the Profile page lists the managed positions and departments; saving stores them; an id outside the lists is `404`; no "+ Add New" is offered |
 | 13 Task assignment | PARTIAL | **PASS** | the notification read `Olivia Bennett assigned you to "Batch1 live check" in "Website Redesign" — due 2026-12-22` |
-| 23 Search, filter, sort | PARTIAL | **PASS** *(in the browser)* | projects filter by status, priority and manager and sort by name, dates, priority, progress; tasks filter by status, priority, assignee, due date and project and sort by latest, due date, priority, progress, status. They run over the lists the server already scoped to the caller. The list endpoints themselves still take no filter parameters (brief G-16) |
+| 23 Search, filter, sort | PARTIAL | **PASS** *(in the browser)* | projects filter by status, priority and manager and sort by name, dates, priority, progress; tasks filter by status, priority, assignee, due date and project and sort by latest, due date, priority, progress, status. They run over the lists the server already scoped to the caller. The list endpoints themselves took no filter parameters then; they do since 2026-10-13 (brief G-16, §21) |
 | 15 Task status | PARTIAL | PARTIAL | the labels are now Completed / In Review; there is still no approval record or Approved / Changes requested / Rejected |
 | 19 Kanban | PARTIAL | PARTIAL | columns are To Do, In Progress, In Review, Completed (+ Blocked); cards are still not draggable (optional) |
 | 5 Dashboard | PARTIAL | PARTIAL | the overview says In Review; project statistics, Delayed projects and KPIs are still missing |
@@ -287,3 +287,53 @@ No flow changed state, but one defect turned up while the whole suite was run on
 | 19 Kanban board | PARTIAL | **PASS** | a card is dragged to another column, or moved from its *Move to* menu; both use the task panel's status change, so the approval workflow, the dependency gate and the open-subtask rule still apply. A Team Member moves their own cards (to In Review, which opens the approval request) but cannot complete one (the screen says so, the server answers `403`); a blocked task will not start and names what blocks it; a Viewer has no handle and no menu. Checking it against the rest of the system found two holes that the task panel had too, now closed for every way of changing a status (D-18, `V17`): a prerequisite could be reopened under a dependant that had started (the invariant of flow 15 rule 8 seen from the other side), and a task completed from the panel kept its old progress while a reopened one stayed at 100%. Also found: a task list could fail with a `500` when a project was deleted at the same moment (F-45) |
 
 **New totals (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **397/397**; frontend unit tests **166/166**; Playwright **194/194** at 4 workers (four runs in a row); ESLint clean.
+
+## 21. Re-test after the server-side list queries (2026-10-13)
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 23 Search, filter, sort | PASS *(in the browser)* | **PASS** | `GET /api/projects` and `GET /api/tasks` also take the B1.9 search, filter and sort fields as parameters (brief G-16). Checked live as an Administrator (10 projects, 98 tasks) and as a member of 2 projects (22 tasks): a task search returned only tasks from the caller's own list, `DELAYED` finds the one late project, `due=overdue` returns only overdue tasks, and an unknown status, priority, due or sort answers `400` |
+
+**New totals (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **413/413**; the front end was not changed, so the frontend unit tests (166) and Playwright (194) were not re-run for this batch.
+
+## 22. Re-test after the Reports workload chart (2026-10-13)
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 30 Team workload | PASS | **PASS** | the Reports *Overview* chart, which only counted tasks per person, now shows assigned, active and overdue tasks per member from the server's workload figures, with the estimated and actual hours and the load level in the tooltip; it is shown to people who may assign tasks |
+
+**New totals (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **413/413** (not changed); frontend unit tests **166/166** (not changed); Playwright **195/195** at 4 workers (once, after the change); ESLint clean.
+
+## 23. Re-test after the time-log edit (2026-10-13)
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 29 Time tracking | PASS | **PASS** | an entry can be changed by its author (an administrator or manager is refused, `403`) and logging, changing and deleting are written to the task and project activity feeds (migration `V19`) |
+
+**New totals (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **420/420**; frontend unit tests **166/166** (not changed); Playwright **197/197** at 4 workers (once, after the change); ESLint clean.
+
+## 24. Re-test after the invite role and the work-date fix (2026-10-14)
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 8 Project team management | PASS | **PASS** | the project page's *Add member* dialog now chooses the role (Team Member, Team Leader or Viewer; never Owner) instead of always inviting a Team Member |
+| 29 Time tracking | PASS | **PASS** | a person whose calendar date is already one day ahead of the server's (just after midnight, east of the server) can log "today": the server accepts a work date up to a day ahead of its own |
+
+**New totals (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **421/421**; frontend unit tests **166/166** (not changed); Playwright **198/198** at 4 workers (twice in a row); ESLint clean.
+
+## 25. Re-test after the sign-in session rework (2026-10-14)
+
+| § | Before | After | Why |
+|---|---|---|---|
+| A1 Registration / sign-in | PASS | **PASS** | the access token is a 15-minute JWT kept in memory only and an httpOnly refresh cookie renews it, so a person is no longer signed out after an hour; signing out and a changed or reset password end the session on the server (risk R-4) |
+| A3 Session & auto-logout | PASS | **PASS** | the 15-minute idle auto-logout is unchanged and signing out through it now also deletes the refresh token |
+
+**New totals (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **438/438**; frontend unit tests **172/172**; Playwright **204/204** at 4 workers (twice in a row); ESLint clean.
+
+## 26. Re-test after the optional paging (2026-10-14)
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 26 Notifications | PASS | **PASS** | the bell shows the newest 20 and loads older ones on request (*Show more*), with the unread count taken from the server, so a long history is not fetched whole (risk R-5, D-25) |
+
+**New totals (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **447/447**; frontend unit tests **172/172**; Playwright **208/208** at 4 workers (twice in a row); ESLint clean.

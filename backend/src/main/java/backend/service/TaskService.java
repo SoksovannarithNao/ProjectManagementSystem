@@ -1,5 +1,6 @@
 package backend.service;
 
+import backend.dto.PageResponse;
 import backend.dto.TaskRequest;
 import backend.dto.TaskResponse;
 import backend.entity.Milestone;
@@ -19,6 +20,8 @@ import backend.repository.TaskDependencyRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
 import backend.repository.WorkLogRepository;
+import backend.util.PageParams;
+import backend.util.TaskListQuery;
 import backend.util.TextFormat;
 import backend.security.Action;
 import backend.security.Resource;
@@ -29,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -91,7 +95,20 @@ public class TaskService {
     // enforces this), so project membership alone is a strict superset of
     // "tasks assigned to me" — no separate assignee-based clause is needed.
     @Transactional(readOnly = true)
-    public List<TaskResponse> getAllTasks(String username) {
+    public List<TaskResponse> getAllTasks(String username, TaskListQuery query) {
+        return toResponses(matching(username, query, false));
+    }
+
+    // The same list one page at a time (?page / ?size): the filter and sort run first, so the
+    // page and the total both describe what matches, and only the tasks of the page are built
+    // into responses. Without a sort the order is by id, so that a page is the same page every time.
+    @Transactional(readOnly = true)
+    public PageResponse<TaskResponse> getTasksPage(String username, TaskListQuery query, PageParams paging) {
+        List<Task> matched = matching(username, query, true);
+        return new PageResponse<>(toResponses(paging.slice(matched)), matched.size(), paging.getPage(), paging.getSize());
+    }
+
+    private List<Task> matching(String username, TaskListQuery query, boolean orderedById) {
         User caller = userRepository.findByUsername(username)
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
@@ -102,8 +119,18 @@ public class TaskService {
             List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
             tasks = taskRepository.findByProjectIdIn(visibleProjectIds);
         }
+        if (orderedById) {
+            tasks = tasks.stream().sorted(Comparator.comparing(Task::getId)).toList();
+        }
 
-        return toResponses(tasks);
+        // Search, filter and sort come last, over the tasks the caller may already see.
+        Map<Long, List<User>> assignees = new HashMap<>();
+        if (query.needsAssignees() && !tasks.isEmpty()) {
+            for (TaskAssignee ta : taskAssigneeRepository.findByTaskIdIn(tasks.stream().map(Task::getId).toList())) {
+                assignees.computeIfAbsent(ta.getTask().getId(), k -> new ArrayList<>()).add(ta.getUser());
+            }
+        }
+        return query.apply(tasks, assignees);
     }
 
     @Transactional(readOnly = true)

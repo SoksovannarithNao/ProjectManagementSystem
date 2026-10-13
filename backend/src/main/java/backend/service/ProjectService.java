@@ -1,5 +1,6 @@
 package backend.service;
 
+import backend.dto.PageResponse;
 import backend.dto.ProjectRequest;
 import backend.dto.ProjectResponse;
 import backend.entity.Project;
@@ -13,10 +14,13 @@ import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
 import backend.security.Action;
 import backend.security.Resource;
+import backend.util.PageParams;
+import backend.util.ProjectListQuery;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -57,7 +61,21 @@ public class ProjectService {
     // add the designated manager as a project_member, so a Project Manager
     // still sees the projects they manage.
     @Transactional(readOnly = true)
-    public List<ProjectResponse> getAllProjects(String username) {
+    public List<ProjectResponse> getAllProjects(String username, ProjectListQuery query) {
+        return matching(username, query, false).stream().map(ProjectResponse::new).toList();
+    }
+
+    // The same list one page at a time (?page / ?size): the filter and sort run first, so the
+    // page and the total both describe what matches. Without a sort the order is by id, so that
+    // a page is the same page every time.
+    @Transactional(readOnly = true)
+    public PageResponse<ProjectResponse> getProjectsPage(String username, ProjectListQuery query, PageParams paging) {
+        List<Project> matched = matching(username, query, true);
+        return new PageResponse<>(paging.slice(matched).stream().map(ProjectResponse::new).toList(),
+                matched.size(), paging.getPage(), paging.getSize());
+    }
+
+    private List<Project> matching(String username, ProjectListQuery query, boolean orderedById) {
         User caller = userRepository.findByUsername(username)
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
@@ -68,8 +86,12 @@ public class ProjectService {
             List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
             projects = projectRepository.findByIdIn(visibleProjectIds);
         }
+        if (orderedById) {
+            projects = projects.stream().sorted(Comparator.comparing(Project::getId)).toList();
+        }
 
-        return projects.stream().map(ProjectResponse::new).toList();
+        // Search, filter and sort come last, over the projects the caller may already see.
+        return query.apply(projects);
     }
 
     @Transactional(readOnly = true)

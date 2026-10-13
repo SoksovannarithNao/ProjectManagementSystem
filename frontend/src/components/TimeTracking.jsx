@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Play, Square, Trash2, AlertTriangle, Clock } from 'lucide-react'
+import { Play, Square, Trash2, AlertTriangle, Clock, Pencil } from 'lucide-react'
 import { ProgressBar } from './ui/ProgressBar'
 import { useToast } from './ui/Toast'
 import { useApi } from '../api/useApi'
-import { getWorkLogsByTask, createWorkLog, deleteWorkLog } from '../api/workLogs'
+import { getWorkLogsByTask, createWorkLog, updateWorkLog, deleteWorkLog } from '../api/workLogs'
 import { parseDuration, formatHours, formatClock, localDateString } from '../api/duration'
 import { formatDate } from '../api/format'
 
@@ -37,6 +37,7 @@ const MAX_ENTRY_HOURS = 24
 // & Work Logs"): a summary bar, a start/stop timer, a manual entry form and
 // the list of entries. `canLog` is the same OWNER/ADMIN/MEMBER rule the
 // backend enforces; `canManage` lets a project manager delete anyone's entry.
+// Only the author changes an entry (the pencil on their own rows).
 export function TimeTracking({ task, canLog, canManage, currentUserId, onChange }) {
   const notify = useToast()
   const logsFetcher = useCallback(() => getWorkLogsByTask(task.id), [task.id])
@@ -52,6 +53,8 @@ export function TimeTracking({ task, canLog, canManage, currentUserId, onChange 
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
+  // The entry being changed: { id, duration, workDate, note, error, saving }.
+  const [editing, setEditing] = useState(null)
   const durationRef = useRef(null)
 
   const timerOnThisTask = timer?.taskId === task.id
@@ -137,6 +140,52 @@ export function TimeTracking({ task, canLog, canManage, currentUserId, onChange 
       setFormError(err.message || 'Could not save the time entry.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const startEdit = (log) => {
+    setPendingDelete(null)
+    setEditing({
+      id: log.id,
+      duration: formatHours(Number(log.hoursWorked)),
+      workDate: log.workDate,
+      note: log.description ?? '',
+      error: '',
+      saving: false,
+    })
+  }
+
+  const patchEditing = (changes) => setEditing((prev) => (prev ? { ...prev, ...changes } : prev))
+
+  const saveEdit = async (e) => {
+    e.preventDefault()
+    const hours = parseDuration(editing.duration)
+    if (hours == null || hours <= 0) {
+      patchEditing({ error: 'Enter a time like 1.5, 1h 30m or 45m.' })
+      return
+    }
+    if (hours > MAX_ENTRY_HOURS) {
+      patchEditing({ error: 'A single entry cannot exceed 24 hours.' })
+      return
+    }
+    if (!editing.workDate || editing.workDate > today) {
+      patchEditing({ error: 'The date cannot be in the future.' })
+      return
+    }
+    patchEditing({ saving: true, error: '' })
+    try {
+      await updateWorkLog(editing.id, {
+        taskId: task.id,
+        workDate: editing.workDate,
+        hoursWorked: hours,
+        description: editing.note.trim() || null,
+      })
+      setEditing(null)
+      refetch()
+      onChange?.()
+      notify('Time entry updated.')
+    } catch (err) {
+      patchEditing({ saving: false, error: err.message || 'Could not save the time entry.' })
     }
   }
 
@@ -259,6 +308,60 @@ export function TimeTracking({ task, canLog, canManage, currentUserId, onChange 
           {logs.map((log) => {
             const mine = log.userId === currentUserId
             const canDelete = mine || canManage
+            const canEdit = mine && canLog
+            if (editing?.id === log.id) {
+              return (
+                <li key={log.id} className="border-divider border-b py-2.5 last:border-b-0">
+                  <form onSubmit={saveEdit} className="flex flex-col gap-2.5" noValidate aria-label="Change time entry">
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <label className="flex min-w-0 flex-col gap-1.5">
+                        <span className="text-muted text-[12px] font-semibold">Time spent</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={editing.duration}
+                          onChange={(e) => patchEditing({ duration: e.target.value })}
+                          className="field field-sm w-full"
+                          autoComplete="off"
+                          autoFocus
+                        />
+                      </label>
+                      <label className="flex min-w-0 flex-col gap-1.5">
+                        <span className="text-muted text-[12px] font-semibold">Date</span>
+                        <input
+                          type="date"
+                          value={editing.workDate}
+                          max={today}
+                          onChange={(e) => patchEditing({ workDate: e.target.value })}
+                          className="field field-sm w-full"
+                          required
+                        />
+                      </label>
+                    </div>
+                    <label className="flex flex-col gap-1.5">
+                      <span className="text-muted text-[12px] font-semibold">Note (optional)</span>
+                      <input
+                        type="text"
+                        value={editing.note}
+                        maxLength={500}
+                        onChange={(e) => patchEditing({ note: e.target.value })}
+                        className="field field-sm w-full"
+                        autoComplete="off"
+                      />
+                    </label>
+                    {editing.error && <p className="text-danger-ink text-[12px] font-semibold">{editing.error}</p>}
+                    <div className="flex items-center justify-end gap-3 text-[12px]">
+                      <button type="button" className="text-muted font-semibold" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                      <button type="submit" className="btn btn-secondary shrink-0" disabled={editing.saving || !editing.duration.trim()}>
+                        {editing.saving ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </form>
+                </li>
+              )
+            }
             return (
               <li key={log.id} className="border-divider flex items-start gap-3 border-b py-2.5 last:border-b-0">
                 <Clock size={14} className="text-faint mt-0.5 shrink-0" aria-hidden="true" />
@@ -271,6 +374,16 @@ export function TimeTracking({ task, canLog, canManage, currentUserId, onChange 
                   </p>
                   {log.description && <p className="text-muted mt-0.5 text-[12px] break-words">{log.description}</p>}
                 </div>
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="hit-area text-faint hover:text-ink shrink-0 p-1"
+                    aria-label={`Change ${formatHours(Number(log.hoursWorked))} entry from ${formatDate(log.workDate)}`}
+                    onClick={() => startEdit(log)}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                )}
                 {canDelete &&
                   (pendingDelete?.id === log.id ? (
                     <span className="flex shrink-0 items-center gap-2 text-[12px]">

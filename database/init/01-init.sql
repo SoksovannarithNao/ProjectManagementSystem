@@ -1255,7 +1255,8 @@ CREATE TABLE activity_logs (
                                    'COMMENT_ADDED', 'FILE_UPLOADED',
                                    'MILESTONE_CREATED', 'MILESTONE_COMPLETED',
                                    'TASK_APPROVAL_REQUESTED', 'TASK_APPROVED', 'TASK_CHANGES_REQUESTED',
-                                   'TASK_REJECTED', 'TASK_APPROVER_SET')),
+                                   'TASK_REJECTED', 'TASK_APPROVER_SET',
+                                   'WORK_LOGGED', 'WORK_LOG_UPDATED', 'WORK_LOG_DELETED')),
     -- task_id is nullable and ON DELETE SET NULL (not CASCADE, unlike every
     -- other task_id FK in this file) specifically so a TASK_DELETED entry
     -- survives the task row it describes being deleted — logging it, then
@@ -1272,6 +1273,21 @@ CREATE INDEX idx_activity_logs_user_id ON activity_logs (user_id);
 CREATE INDEX idx_activity_logs_project_id ON activity_logs (project_id);
 CREATE INDEX idx_activity_logs_task_id ON activity_logs (task_id);
 CREATE INDEX idx_activity_logs_created_at ON activity_logs (created_at DESC);
+
+-- ==================== refresh_tokens ==================== --
+
+-- What keeps a person signed in: only the SHA-256 hash of the random token in their httpOnly
+-- cookie is stored. Deleted on sign-out, password change or reset; removed with the account.
+CREATE TABLE refresh_tokens (
+    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens (user_id);
+CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens (expires_at);
 
 -- ==================== audit_logs ==================== --
 -- The administrator audit log (V16; assignment-brief.md B10, workflow A7, D-11). Separate from

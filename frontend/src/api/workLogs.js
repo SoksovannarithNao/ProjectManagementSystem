@@ -8,6 +8,10 @@ export function createWorkLog(request) {
   return apiFetch('/work-logs', { method: 'POST', body: request })
 }
 
+export function updateWorkLog(id, request) {
+  return apiFetch(`/work-logs/${id}`, { method: 'PUT', body: request })
+}
+
 export function deleteWorkLog(id) {
   return apiFetch(`/work-logs/${id}`, { method: 'DELETE' })
 }

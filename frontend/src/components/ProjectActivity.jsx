@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ListChecks,
   Trash2,
+  Clock,
 } from 'lucide-react'
 import { useApi } from '../api/useApi'
 import { getActivityByProject } from '../api/activityLog'
@@ -33,6 +34,9 @@ const ICONS = {
   SUBTASK_ADDED: ListChecks,
   SUBTASK_COMPLETED: ListChecks,
   SUBTASK_DELETED: ListChecks,
+  WORK_LOGGED: Clock,
+  WORK_LOG_UPDATED: Clock,
+  WORK_LOG_DELETED: Clock,
 }
 
 // The project's activity feed (project, milestone and task events, comments,

@@ -1,6 +1,6 @@
 # API Reference
 
-All **122 endpoints** exposed by the 26 controllers in `backend/src/main/java/backend/controller/`, derived directly from the code (the original 84 were checked against the running application on 2026-10-06; the later ones were added and checked as they were built, and on 2026-10-12 every `@GetMapping` / `@PostMapping` / `@PutMapping` / `@DeleteMapping` was matched against this page: none is missing). **This page is the single source of truth for the API.** The folder `api/` also holds `openapi.yaml`, an older machine-readable contract that documents only 57 of the 119 endpoints and still uses removed role names; it is no longer maintained (see [section 18](#18-the-legacy-openapiyaml)). The former `api/README.md` was removed and its content now lives in [section 2](#2-conventions) below.
+All **125 endpoints** exposed by the 26 controllers in `backend/src/main/java/backend/controller/`, derived directly from the code (the original 84 were checked against the running application on 2026-10-06; the later ones were added and checked as they were built, and on 2026-10-12 every `@GetMapping` / `@PostMapping` / `@PutMapping` / `@DeleteMapping` was matched against this page: none is missing). **This page is the single source of truth for the API.** The folder `api/` also holds `openapi.yaml`, an older machine-readable contract that documents only 57 of the 119 endpoints and still uses removed role names; it is no longer maintained (see [section 18](#18-the-legacy-openapiyaml)). The former `api/README.md` was removed and its content now lives in [section 2](#2-conventions) below.
 
 Contents: [1 Getting started](#1-getting-started) · [2 Conventions](#2-conventions) · [3 Auth](#3-auth) · [4 Users](#4-users) · [5 Roles, positions, departments](#5-roles-positions-departments) · [6 Projects](#6-projects) · [7 Project members and invitations](#7-project-members-and-invitations) · [8 Milestones](#8-milestones) · [9 Tasks](#9-tasks) · [9b Task approval](#9b-task-approval) · [10 Assignees](#10-task-assignees) · [11 Dependencies](#11-task-dependencies) · [12 Subtasks](#12-subtasks) · [12b Checklist items](#12b-checklist-items) · [12c Attachments](#12c-attachments) · [13 Comments](#13-comments) · [13b Work logs](#13b-work-logs-time-tracking) · [13c Dashboard and manager views](#13c-dashboard-and-manager-views) · [13d KPIs and reports](#13d-kpis-and-reports) · [14 Activity](#14-activity-logs) · [14b Audit log](#14b-audit-log) · [15 Notifications](#15-notifications) · [16 Photos and health](#16-photos-and-health) · [17 Errors](#17-error-responses-and-status-codes) · [18 Legacy openapi.yaml](#18-the-legacy-openapiyaml)
 
@@ -21,7 +21,7 @@ curl http://localhost:8080/api/projects -H "Authorization: Bearer $TOKEN"
 
 ## 2. Conventions
 
-**Authentication.** Everything except the endpoints marked *Public* needs `Authorization: Bearer <JWT>`. Missing, malformed or expired token → `401` with an empty body.
+**Authentication.** Everything except the endpoints marked *Public* needs `Authorization: Bearer <JWT>`. Missing, malformed or expired token → `401` with an empty body; the browser then asks `POST /api/auth/refresh` for a new one (section 3).
 
 **Authorization labels used below**
 
@@ -40,7 +40,7 @@ Which role holds which grant is data (`role_permissions`) and can be edited by a
 
 **Request/response format.** JSON (`Content-Type: application/json`), except `PUT /api/users/me/photo` (multipart). Dates are `YYYY-MM-DD`; timestamps are ISO-8601 with offset. `PUT` is a **full replace** — there is no `PATCH`.
 
-**No pagination, sorting or filtering parameters** exist on list endpoints (the only query parameters in the API are `q` and `limit` on the invitable-user search and `taskId`/`dependsOnTaskId` on dependency delete). Lists are scoped to what the caller may see.
+**Paging is optional (since 2026-10-14).** `GET /api/projects`, `GET /api/tasks` and `GET /api/notifications` take `page` (from 0) and `size` (1 to 200) and then answer `{ items, total, page, size }` instead of the whole list; without them they answer the whole list, as before. Only the project and task lists take search, filter and sort parameters ([section 6](#6-projects), [section 9](#9-tasks)); the other query parameters in the API are `q` and `limit` on the invitable-user search and `taskId`/`dependsOnTaskId` on dependency delete. Lists are scoped to what the caller may see, and a search or filter only narrows that.
 
 **Success codes:** `200` reads/updates and action `POST`s, `201` creates, `204` every `DELETE` and `POST /api/notifications/read-all`.
 
@@ -73,7 +73,7 @@ Which role holds which grant is data (`role_permissions`) and can be edited by a
 
 ### Known quirks (still real)
 
-- **No pagination, search or filter** beyond a handful of `GET .../project/{id}`-style lookups. List endpoints return every row the caller may see, unbounded.
+- **Paging, search and filter exist only on the project, task and notification lists** (see above); every other list endpoint returns every row the caller may see, unbounded.
 - **Full-replace `PUT`, no `PATCH`.** Every update resends the whole resource body including its relations (changing a task's status still means sending its `projectId`, `title`, dates and so on again).
 - **Enum-like fields are plain `String`s**, not Java enums (`status`, `priority`, `accountStatus`, and so on). They are validated on write with `@Pattern` using the same allowed values as the Postgres `CHECK` constraint, so an invalid value is a clean `400` before it reaches the database.
 - **Authorization is read from the `role_permissions` table** ([database.md](database.md#13-authorization-and-permissions)); an administrator edits it through `PUT /api/roles/{id}/permissions`. `REPORT:GENERATE_REPORTS` is enforced on the server by every endpoint under `/api/reports` ([section 13d](#13d-kpis-and-reports)). `PUT /api/roles/{id}/permissions` also refuses a `SYSTEM` grant on a project-level resource (only `PROJECT`, `REPORT`, `USER`, `ROLE`, `LOOKUP` are allowed) and *create projects* (`SYSTEM:PROJECT:CREATE`) for an extra role.
@@ -87,7 +87,9 @@ Controller: `AuthController` · base `/api/auth`
 
 | Method & path | Auth | Request | Success | Errors |
 |---|---|---|---|---|
-| `POST /api/auth/login` | Public | `{ username, password }` — both required; `username` may also be the **e-mail address** of the account (any letter case) | `200` `{ token, username, role }` (`role` is the account's system role: `"ADMINISTRATOR"`, `"PROJECT_MANAGER"`, `"USER"`, or `null` for an account with none) | `401 "Invalid username or password"` (wrong credentials **or** non-`ACTIVE` account); `429` after 5 failures in 15 min per `remoteAddr:username` |
+| `POST /api/auth/login` | Public | `{ username, password }` — both required; `username` may also be the **e-mail address** of the account (any letter case) | `200` `{ token, username, role }` and a `Set-Cookie` of the refresh token (`taskflow_refresh`, `HttpOnly; SameSite=Strict; Path=/api/auth; Max-Age=604800`, plus `Secure` when `REFRESH_COOKIE_SECURE=true`); the token in the body is a 15-minute access token (`role` is the account's system role: `"ADMINISTRATOR"`, `"PROJECT_MANAGER"`, `"USER"`, or `null` for an account with none) | `401 "Invalid username or password"` (wrong credentials **or** non-`ACTIVE` account); `429` after 5 failures in 15 min per `remoteAddr:username` |
+| `POST /api/auth/refresh` | Public (the refresh cookie) | no body; the browser sends the cookie | `200` `{ token, username, role }`: a new 15-minute access token | `401 "Session expired"` with no cookie, an unknown or expired one, or an account that is no longer `ACTIVE`. The refresh token is not rotated, so the cookie stays the same |
+| `POST /api/auth/logout` | Public (acts only on the cookie sent) | no body | `204`; deletes that refresh token and clears the cookie | none: with no cookie it just clears it |
 | `POST /api/auth/register` | Public | `{ username (3–50, [A-Za-z0-9._-]), email (valid, ≤255), password (policy), confirmPassword }` | `201` `{ username, email, message }`; emails a 6-digit code | `400` validation; `400 "Username is already taken"`, `"Email is already registered"`, `"Password and confirmation do not match"` |
 | `POST /api/auth/verify-otp` | Public | `{ username, otp }` — `otp` must match `\d{6}` | `200` (empty) — account becomes `ACTIVE` | `400` `"This account is already verified"`, `"No verification code found…"`, `"This code has already been used"`, `"…has expired — request a new one"`, `"Too many incorrect attempts…"`, `"Incorrect code — N attempt(s) remaining"`; `404 "User not found"` |
 | `POST /api/auth/resend-otp` | Public | `{ username }` | `200` (empty) | `400 "This account is already verified"`; `429 "Please wait Ns before requesting another code"` (60 s cooldown) |
@@ -139,7 +141,7 @@ Controller: `ProjectController` · base `/api/projects`. `ProjectResponse`: `id,
 
 | Method & path | Auth | Request | Success | Notes / errors |
 |---|---|---|---|---|
-| `GET /api/projects` | Any user | — | `200 ProjectResponse[]` | administrator: all; others: projects they are an **active** member of |
+| `GET /api/projects` | Any user | optional query parameters, below | `200 ProjectResponse[]` | administrator: all; others: projects they are an **active** member of; `400` for an unknown `status`, `priority` or `sort` |
 | `GET /api/projects/{id}` | Member | — | `200` | `404` for non-members |
 | `POST /api/projects` | System `PROJECT:CREATE` (Project Manager, administrator) | `ProjectRequest`: `name` (≤200) ★, `startDate` ★, `endDate` ★; optional `projectCode` (≤30), `description`, `managerId`, `priority` (`LOW/MEDIUM/HIGH/CRITICAL`), `status` (`PLANNING/IN_PROGRESS/ON_HOLD/COMPLETED/CANCELLED`), `progress` (0–100, ignored) | `201` | Code is generated (`PRJ-####`) when omitted/blank; caller becomes manager and `OWNER`; `managerId` honoured only for administrators. **`409 "Project code already exists."`** for a duplicate code; `400` if `endDate < startDate` — message is the raw `new row for relation "projects" violates check constraint "projects_check"` (verified live) |
 | `PUT /api/projects/{id}` | Manager | `ProjectRequest` (full replace; blank `projectCode` keeps the current one) | `200` | `409` if the code is taken by another project; `403` without `PROJECT:EDIT` (Team Member, Viewer) |
@@ -147,6 +149,19 @@ Controller: `ProjectController` · base `/api/projects`. `ProjectResponse`: `id,
 | `DELETE /api/projects/{id}` | Owner (`PROJECT:DELETE`) | — | `204` | cascades to members, milestones, tasks and below. A project with a single owner can be deleted (fixed by `V10`) |
 
 ★ required.
+
+**Search, filter and sort `GET /api/projects`** (assignment-brief B1.9; all optional, and a request without them returns the list as before). They are applied after the list is limited to what the caller may see, so they only narrow it:
+
+| Parameter | Meaning |
+|---|---|
+| `search` | text contained (any case) in the name, description, project code, manager's name, status ("in progress", and "active" for an in-progress project), "delayed", or the start or end date (`2026-10`) |
+| `status` | one or more of `PLANNING`, `IN_PROGRESS`, `ON_HOLD`, `COMPLETED`, `CANCELLED`, `DELAYED` (the calculated one); comma-separated or repeated; a project with any of them matches |
+| `priority` | one or more of `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`, in the same way |
+| `managerId` | the project manager's user id |
+| `sort` | `name`, `startDate`, `endDate`, `priority` (most urgent first) or `progress` (highest first); without it the order is unchanged |
+| `page`, `size` | optional paging: `page` counts from 0, `size` is 1 to 200 (default 50 when only `page` is sent). With either, the answer is `{ items, total, page, size }` instead of the whole list: the search, filter and sort run first, so `total` counts what matches (never what the caller cannot see) and a page past the end is empty. Without a sort the order is by id, so a page is the same page every time. Out of range is `400` |
+
+Different parameters combine with AND. Example: `GET /api/projects?status=IN_PROGRESS,ON_HOLD&priority=HIGH&sort=endDate`.
 
 ## 7. Project members and invitations
 
@@ -183,11 +198,11 @@ Controller: `MilestoneController` · base `/api/milestones`. `MilestoneResponse`
 
 ## 9. Tasks
 
-Controller: `TaskController` · base `/api/tasks`. `TaskResponse`: `id, project, milestone, title, description, priority, status, startDate, dueDate, estimatedHours, actualHours, progress, completedAt, createdBy, createdAt, updatedAt, totalSubtasks, completedSubtasks, overdue, dueSoon, blocked, blockingTaskTitles, approver, approvalStatus, approvalRequestedBy, approvalRequestedAt` (`approvalStatus` is the newest approval request: `PENDING`, `APPROVED`, `CHANGES_REQUESTED`, `REJECTED`, `WITHDRAWN`, or `null` when never submitted).
+Controller: `TaskController` · base `/api/tasks`. `TaskResponse`: `id, project, milestone, title, description, priority, status, startDate, dueDate, estimatedHours, actualHours, progress, completedAt, createdBy, createdAt, updatedAt, totalSubtasks, completedSubtasks, totalChecklistItems, completedChecklistItems, overdue, dueSoon, blocked, blockingTaskTitles, approver, approvalStatus, approvalRequestedBy, approvalRequestedAt` (`approvalStatus` is the newest approval request: `PENDING`, `APPROVED`, `CHANGES_REQUESTED`, `REJECTED`, `WITHDRAWN`, or `null` when never submitted).
 
 | Method & path | Auth | Request | Success | Notes / errors |
 |---|---|---|---|---|
-| `GET /api/tasks` | Any user | — | `200[]` | administrator: all; others: tasks in their active projects |
+| `GET /api/tasks` | Any user | optional query parameters, below | `200[]` | administrator: all; others: tasks in their active projects; `400` for an unknown `status`, `priority`, `due` or `sort`, or a non-numeric `assigneeId` / `projectId` |
 | `GET /api/tasks/{id}` | Member | — | `200` | `404` |
 | `GET /api/tasks/project/{projectId}` | Member | — | `200[]` | |
 | `GET /api/tasks/milestone/{milestoneId}` | Member | — | `200[]` | `404 "Milestone not found"` |
@@ -195,6 +210,20 @@ Controller: `TaskController` · base `/api/tasks`. `TaskResponse`: `id, project,
 | `POST /api/tasks` | Content | `{ projectId ★, title (≤200) ★, startDate ★, dueDate ★, description, milestoneId, priority (LOW/MEDIUM/HIGH/URGENT), status (TODO/IN_PROGRESS/IN_REVIEW/COMPLETED/CANCELLED), estimatedHours (≥0), progress (0–100), createdById }` | `201` | `403` for `VIEWER`/non-members; `400` for `due < start` (raw `new row for relation "tasks" violates check constraint "tasks_check"`), `due > project end` (clean sentence from the trigger), milestone from another project; `createdById` is honoured only for administrators; writes `TASK_CREATED` |
 | `PUT /api/tasks/{id}` | Manager (`TASK:EDIT`), **or** an assignee with `TASK_STATUS:EDIT` (restricted) | same body | `200` | Manager: every field applied; **if `projectId` changes the caller must also be allowed to edit tasks in the target project (`403` otherwise)**. Assignee (Project Manager/Team Leader/Team Member): only `status` and `progress` applied (others, including `projectId`, ignored); a `VIEWER` → `403`; not assigned → `403 "You are not assigned to this task"`. **Setting `COMPLETED` needs `TASK:APPROVE`** (Project Manager, Team Leader, administrator) **and follows the approval rules of [§9b](#9b-task-approval)** (it is recorded as the approver's approval; `403` for your own work or when someone else is the named approver): otherwise `403 "Only a Project Manager or Team Leader can approve a task as completed. Move it to In Review so it can be approved"`. `400 "Complete all subtasks before marking this task as done."`; dependency-gate violations → `400`. Logs status/priority/due-date changes; notifies assignees on a status change |
 | `DELETE /api/tasks/{id}` | Manager | — | `204` | writes `TASK_DELETED` |
+
+**Search, filter and sort `GET /api/tasks`** (assignment-brief B1.9; all optional, and a request without them returns the list as before). They are applied after the list is limited to the caller's projects, so they only narrow it:
+
+| Parameter | Meaning |
+|---|---|
+| `search` | text contained (any case) in the title, description, project name, an assignee's name, priority or status ("in progress"), or the due date (`2026-10-14`) |
+| `status` | one or more of `TODO`, `IN_PROGRESS`, `IN_REVIEW`, `COMPLETED`, `CANCELLED`; comma-separated or repeated; a task with any of them matches |
+| `priority` | one or more of `LOW`, `MEDIUM`, `HIGH`, `URGENT`, in the same way |
+| `assigneeId` | tasks that this user is assigned to |
+| `projectId` | tasks of this project |
+| `due` | `overdue` (past due and still open), `today`, `week` (today to 7 days ahead) or `none` (no due date) |
+| `sort` | `latest` (newest first), `dueDate` (no date last), `priority` (most urgent first), `progress` (highest first) or `status` (To Do first); without it the order is unchanged |
+
+Different parameters combine with AND. Example: `GET /api/tasks?assigneeId=12&status=TODO,IN_PROGRESS&due=week&sort=dueDate`.
 
 ### 9b. Task approval
 
@@ -288,8 +317,9 @@ Controller: `WorkLogController` · base `/api/work-logs`. `WorkLogResponse`: `id
 | Endpoint | Access | Request | Success | Notes |
 |---|---|---|---|---|
 | `GET /api/work-logs/task/{taskId}` | Member | — | `200[]` newest work date first | `404` if the task does not exist or the caller cannot see its project |
-| `POST /api/work-logs` | Content | `{ taskId ★, workDate ★ (not in the future), hoursWorked ★ (0.01–24), description (≤500) }` | `201` | logs time for **the caller**; `403` for a `VIEWER`; `400` for hours ≤ 0 or > 24, a future date or a missing field; `404` for an unknown task. No activity entry or notification |
-| `DELETE /api/work-logs/{id}` | author, or Manager | — | `204` | `403 "You can only delete your own time entries"` for anyone else; `404` outside the caller's projects |
+| `POST /api/work-logs` | Content | `{ taskId ★, workDate ★ (not later than tomorrow by the server's date, so a person east of the server can log "today"), hoursWorked ★ (0.01–24), description (≤500) }` | `201` | logs time for **the caller**; `403` for a `VIEWER`; `400` for hours ≤ 0 or > 24, a future date or a missing field; `404` for an unknown task. Writes `WORK_LOGGED` to the task's activity feed; no notification |
+| `PUT /api/work-logs/{id}` | the author only | same body as `POST` (`taskId` must stay the entry's own task) | `200` | `403 "You can only change your own time entries"` for anyone else, **including an administrator**, and for an author who can no longer log time (a `VIEWER`); `400` for a different `taskId`, a date later than tomorrow, hours <= 0 or > 24; `404` outside the caller's projects. Writes `WORK_LOG_UPDATED` ("Changed a time entry from 1 h on 2026-10-10 to 2.5 h on 2026-10-11") only when something changed |
+| `DELETE /api/work-logs/{id}` | author, or Manager | — | `204` | `403 "You can only delete your own time entries"` for anyone else; `404` outside the caller's projects. Writes `WORK_LOG_DELETED` ("…logged by Name" when the author is someone else) |
 
 There is no update endpoint.
 
@@ -327,7 +357,7 @@ Controller: `ReportController` (assignment-brief.md B8, D-12). Every endpoint is
 
 A `ProjectRow` (the `project` of the Project Report and every row of the Project Status Report) is `{ id, projectCode, name, status, priority, owner, startDate, endDate, progress, delayed, daysDelayed, completedAt }`; `completedAt` is the project's completion date, `null` until it is completed.
 
-Export (PDF / Excel) is optional and not built.
+Export (PDF / Excel) has no endpoint: the Excel and PDF files are made in the browser from the report on the screen (since 2026-10-13, D-22).
 
 ## 14. Activity logs
 
@@ -354,7 +384,7 @@ Controller: `NotificationController` · base `/api/notifications` · all *Self*.
 
 | Method & path | Success | Notes |
 |---|---|---|
-| `GET /api/notifications` | `200 NotificationResponse[]` newest first | `id, type, title, message, projectId, projectName, taskId, taskTitle, read, createdAt` |
+| `GET /api/notifications` | `200 NotificationResponse[]` newest first; with `?page` / `?size` (from 0, 1 to 200) `200 { items, total, page, size }`, still newest first | `id, type, title, message, projectId, projectName, taskId, taskTitle, read, createdAt` |
 | `GET /api/notifications/unread-count` | `200 { "count": n }` | |
 | `PUT /api/notifications/{id}/read` | `200` | `404` if not yours |
 | `POST /api/notifications/read-all` | `204` | |
@@ -391,9 +421,10 @@ Notes: most `403` bodies name what is missing (a role, an assignment), which is 
 
 `api/openapi.yaml` is an OpenAPI 3.0.3 file written early in the project. Reviewed on 2026-10-08 against the controllers and DTOs, it:
 
-- documents **57 of the 122 endpoints** (48%; 35 paths) and no documented endpoint has been removed. (The review of 2026-10-08 counted 57 of 91; the 28 endpoints added since are all undocumented there);
-- is missing 62 endpoints: registration and OTP, profile photo and preferences, positions and departments, comments, subtasks, invitations, activity logs, notification delete, work logs, task approval, checklist items, attachments, the dashboard and manager views, the KPIs and reports, and the permission matrix;
-- names the roles `PROJECT_MANAGER`, `TEAM_LEADER` and `TEAM_MEMBER` as global roles in 23 places with the old per-endpoint rules, so its authorization text is wrong (the names exist again since 2026-10-08, but the rules differ);
-- has six drifted schemas (`TaskResponse`, `ProjectMemberResponse`, `UserResponse`, `UserCreateRequest`, `UserUpdateRequest`, `SelfProfileUpdateRequest`), 22 DTOs with no schema, and no `operationId` on any operation.
+- documents **57 of the 125 endpoints** (46%; 35 paths) and no documented endpoint has been removed. (The review of 2026-10-08 counted 57 of 91; the 28 endpoints added since are all undocumented there);
+- is missing 68 endpoints: registration, OTP, refresh and logout, the user profile, photo, preferences and permissions, positions and departments, the role and permission matrix, project invitations and the project lead, comments, subtasks, checklist items, attachments, task approval, work logs, activity logs, the audit log, notification delete, the dashboard and manager views, and the KPIs and reports;
+- names the roles `PROJECT_MANAGER`, `TEAM_LEADER` and `TEAM_MEMBER` as global roles in 24 places with the old per-endpoint rules, so its authorization text is wrong (the names exist again since 2026-10-08, but the rules differ);
+- still says "No pagination/filtering" for `GET /api/projects`, which has taken search, filter and sort parameters since 2026-10-13, and documents none for `GET /api/tasks`;
+- has six drifted schemas (`TaskResponse`, `ProjectMemberResponse`, `UserResponse`, `UserCreateRequest`, `UserUpdateRequest`, `SelfProfileUpdateRequest`), 39 of the 60 DTOs with no schema, and no `operationId` on any operation.
 
 It is **not maintained**. This page and [backend.md](backend.md) are the documentation to keep current; the rule is "change behaviour, update `docs/` in the same pull request" ([README.md](README.md#keeping-the-documentation-current)). If a machine-readable contract is wanted again, generate it from the code (for example with springdoc) instead of hand-editing the YAML, so it cannot drift.

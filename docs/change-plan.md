@@ -59,7 +59,7 @@ All seven items are done, deployed to the running stack and verified there (deta
 | 1.3 | Assignment notification: `<assigner> assigned you to "<task>" in "<project>" — due <date>` | `notifyTaskAssigned` takes the assigner; "no due date set" when there is none |
 | 1.4 | Sign in with username **or** e-mail | `UserService.resolveLoginIdentifier`; the request field is still `username`; case-insensitive; the rate-limit key uses what was typed |
 | 1.5 | Profile page: Position and Department from the managed lists | `PUT /api/users/me` takes `positionId` / `departmentId`; no "+ Add New" (administrators only); the Team-page endpoint now tells you to use Profile for yourself |
-| 1.6 | Project filters (status, priority, manager) + sort; task filters (status, assignee, due date) + extra sorts; wider search | Done **in the browser over the already permission-scoped lists**, which cannot reveal anything the user may not open. The list endpoints still take no parameters (brief G-16) |
+| 1.6 | Project filters (status, priority, manager) + sort; task filters (status, assignee, due date) + extra sorts; wider search | Done **in the browser over the already permission-scoped lists**, which cannot reveal anything the user may not open. The list endpoints took no parameters then; they do since 2026-10-13 (brief G-16) |
 | 1.7 | `TO_DO` → `TODO` | Migration `V11` (idempotent; rewrites 26 tasks and 77 subtasks without touching `updated_at`); `01-init.sql`, seed, entities, DTO patterns, frontend, tests, docs; label stays "To Do"; Flyway baseline raised to 11 |
 
 Delivery followed §2: `pg_dump` taken first, `V11` tried on a throw-away copy of the live database (and re-run to prove it is idempotent), then `docker compose build backend frontend` and `up -d`. Backend tests 143/143, Playwright 57/57, ESLint clean.
@@ -160,7 +160,7 @@ Both items are built, deployed and verified live (details: [changelog.md](change
 |---|---|---|
 | The five KPIs | `GET /api/reports/kpis[?projectId=]` and a *KPIs* tab: project completion, task completion, overdue, average task completion time (days) and on-time completion rate, with the counts they were calculated from | The formulas are exactly the approved D-12 / B8 table (cancelled work left out of the denominators). **A rate whose denominator is empty is `null` and shown as "—", not 0%.** Percentages carry one decimal |
 | The seven named reports | `GET /api/reports/project`, `/tasks`, `/project-status`, `/task-completion`, `/overdue`, `/team-performance`, `/workload`; one tab each on the Reports page, each with its filters and an explicit *Generate* step | **Who may generate follows B8 and is enforced on the server:** Administrator all projects; anyone else only the projects where they hold `REPORT:GENERATE_REPORTS` (Owner, Team Leader, and the Project Manager through the Owner role); everyone else `403`; a project outside that set is `404` for a stranger and `403` for a member without the right. Task Completion = completed ÷ non-cancelled tasks due in the (required) date range, grouped by project, member or due month. Team Performance shows *To Do* (the B1.3 "pending"), *In Progress* and *In Review* apart. Project Status has a *Delayed* group that is calculated and overlaps the others. The Workload Report reuses the 3b classification |
-| Reports page | Kept the four charts as an *Overview* tab (still computed in the browser from `/tasks`); the KPIs and the seven reports are new tabs (`?tab=`) | PDF / Excel export was built on 2026-10-13, in the browser (D-22) |
+| Reports page | Kept the four charts as an *Overview* tab (computed in the browser from `/tasks`, except the Workload chart, which has shown the server's workload figures since 2026-10-13); the KPIs and the seven reports are new tabs (`?tab=`) | PDF / Excel export was built on 2026-10-13, in the browser (D-22) |
 
 Delivery followed §2 except the backup and migration, which a change without schema needs not: `docker compose build backend frontend` and `up -d`, then verified against the running stack as `admin.system`, `pm.olivia`, `lead.owen` (200) and `dev.chen` (403 on every endpoint). Backend tests 290/290, Playwright 99/99 (run twice), ESLint clean.
 
@@ -190,7 +190,7 @@ Not acceptance criteria. Build only if wanted; if shown they are labelled "Optio
 |---|---|
 | 5.1 | ~~Delete the leftover pending `newuser` invitation~~ — **done 2026-10-08**: the invitation was already gone; the one remaining failure in `project-team.spec.js` was a stale selector (`text-danger` → the message text), fixed. The suite is 43/43 |
 | 5.2 | ~~I-21: tasks 2, 3 and 5 of PRJ-2001 are assigned to `lead.owen`, who has no PRJ-2001 membership in the live database (seed has one)~~ — `verify_invariants.sql` query 3 returned no rows after batch 2 (2026-10-09); the cause of the change is not known, so keep watching it |
-| 5.3 | `api/openapi.yaml` is stale (documents 57 of 122 endpoints, old roles); regenerate it from the code or retire it |
+| 5.3 | `api/openapi.yaml` is stale (documents 57 of 125 endpoints, old roles); regenerate it from the code or retire it |
 | 5.4 | Run the Playwright suite in CI (it needs the Docker stack) |
 
 ## 8. Proposed order

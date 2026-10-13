@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, SlidersHorizontal, Check, BarChart3 } from 'lucide-react'
 import {
@@ -10,6 +10,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
   Cell,
 } from 'recharts'
@@ -18,13 +19,16 @@ import { StatCard } from '../components/StatCard'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Dropdown } from '../components/ui/Dropdown'
+import { useAuth } from '../auth/AuthContext'
 import { useMembers } from '../data/UsersContext'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
 import { getTasks } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
-import { buildTaskAssigneeMap, countByValue, filterTasksByProject } from '../api/relations'
+import { getManagedWorkload, getProjectWorkload } from '../api/teamViews'
+import { buildTaskAssigneeMap, filterTasksByProject } from '../api/relations'
 import { computePeriodTaskStats, PERIOD_OPTIONS } from '../api/stats'
+import { humanizeEnum } from '../api/format'
 import {
   KpiView,
   ProjectReportView,
@@ -35,8 +39,6 @@ import {
   TeamPerformanceReportView,
   WorkloadReportView,
 } from '../components/reports/ReportViews'
-
-const barColors = ['var(--color-charcoal)', '#66676B', '#AEB9D2', '#B9B0C8', '#7E9FC4', '#D2A85A']
 
 function ChartCard({ title, loading, empty, children }) {
   return (
@@ -70,7 +72,29 @@ function ChartTooltip({ active, payload, label }) {
   )
 }
 
+// Workload chart tooltip: the three counts plus the hours and the load level the table shows.
+function WorkloadTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null
+  const m = payload[0].payload
+  return (
+    <div className="chart-tooltip">
+      <p className="chart-tooltip__label">{m.fullName}</p>
+      {payload.map((p) => (
+        <p key={p.dataKey} className="chart-tooltip__row">
+          <span className="chart-tooltip__dot" style={{ background: p.fill }} />
+          {p.name}: <strong>{p.value}</strong>
+        </p>
+      ))}
+      <p className="chart-tooltip__row">
+        Estimated: <strong>{m.estimatedHours} h</strong> · Actual: <strong>{m.actualHours} h</strong>
+      </p>
+      <p className="chart-tooltip__row">Load: <strong>{humanizeEnum(m.level)}</strong></p>
+    </div>
+  )
+}
+
 function ReportsOverview() {
+  const { can, canAny } = useAuth()
   const { members } = useMembers()
   const { data: projects, loading: projectsLoading } = useApi(getProjects)
   const { data: tasks, loading: tasksLoading } = useApi(getTasks)
@@ -94,7 +118,16 @@ function ReportsOverview() {
 
   const periodReport = useMemo(() => computePeriodTaskStats(scopedTasks, period.days), [scopedTasks, period])
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(scopedTaskAssignees), [scopedTaskAssignees])
-  const taskCountByUser = useMemo(() => countByValue(assigneeMap.values()), [assigneeMap])
+
+  // Team workload comes from the server (assigned, active and overdue tasks, estimated and
+  // actual hours, D-13), the same figures as the Workload page and the dashboard card. Only
+  // people who may assign tasks (in the chosen project, or anywhere) are allowed to ask.
+  const showWorkload = projectFilter ? can('TASK', 'ASSIGN', Number(projectFilter)) : canAny('TASK', 'ASSIGN')
+  const workloadFetcher = useCallback(() => {
+    if (!showWorkload) return Promise.resolve(null)
+    return projectFilter ? getProjectWorkload(projectFilter) : getManagedWorkload()
+  }, [showWorkload, projectFilter])
+  const { data: workload, loading: workloadLoading } = useApi(workloadFetcher)
 
   const statCards = useMemo(() => {
     const list = scopedTasks
@@ -138,10 +171,17 @@ function ReportsOverview() {
 
   const workloadByMember = useMemo(
     () =>
-      members
-        .map((m) => ({ name: m.name?.split(' ')[0], tasks: taskCountByUser.get(m.id) ?? 0 }))
-        .filter((m) => m.tasks > 0),
-    [members, taskCountByUser]
+      (workload?.members ?? []).map((m) => ({
+        name: m.user.fullName?.split(' ')[0],
+        fullName: m.user.fullName,
+        assigned: m.assigned,
+        active: m.active,
+        overdue: m.overdue,
+        estimatedHours: Number(m.estimatedHours ?? 0),
+        actualHours: Number(m.actualHours ?? 0),
+        level: m.level,
+      })),
+    [workload]
   )
 
   return (
@@ -266,21 +306,24 @@ function ReportsOverview() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Workload" loading={loading} empty={workloadByMember.length === 0}>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={workloadByMember} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
-              <XAxis type="number" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
-              <Bar dataKey="tasks" name="Assigned Tasks" radius={[0, 6, 6, 0]} barSize={16}>
-                {workloadByMember.map((_, i) => (
-                  <Cell key={i} fill={barColors[i % barColors.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
+        {showWorkload && (
+          <ChartCard title="Workload" loading={workloadLoading} empty={workloadByMember.length === 0}>
+            <div data-testid="workload-chart">
+              <ResponsiveContainer width="100%" height={Math.max(220, workloadByMember.length * 44)}>
+                <BarChart data={workloadByMember} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
+                  <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<WorkloadTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="assigned" name="Assigned" fill="var(--color-charcoal)" radius={[0, 6, 6, 0]} barSize={8} />
+                  <Bar dataKey="active" name="Active" fill="var(--color-info-ink)" radius={[0, 6, 6, 0]} barSize={8} />
+                  <Bar dataKey="overdue" name="Overdue" fill="var(--color-danger-ink)" radius={[0, 6, 6, 0]} barSize={8} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartCard>
+        )}
       </div>
     </div>
   )

@@ -28,6 +28,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -62,6 +63,9 @@ class UserServiceTest {
     @Mock
     private AuditLogService auditLogService;
 
+    @Mock
+    private RefreshTokenService refreshTokenService;
+
     private UserService userService;
 
     // An arbitrary role fixture for generic "assign a role by id" tests
@@ -74,7 +78,7 @@ class UserServiceTest {
     void setUp() {
         userService = new UserService(
                 userRepository, roleRepository, positionRepository, departmentRepository,
-                projectMemberRepository, passwordEncoder, projectAccessGuard, permissionService, auditLogService);
+                projectMemberRepository, passwordEncoder, projectAccessGuard, permissionService, auditLogService, refreshTokenService);
 
         assignedRole = new Role();
         assignedRole.setName("USER");
@@ -143,6 +147,89 @@ class UserServiceTest {
         userService.updateUser(5L, request);
 
         assertThat(existing.getPasswordHash()).isEqualTo("$2a$10$existingHashValueUnchanged");
+    }
+
+    // ---- a changed or reset password ends every session -----------------
+
+    @Test
+    void updateUser_withANewPasswordEndsEveryRefreshSessionOfTheAccount() {
+        User existing = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(existing, "id", 5L);
+        existing.setUsername("test.user");
+        existing.setPasswordHash("$2a$10$existingHashValueUnchanged");
+        existing.setRole(assignedRole);
+        when(userRepository.findById(5L)).thenReturn(Optional.of(existing));
+        when(roleRepository.findById(4L)).thenReturn(Optional.of(assignedRole));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserUpdateRequest request = new UserUpdateRequest();
+        request.setFullName("Test User");
+        request.setUsername("test.user");
+        request.setEmail("test.user@example.com");
+        request.setRoleId(4L);
+        request.setPassword("NewPassw0rd!");
+
+        userService.updateUser(5L, request);
+
+        verify(refreshTokenService).revokeAll(5L);
+    }
+
+    @Test
+    void updateUser_withoutANewPasswordLeavesTheSessionsAlone() {
+        User existing = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(existing, "id", 5L);
+        existing.setUsername("test.user");
+        existing.setRole(assignedRole);
+        when(userRepository.findById(5L)).thenReturn(Optional.of(existing));
+        when(roleRepository.findById(4L)).thenReturn(Optional.of(assignedRole));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserUpdateRequest request = new UserUpdateRequest();
+        request.setFullName("Renamed");
+        request.setUsername("test.user");
+        request.setEmail("test.user@example.com");
+        request.setRoleId(4L);
+
+        userService.updateUser(5L, request);
+
+        verifyNoInteractions(refreshTokenService);
+    }
+
+    @Test
+    void changeOwnPassword_endsEveryRefreshSessionOfTheAccount() {
+        User me = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(me, "id", 8L);
+        me.setUsername("test.user");
+        me.setPasswordHash(passwordEncoder.encode("OldPassw0rd!"));
+        when(userRepository.findByUsername("test.user")).thenReturn(Optional.of(me));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        backend.dto.ChangePasswordRequest request = new backend.dto.ChangePasswordRequest();
+        request.setCurrentPassword("OldPassw0rd!");
+        request.setNewPassword("NewPassw0rd!");
+        request.setConfirmNewPassword("NewPassw0rd!");
+
+        userService.changeOwnPassword("test.user", request);
+
+        verify(refreshTokenService).revokeAll(8L);
+    }
+
+    @Test
+    void changeOwnPassword_withAWrongCurrentPasswordLeavesTheSessionsAlone() {
+        User me = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(me, "id", 8L);
+        me.setUsername("test.user");
+        me.setPasswordHash(passwordEncoder.encode("OldPassw0rd!"));
+        when(userRepository.findByUsername("test.user")).thenReturn(Optional.of(me));
+
+        backend.dto.ChangePasswordRequest request = new backend.dto.ChangePasswordRequest();
+        request.setCurrentPassword("not-the-password");
+        request.setNewPassword("NewPassw0rd!");
+        request.setConfirmNewPassword("NewPassw0rd!");
+
+        assertThatThrownBy(() -> userService.changeOwnPassword("test.user", request))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(refreshTokenService);
     }
 
     // ---- single-user lookups are scoped like the directory --------------
