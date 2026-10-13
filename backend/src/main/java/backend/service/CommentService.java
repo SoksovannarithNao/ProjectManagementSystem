@@ -2,20 +2,28 @@ package backend.service;
 
 import backend.dto.CommentRequest;
 import backend.dto.CommentResponse;
+import backend.entity.ProjectMember;
 import backend.entity.Comment;
 import backend.entity.Task;
 import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.CommentRepository;
+import backend.repository.ProjectMemberRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
 import backend.security.Action;
 import backend.security.Resource;
+import backend.util.Mentions;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @Transactional
@@ -27,6 +35,7 @@ public class CommentService {
     private final ProjectAccessGuard projectAccessGuard;
     private final ActivityLogService activityLogService;
     private final UpdateNotificationService updateNotificationService;
+    private final ProjectMemberRepository projectMemberRepository;
 
     public CommentService(
             CommentRepository commentRepository,
@@ -34,7 +43,9 @@ public class CommentService {
             UserRepository userRepository,
             ProjectAccessGuard projectAccessGuard,
             ActivityLogService activityLogService,
-            UpdateNotificationService updateNotificationService) {
+            UpdateNotificationService updateNotificationService,
+            ProjectMemberRepository projectMemberRepository) {
+        this.projectMemberRepository = projectMemberRepository;
         this.commentRepository = commentRepository;
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
@@ -48,7 +59,10 @@ public class CommentService {
         User caller = requireUser(username);
         Task task = requireTask(taskId);
         projectAccessGuard.assertAccess(caller, task.getProject().getId());
-        return commentRepository.findByTaskIdOrderByCreatedAtAsc(taskId).stream().map(CommentResponse::new).toList();
+        Map<String, User> members = activeMembersByUsername(task.getProject().getId());
+        return commentRepository.findByTaskIdOrderByCreatedAtAsc(taskId).stream()
+                .map(c -> toResponse(c, members))
+                .toList();
     }
 
     public CommentResponse createComment(CommentRequest request, String username) {
@@ -73,8 +87,57 @@ public class CommentService {
         Comment saved = commentRepository.save(comment);
         activityLogService.record(caller, task, "COMMENT_ADDED",
                 (saved.getParentComment() != null ? "Reply added: \"" : "Comment added: \"") + preview(saved.getMessage()) + "\"");
-        updateNotificationService.notifyCommentAdded(saved, caller);
-        return new CommentResponse(saved);
+        // Anyone @mentioned is told so (and not a second time by the generic comment notice).
+        Map<String, User> members = activeMembersByUsername(task.getProject().getId());
+        List<User> mentioned = mentionedIn(saved.getMessage(), members, caller);
+        updateNotificationService.notifyMentioned(saved, caller, mentioned);
+        updateNotificationService.notifyCommentAdded(saved, caller, idsOf(mentioned));
+        return toResponse(saved, members);
+    }
+
+    // The active members of the project (with an active account) by lower-case username: the only
+    // people an @mention can reach.
+    private Map<String, User> activeMembersByUsername(Long projectId) {
+        Map<String, User> members = new LinkedHashMap<>();
+        for (ProjectMember member : projectMemberRepository.findByProjectIdAndStatus(projectId, "ACTIVE")) {
+            User user = member.getUser();
+            if ("ACTIVE".equals(user.getAccountStatus())) {
+                members.put(user.getUsername().toLowerCase(java.util.Locale.ROOT), user);
+            }
+        }
+        return members;
+    }
+
+    // The members mentioned in `message`, never the author.
+    private static List<User> mentionedIn(String message, Map<String, User> members, User author) {
+        Map<String, String> names = new LinkedHashMap<>();
+        members.forEach((lower, user) -> names.put(lower, user.getUsername()));
+        List<User> mentioned = new ArrayList<>();
+        for (String username : Mentions.resolve(message, names)) {
+            User user = members.get(username.toLowerCase(java.util.Locale.ROOT));
+            if (user != null && !user.getId().equals(author.getId())) {
+                mentioned.add(user);
+            }
+        }
+        return mentioned;
+    }
+
+    private static Set<Long> idsOf(List<User> users) {
+        Set<Long> ids = new HashSet<>();
+        users.forEach(u -> ids.add(u.getId()));
+        return ids;
+    }
+
+    // The response also names the members the text mentions (the author included: a highlighted
+    // @name is still a mention, it just notifies nobody).
+    private static CommentResponse toResponse(Comment comment, Map<String, User> members) {
+        Map<String, String> names = new LinkedHashMap<>();
+        members.forEach((lower, user) -> names.put(lower, user.getUsername()));
+        List<CommentResponse.Mention> mentions = Mentions.resolve(comment.getMessage(), names).stream()
+                .map(username -> members.get(username.toLowerCase(java.util.Locale.ROOT)))
+                .map(user -> new CommentResponse.Mention(user.getId(), user.getUsername(), user.getFullName()))
+                .toList();
+        return new CommentResponse(comment).withMentions(mentions);
     }
 
     // A comment can be long; the activity feed shows only its start.
@@ -91,8 +154,16 @@ public class CommentService {
         if (!comment.getUser().getId().equals(caller.getId())) {
             throw new AccessDeniedException("You can only edit your own comments");
         }
+        Map<String, User> members = activeMembersByUsername(comment.getTask().getProject().getId());
+        Set<Long> alreadyMentioned = idsOf(mentionedIn(comment.getMessage(), members, caller));
         comment.setMessage(request.getMessage());
-        return new CommentResponse(commentRepository.save(comment));
+        Comment saved = commentRepository.save(comment);
+        // Editing tells only the people it newly mentions.
+        List<User> newlyMentioned = mentionedIn(saved.getMessage(), members, caller).stream()
+                .filter(u -> !alreadyMentioned.contains(u.getId()))
+                .toList();
+        updateNotificationService.notifyMentioned(saved, caller, newlyMentioned);
+        return toResponse(saved, members);
     }
 
     public void deleteComment(Long id, String username) {

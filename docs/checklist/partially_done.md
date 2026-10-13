@@ -16,8 +16,9 @@ Differences between the application and the approved specification that are not 
 
 | ID | Gap | Brief |
 |---|---|---|
-| G-14 | @mentions and report export (optional, not built); Kanban moving and the audit log were built 2026-10-13, deadline reminders and the Gantt chart 2026-10-10, auto-logout 2026-10-12 | §B13.1 |
 | G-16 | The list endpoints take no filter or search parameters; filtering runs in the browser over the already-scoped list | §B13.1 |
+
+**Resolved on 2026-10-13 (@mentions and report export, migration `V18`, verified live; moved to [done.md](done.md)):** G-14, the last optional features: @mentions in comments (D-21) and report export to Excel and PDF from every report and the KPIs (D-22). Only document management (#42) stays unbuilt.
 
 **Resolved on 2026-10-13 (Kanban moves, front end only, verified live; moved to [done.md](done.md)):** #35 a card can be dragged to another column or moved from its *Move to* menu.
 

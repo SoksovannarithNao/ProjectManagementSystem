@@ -1188,7 +1188,7 @@ CREATE TABLE notifications (
                CHECK (type IN ('TASK_ASSIGNED', 'TASK_STATUS_CHANGED', 'COMMENT_ADDED',
                                 'PROJECT_UPDATED', 'DEADLINE_REMINDER', 'OVERDUE_TASK',
                                 'MILESTONE_UPDATED', 'TEAM_INVITATION', 'TEAM_INVITATION_RESPONDED',
-                                'APPROVAL_REQUESTED', 'APPROVAL_DECIDED')),
+                                'APPROVAL_REQUESTED', 'APPROVAL_DECIDED', 'MENTION')),
     title      VARCHAR(200) NOT NULL,
     message    VARCHAR(500),
     project_id BIGINT REFERENCES projects (id) ON DELETE CASCADE,

@@ -21,6 +21,8 @@ import { Badge } from './ui/Badge'
 import { useToast } from './ui/Toast'
 import { ConfirmDialog } from './ui/ConfirmDialog'
 import { TaskFormModal } from './TaskFormModal'
+import { MentionInput } from './MentionInput'
+import { CommentText } from './CommentText'
 import { TimeTracking } from './TimeTracking'
 import { ChecklistSection } from './ChecklistSection'
 import { AttachmentsSection } from './AttachmentsSection'
@@ -494,12 +496,14 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                   saveEditComment(c.id)
                 }}
               >
-                <input
-                  type="text"
+                <MentionInput
                   value={editingCommentText}
-                  onChange={(e) => setEditingCommentText(e.target.value)}
+                  onChange={setEditingCommentText}
+                  members={projectMembersForAssignee}
+                  excludeId={profile?.id}
                   autoFocus
-                  className="bg-subtle border-border focus:border-focus h-8 flex-1 rounded-md border px-2.5 text-[12px] outline-none"
+                  aria-label="Edit comment"
+                  className="bg-subtle border-border focus:border-focus h-8 w-full rounded-md border px-2.5 text-[12px] outline-none"
                 />
                 <button type="submit" className="text-lavender text-[12px] font-semibold">
                   Save
@@ -513,7 +517,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
                 </button>
               </form>
             ) : (
-              <p className="text-muted text-[12px] leading-normal break-words">{c.message}</p>
+              <CommentText message={c.message} mentions={c.mentions} />
             )}
           </div>
         </div>
@@ -1017,12 +1021,13 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               </div>
             )}
             <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder={replyingTo ? 'Write a reply...' : 'Add a comment...'}
+              <MentionInput
+                placeholder={replyingTo ? 'Write a reply...' : 'Add a comment... (@ to mention)'}
                 value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                className="field flex-1"
+                onChange={setComment}
+                members={projectMembersForAssignee}
+                excludeId={profile?.id}
+                className="field w-full"
               />
               <button type="submit" className="icon-btn" aria-label="Send comment">
                 <Send size={16} />

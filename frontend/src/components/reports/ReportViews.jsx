@@ -6,7 +6,18 @@ import { EmptyState } from '../ui/EmptyState'
 import { DelayedBadge } from '../DelayedBadge'
 import { WorkloadTable } from '../WorkloadTable'
 import { StatCard } from '../StatCard'
-import { ReportRunner, ReportTable, SummaryTiles } from './ReportParts'
+import { ExportButtons, ReportRunner, ReportTable, SummaryTiles } from './ReportParts'
+import {
+  buildDocument,
+  kpiTables,
+  overdueTables,
+  projectReportTables,
+  projectStatusTables,
+  taskCompletionTables,
+  taskReportTables,
+  teamPerformanceTables,
+  workloadTables,
+} from './reportExport'
 import { fullDate, pct, hours } from './reportFormat'
 import { useReportableProjects } from './useReportableProjects'
 import { useApi } from '../../api/useApi'
@@ -76,19 +87,22 @@ export function KpiView() {
     <section className="card px-6 py-5" data-testid="kpi-view">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h3 className="section-title">Key performance indicators</h3>
-        <select
-          aria-label="Project"
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-          className="field field-sm min-w-[170px]"
-        >
-          <option value="">All my projects</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          {data && <ExportButtons document={buildDocument('Key performance indicators', data.scope, kpiTables(data, KPI_HELP))} />}
+          <select
+            aria-label="Project"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className="field field-sm min-w-[170px]"
+          >
+            <option value="">All my projects</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       {error && <EmptyState title="The KPIs could not be calculated" subtitle={error.message} />}
       {loading && !data && <Skeleton className="h-[110px] rounded-md" />}
@@ -136,6 +150,7 @@ export function ProjectReportView() {
       hint="One project: its details, owner, dates, progress, milestones, team, task counts and upcoming deadlines."
       fields={[{ name: 'projectId', label: 'Project', type: 'project', required: true }]}
       run={(v) => getProjectReport({ projectId: v.projectId })}
+      exportTables={projectReportTables}
     >
       {(r) => (
         <div className="flex flex-col gap-5">
@@ -230,6 +245,7 @@ export function TaskReportView() {
         { name: 'dueTo', label: 'Due to', type: 'date' },
       ]}
       run={(v) => getTaskReport(v)}
+      exportTables={taskReportTables}
     >
       {(r) => (
         <>
@@ -262,6 +278,7 @@ export function ProjectStatusReportView() {
         { name: 'to', label: 'Active to', type: 'date' },
       ]}
       run={(v) => getProjectStatusReport(v)}
+      exportTables={projectStatusTables}
     >
       {(r) => (
         <div className="flex flex-col gap-5">
@@ -324,6 +341,7 @@ export function TaskCompletionReportView() {
       ]}
       initial={{ groupBy: 'project' }}
       run={(v) => getTaskCompletionReport(v)}
+      exportTables={taskCompletionTables}
     >
       {(r) => (
         <div className="flex flex-col gap-5">
@@ -373,6 +391,7 @@ export function OverdueReportView() {
         { name: 'priority', label: 'Priority', type: 'select', options: PRIORITY },
       ]}
       run={(v) => getOverdueReport(v)}
+      exportTables={overdueTables}
     >
       {(r) => (
         <>
@@ -402,6 +421,7 @@ export function TeamPerformanceReportView() {
         { name: 'to', label: 'Due to', type: 'date' },
       ]}
       run={(v) => getTeamPerformanceReport(v)}
+      exportTables={teamPerformanceTables}
     >
       {(r) => (
         <ReportTable
@@ -433,6 +453,7 @@ export function WorkloadReportView() {
       hint="Per member: assigned, active and overdue tasks, estimated and actual hours (logged time), judged against the team average."
       fields={[{ name: 'projectId', label: 'Project', type: 'project', noneLabel: 'All my projects' }]}
       run={(v) => getWorkloadReport(v)}
+      exportTables={workloadTables}
     >
       {(r) => <WorkloadTable workload={r.workload} />}
     </ReportRunner>

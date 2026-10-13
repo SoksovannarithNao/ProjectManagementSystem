@@ -241,4 +241,33 @@ class UpdateNotificationServiceTest {
         assertThat(saved().get(0).getTitle()).isEqualTo("Milestone completed");
         verify(taskAssigneeRepository, never()).findByTaskIdIn(any());
     }
+
+    // ---- @mentions (G-14, D-21) -----------------------------------------------------------
+
+    @Test
+    void aMentionedPerson_getsATypeOfTheirOwn_naming_theAuthorTheTaskAndTheText() {
+        service.notifyMentioned(comment("Can you check this, @mia?", null), actor, List.of(assignee, actor));
+
+        assertThat(recipients()).containsExactly("Mia Park");
+        Notification n = saved().get(0);
+        assertThat(n.getType()).isEqualTo("MENTION");
+        assertThat(n.getTitle()).isEqualTo("You were mentioned");
+        assertThat(n.getMessage()).contains("Chen Wu mentioned you on").contains("Draft the homepage")
+                .contains("Website Redesign").contains("Can you check this");
+        assertThat(n.getTask()).isSameAs(task);
+    }
+
+    @Test
+    void nobodyMentioned_createsNothing() {
+        assertThat(service.notifyMentioned(comment("hi", null), actor, List.of())).isZero();
+    }
+
+    @Test
+    void thePeopleAlreadyToldOfAMention_arePassedOverByTheGenericCommentNotice() {
+        lenient().when(taskAssigneeRepository.findByTaskId(5L)).thenReturn(List.of(assigned(assignee)));
+
+        service.notifyCommentAdded(comment("Looks good @mia", null), actor, java.util.Set.of(assignee.getId()));
+
+        assertThat(recipients()).containsExactlyInAnyOrder("Olivia Bennett", "Owen Lead");
+    }
 }

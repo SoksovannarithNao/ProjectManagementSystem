@@ -43,9 +43,9 @@ No claim of being faster, smarter or cheaper than other tools has been establish
 
 ## Capabilities and Constraints
 
-**Implemented:** self-registration with OTP, login (rate-limited), profile and theme (light, dark, system), projects and membership with invitations, milestones, tasks, subtasks, dependencies, assignment, comments with replies, task, project and recent activity feeds, notifications (all 11 types, including comments, project and milestone updates and deadline reminders and overdue notices from a daily scheduled job), auto-logout after 15 idle minutes with a 60-second warning, the task approval workflow, checklist items and file attachments, the dashboard (project and task statistics, Delayed projects, recent activity), a task list with search, filters and sorts, Kanban, calendar (month/week/day), the project timeline, Gantt chart (a prototype), team tasks and workload views, Reports (overview charts, the five KPIs and the seven named reports), the team page, administration of users, roles and permissions, a Help & Support page, one error page for every error status (404, 403, 5xx, "cannot reach the server"), and time tracking (estimated vs. logged hours, work-log entries and a start/stop timer on each task).
+**Implemented:** self-registration with OTP, login (rate-limited), profile and theme (light, dark, system), projects and membership with invitations, milestones, tasks, subtasks, dependencies, assignment, comments with replies and @mentions, task, project and recent activity feeds, notifications (all 12 types, including comments, @mentions, project and milestone updates and deadline reminders and overdue notices from a daily scheduled job), auto-logout after 15 idle minutes with a 60-second warning, the task approval workflow, checklist items and file attachments, the dashboard (project and task statistics, Delayed projects, recent activity), a task list with search, filters and sorts, Kanban, calendar (month/week/day), the project timeline, Gantt chart (a prototype), team tasks and workload views, Reports (overview charts, the five KPIs and the seven named reports, each saved as an Excel or PDF file), the team page, administration of users, roles and permissions, a Help & Support page, one error page for every error status (404, 403, 5xx, "cannot reach the server"), and time tracking (estimated vs. logged hours, work-log entries and a start/stop timer on each task).
 
-**In the requirements, not built** (see [roadmap.md](roadmap.md)): PDF/Excel export of reports. (Moving Kanban cards was built on 2026-10-13.)
+**In the requirements, not built** (see [roadmap.md](roadmap.md)): document management (optional). (Moving Kanban cards, @mentions and report export were built on 2026-10-13.)
 
 **Constraints that future work must respect:**
 
@@ -74,7 +74,7 @@ No claim of being faster, smarter or cheaper than other tools has been establish
 2. **Show only what the user may act on.** Role and project membership shape what appears; permission is a design input, not an error message.
 3. **Make the daily path short.** Finding "my tasks" and moving a task forward should take a couple of actions from any screen.
 4. **One status vocabulary everywhere.** A status, priority or deadline looks and reads the same on the dashboard, list, board, calendar and detail panel.
-5. **Be honest about incomplete features.** Where a requirement is not built (export), do not present a control that appears to work.
+5. **Be honest about incomplete features.** Where a requirement is not built (document management), do not present a control that appears to work.
 
 ## Accessibility & Inclusion
 
