@@ -255,8 +255,11 @@ Softly rounded rectangles with hairline borders; pills for status and avatars.
 - **Mobile:** off-canvas below 1024px with a dimming scrim.
 - **Top bar:** page title and subtitle, search, notification bell with unread count, profile menu, and per-page actions.
 
+### Side panel (`SidePanel`)
+A form that slides in from the right, in the same frame as the task panel: a scrim (`z-60`), a 440px full-height Card with a header (15px title, close button) and a column for the form, which lays out its own scrolling body and a footer with the actions under a divider; full width below 640px. Closing with unsaved changes (the scrim, the X, Escape or Cancel) opens the *Discard changes?* confirmation. Used by *New role* / *Edit role*; short confirmations and small forms stay in `Modal`.
+
 ### Permission grid (Administration → Roles & Permissions)
-A role list (Card, one button per role; the selected role uses the Charcoal fill; a lock icon marks the read-only Administrator role; a small warning dot marks unsaved edits) beside one Card per scope containing a table: resources as rows, the seven permissions as columns. A cell is a native checkbox (`accent-charcoal`, 16px) when editable, a ✓ / – with an `aria-label` when not, and a faint "·" when the action means nothing for that resource. The first column is `sticky` on narrow screens so the row stays identifiable while the table scrolls sideways, and the row hints are hidden below 640px. *Save changes* and *Discard* sit in the role's header card; with no `ROLE:EDIT` the grid is read-only and a "View only" badge replaces them. Controls the user cannot use are removed, never disabled.
+A role list (Card, one button per role; the selected role uses the Charcoal fill; a lock icon marks the read-only Administrator role; a small warning dot marks unsaved edits; extra system roles read "Extra system role" and the list ends with a *New role* button) beside one Card per scope containing a table: resources as rows, the seven permissions as columns. A cell is a `Checkbox` when editable (a rounded 18px square, 1.5px border; ticked it fills with the Charcoal accent and shows a check mark that follows the theme; hover darkens the border; keyboard focus draws a focus-colour outline; a disabled box is dimmed; the real checkbox sits on top, invisible, so the whole 24px cell is the click target), a ✓ / – with an `aria-label` when not, and a faint "·" when the action means nothing for that resource. The first column is `sticky` on narrow screens so the row stays identifiable while the table scrolls sideways, and the row hints are hidden below 640px. *Save changes* and *Discard* sit in the role's header card; with no `ROLE:EDIT` the grid is read-only and a "View only" badge replaces them. Controls the user cannot use are removed, never disabled.
 
 ### Badges (status and priority)
 - **Style:** pill, 12px semibold, 4px × 10px, a 6px dot in `currentColor` before the label, soft-tint background with the matching `-ink` hue as text.
@@ -297,7 +300,7 @@ A role list (Card, one button per role; the selected role uses the Charcoal fill
 - **Do** pair every status colour with text or an icon so meaning never depends on hue alone.
 - **Do** keep text that carries a decision (due date, overdue, status, assignee) at 12px or larger and at 4.5:1 contrast against its background in both themes.
 - **Do** rely on the global `:focus-visible` ring and never suppress it with `!important` or `outline: 0` in an unlayered rule.
-- **Do** use the shared primitives (`Badge`, `Avatar`, `ProgressBar`, `Modal`, `EmptyState`, `Skeleton`, `.btn`, `.card`) before building a new variant.
+- **Do** use the shared primitives (`Badge`, `Avatar`, `ProgressBar`, `Modal`, `SidePanel`, `EmptyState`, `Skeleton`, `.btn`, `.card`) before building a new variant.
 - **Do** show loading as skeletons, empty as a titled empty state with a next action, and failure with a retry.
 - **Do** keep one primary button per view or dialog.
 - **Do** hide a control the signed-in user is not permitted to use (read `can` / `canSys` from `useAuth()`); a disabled control that can never be enabled is noise, and the server still refuses the request.

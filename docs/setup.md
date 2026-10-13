@@ -194,7 +194,7 @@ The frontend has **no** environment variables: it calls relative `/api/...` path
 
 ## Database setup
 
-There is nothing to run by hand. On the **first start with an empty data volume**, PostgreSQL executes `database/init/` in filename order: `01-init.sql` (schema, triggers, views), `02-seed.sql` (demo data), `03-app-role.sh` (creates `taskmanager_app`), then `04-flyway-baseline.sql`. A fresh volume therefore already has the latest schema. An **existing** volume does not re-run those scripts, so the one-shot `migrate` service (Flyway, `database/taskmanager/migrations/`, baseline version 8) brings it up to date every time you run `docker compose up -d`: it applies `V9` to `V14` to volumes that predate them (the role matrix, the two-level roles, the `TODO` status rename, the approval workflow, attachments and checklists, the project completion date) and does nothing when the database is current. A fresh volume gets `04-flyway-baseline.sql`, which records that it is already at version 14. To change the schema: add a new `V<n>__*.sql` migration **and** mirror the end state in `01-init.sql`, so fresh and existing databases end up identical. Details: [database.md](database.md#8-migrations-vs-the-init-script).
+There is nothing to run by hand. On the **first start with an empty data volume**, PostgreSQL executes `database/init/` in filename order: `01-init.sql` (schema, triggers, views), `02-seed.sql` (demo data), `03-app-role.sh` (creates `taskmanager_app`), then `04-flyway-baseline.sql`. A fresh volume therefore already has the latest schema. An **existing** volume does not re-run those scripts, so the one-shot `migrate` service (Flyway, `database/taskmanager/migrations/`, baseline version 8) brings it up to date every time you run `docker compose up -d`: it applies `V9` to `V17` to volumes that predate them (the role matrix, the two-level roles, the `TODO` status rename, the approval workflow, attachments and checklists, the project completion date) and does nothing when the database is current. A fresh volume gets `04-flyway-baseline.sql`, which records that it is already at version 17. To change the schema: add a new `V<n>__*.sql` migration **and** mirror the end state in `01-init.sql`, so fresh and existing databases end up identical. Details: [database.md](database.md#8-migrations-vs-the-init-script).
 
 ## Build commands
 
@@ -219,7 +219,7 @@ You're set up when all of these are true:
 
 ## 5. Test accounts and sample data
 
-On the first start, the database is filled with realistic sample data: 24 users, 10 projects, tasks, subtasks, comments and notifications.
+On the first start, the database is filled with a coherent demo dataset (rebuilt 2026-10-13): 24 users and 10 projects at different stages (one delayed, one on hold, one still planning, one completed) with 98 tasks, milestones, dependencies, subtasks, checklists, threaded comments, time entries, approvals, files, notifications and an audit log. It is dated relative to the day the database is built, so there is always some work overdue, some due today and some due this week. Details: [database.md](database.md#6-seed-data-02-seedsql).
 
 **Every seeded account uses the password `DevPassword123!`** (development only).
 

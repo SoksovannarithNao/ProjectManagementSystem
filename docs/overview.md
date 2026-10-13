@@ -46,7 +46,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 .
 ├── backend/               Spring Boot API
 │   └── src/main/java/backend/
-│       ├── controller/    25 REST controllers (119 endpoints)
+│       ├── controller/    26 REST controllers (122 endpoints)
 │       ├── service/       business rules, transactions, ProjectAccessGuard
 │       ├── repository/    Spring Data JPA repositories
 │       ├── entity/        22 JPA entities
@@ -63,7 +63,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 │   └── e2e/               Playwright specs
 ├── database/
 │   ├── init/              01-init.sql (schema), 02-seed.sql (demo data), 03-app-role.sh, 04-flyway-baseline.sql
-│   ├── taskmanager/       Flyway project (migrations V1–V14) — applied by the Compose `migrate` service, not by the app
+│   ├── taskmanager/       Flyway project (migrations V1–V16) — applied by the Compose `migrate` service, not by the app
 │   └── verify_invariants.sql
 ├── api/                   openapi.yaml (partly out of date — see issues.md)
 ├── docs/                  this documentation
@@ -88,7 +88,7 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Activity feed (task, project, recent) | Done (2026-10-09); time logs are not written |
 | Notifications | Done (2026-10-12) — all 11 types are produced, including comments, project updates and milestone updates |
 | Dashboard, project timeline, team tasks, workload | Done (2026-10-09) |
-| Kanban | Partial — cards cannot be moved (see [roadmap.md](roadmap.md)) |
+| Kanban | Done (2026-10-13) — drag a card to another column or use its *Move to* menu |
 | Calendar | Done (2026-10-12) — month, week and day views of task due dates and milestones |
 | Task approval workflow | Done (2026-10-09) |
 | Reports and KPIs | Done (2026-10-09) — overview charts, five KPIs, seven named reports; no PDF / Excel export |

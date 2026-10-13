@@ -432,7 +432,7 @@ Classification of every feature named in only one source or marked inconsistentl
 | Project Timeline | REQUIRED | Part A *Projects*; no workflow (now A5) | done (2026-10-09, `/projects/:id/timeline`) |
 | Gantt chart prototype | OPTIONAL | Part A "can"; listed in the Overview and the team-responsibilities file but in no function list | built 2026-10-10 (project *Gantt* tab) |
 | Kanban board (view by status) | REQUIRED | Part A | done |
-| Kanban moving cards between columns | OPTIONAL | Part A "can … as a prototype" | missing (cards open the panel) |
+| Kanban moving cards between columns | OPTIONAL | Part A "can … as a prototype" | **built 2026-10-13** (drag and drop, and a Move to menu) |
 | Calendar (tasks, due dates, milestones) | REQUIRED | Part A; at least one of day/week/month, all three is the target | done (2026-10-12): month, week and day views of tasks and milestones |
 | Task List with search/filter/sort | REQUIRED | Part A | done in the browser over the permission-scoped list (2026-10-09; G-16) |
 | Subtasks | REQUIRED | Part A | done |
@@ -451,7 +451,7 @@ Classification of every feature named in only one source or marked inconsistentl
 | Reports (seven named) | REQUIRED | Part A | done (2026-10-09: `GET /api/reports/*`, one tab each) |
 | Report export (PDF/Excel) | OPTIONAL | Part A "can … as a prototype" | missing |
 | Activity log | REQUIRED | Part A | done (2026-10-09): per task, per project and recent activity |
-| Audit log | OPTIONAL | Part A "can" | missing |
+| Audit log | OPTIONAL | Part A "can" | **built 2026-10-13** (B10, D-11) |
 | Approvals | REQUIRED | the permission `APPROVE` is required; its workflow is defined by this specification (B3.8) | done (2026-10-09, `V12`) |
 | Project Detail screen | REQUIRED | Part A | done |
 | Responsive UI, loading/empty/error states | REQUIRED | Part A | done |
@@ -836,7 +836,9 @@ Two different things.
 | Record | actor, action, project/task, time (+ readable detail) | actor, action, target type and id, time, **before and after values** |
 | Editable? | no | no (append-only) |
 
-*Current implementation (2026-10-09, `V13`):* one `activity_logs` table feeds both views: the task panel (per task) and the project page (`GET /api/activity-logs/project/{id}`, newest first). Recorded: project created / updated (naming what changed) / completed, milestone created / completed, task created / assigned / unassigned / status / priority / due date / deleted, subtask events, approval events, comment and reply added, file uploaded. The audit log (optional) does not exist.
+*Current implementation (2026-10-09, `V13`):* one `activity_logs` table feeds both views: the task panel (per task) and the project page (`GET /api/activity-logs/project/{id}`, newest first). Recorded: project created / updated (naming what changed) / completed, milestone created / completed, task created / assigned / unassigned / status / priority / due date / deleted, subtask events, approval events, comment and reply added, file uploaded.
+
+*Audit log, current implementation (2026-10-13, `V16`):* `audit_logs` is a separate append-only table (no foreign keys, `SELECT` and `INSERT` only for the application role, and a trigger refusing `UPDATE` / `DELETE`). Recorded, with the value before and after: system role changed, role permissions changed (the full list before and after), project role changed, ownership transferred, account created / activated, suspended or deactivated / deleted, project deleted, and an extra role created / renamed / deleted. `GET /api/audit-logs` (Administrator only: filters, paging) and `GET /api/audit-logs/project/{id}` (Administrator: all of the project's entries; its Owner: the ownership transfers, D-11); the screen is *Administration → Audit log*.
 
 ---
 
@@ -900,7 +902,7 @@ Remain optional; none is acceptance criteria. If shown in the demo they are labe
 
 ### B13.1 Differences between this specification and the application
 
-Status after the role-model migration `V10` (2026-10-08), change-plan batches 1, 2, 3a, 3b and 3c (2026-10-09), and the deadline reminders and Gantt prototype (2026-10-10); unchanged when re-checked on 2026-10-12. These are implementation gaps, not reasons to change the requirements.
+Status after the role-model migration `V10` (2026-10-08), change-plan batches 1, 2, 3a, 3b and 3c (2026-10-09), and the deadline reminders and Gantt prototype (2026-10-10); G-06 resolved on 2026-10-13; otherwise unchanged when re-checked on 2026-10-12. These are implementation gaps, not reasons to change the requirements.
 
 | # | Area | Status | Detail |
 |---|---|---|---|
@@ -909,7 +911,7 @@ Status after the role-model migration `V10` (2026-10-08), change-plan batches 1,
 | G-03 | Permission tables | Resolved earlier | `permissions` / `role_permissions` are used (198 grants after `V13`, resource × action, editable by an administrator) |
 | G-04 | Matrix | **Resolved** | `V10` matrix = B3.4–B3.6; reports through the project roles |
 | G-05 | Team Members create tasks | **Resolved** | refused (`403`) |
-| G-06 | New roles | Open | cannot be created from the UI; the API can add a bare role with no grants (D-14) |
+| G-06 | New roles | **Resolved** | an administrator creates, renames and deletes extra system roles and chooses their permissions on the Roles & Permissions screen (D-14; 2026-10-13). Two limits the specification did not spell out: a system-wide grant is only for projects, reports, users, roles and positions/departments (D-02: a system role never widens a project role), and an extra role cannot hold *create projects* because the creator becomes the project's owner (D-04) |
 | G-07 | Own position / department | **Resolved** | the Profile page offers the managed lists; `PUT /api/users/me` accepts `positionId` / `departmentId` (2026-10-09) |
 | G-08 | `APPROVE` | **Resolved** | approval records, designated approver, Approved / Changes requested / Rejected, notifications and activity entries (B3.8; 2026-10-09, `V12`) |
 | G-09 | `GENERATE_REPORTS` | **Resolved** | the seven report endpoints and the KPIs check it (and which projects it covers) on the server (B8; 2026-10-09, change-plan 3c) |
@@ -917,7 +919,7 @@ Status after the role-model migration `V10` (2026-10-08), change-plan batches 1,
 | G-11 | Status name | **Resolved** | stored `TODO` since `V11` (2026-10-09) |
 | G-12 | Ownership transfer | **Resolved** | `PUT /api/project-members/{id}` with role `OWNER`, one step; previous owner becomes `ADMIN` |
 | G-13 | Administrator creating for others | **Resolved** | the named manager must be able to own projects; becomes the owner |
-| G-14 | Missing features | Open | audit log, @mentions, Kanban moving, report export (B1.4). (Deadline reminders, overdue notices and the Gantt prototype were built 2026-10-10; auto-logout and the missing notification types 2026-10-12.) |
+| G-14 | Missing features | Open | @mentions and report export (B1.4), both optional. (Deadline reminders, overdue notices and the Gantt prototype were built 2026-10-10; auto-logout and the missing notification types 2026-10-12; Kanban moving and the audit log 2026-10-13.) |
 | G-19 | Dashboard statistics, Delayed, Team Tasks, Workload, Timeline, role / ownership UI | **Resolved** | built 2026-10-09 (change-plan 3b); see D-13 |
 | G-18 | Checklists, attachments, comment replies, project / comment / file activity | **Resolved** | built 2026-10-09 (`V13`, change-plan 3a); see D-07 and D-17 |
 | G-15 | A project with a single owner could not be deleted | **Resolved** | the owner check is deferred and skipped for a project being deleted |
@@ -938,15 +940,16 @@ Status after the role-model migration `V10` (2026-10-08), change-plan batches 1,
 | D-06 | Dashboard definitions: is a `PLANNING` project "active"? Does "Total Tasks" include cancelled? Where is In Review counted? | Active = `IN_PROGRESS` only. Total = all tasks, with Cancelled shown separately. In Review shown as its own count. Buckets are exclusive except Overdue, which overlaps. |
 | D-07 | Do checklist items count toward task progress? | Yes: `(completed subtasks + completed checklist items) ÷ (all subtasks + all checklist items)`; manual value if neither exists. **Implemented 2026-10-09.** |
 | D-08 | May a milestone be completed with unfinished linked tasks? | Yes, with a warning; tasks are not changed. |
-| D-09 | Part A lets a "Project Manager or Team Leader" be the responsible person. Is the responsible person always the `OWNER`? | Yes; a Team Leader (`ADMIN`) assists and may be listed as "lead", but the project record has one responsible person, the `OWNER`. |
+| D-09 | Part A lets a "Project Manager or Team Leader" be the responsible person. Is the responsible person always the `OWNER`? | Yes; a Team Leader (`ADMIN`) assists and may be listed as "lead", but the project record has one responsible person, the `OWNER`. **Lead implemented 2026-10-13** (`projects.lead_id`, `V15`): the Owner or an Administrator names an active Team Leader of the project; it is cleared when that person is demoted, removed or made the Owner. |
 | D-10 | Notification recipients for status change, comment, approvals, project/milestone update, member added/removed | Proposal: assignees and the `OWNER`/`ADMIN`s of the project; the actor excluded. **Implemented 2026-10-12 for comments, project updates and milestone updates** as the people with work in the item (a task's assignees, the assignees of a project's tasks, the assignees of a milestone's tasks) plus the `OWNER` and `ADMIN`s, with a reply also reaching its parent comment's author; member added / removed is still pending. |
-| D-11 | Who may read the audit log? | `ADMINISTRATOR`; ownership events also visible to that project's `OWNER`. |
+| D-11 | Who may read the audit log? | `ADMINISTRATOR`; ownership events also visible to that project's `OWNER`. **Implemented 2026-10-13** (the Owner through the API). |
 | D-12 | KPI formulas | B8 table. **Implemented 2026-10-09** (`ReportService`). |
 | D-13 | Overloaded / underloaded thresholds | **Implemented 2026-10-09** (`util/WorkloadClassifier`): a member's load is their open tasks (active + overdue) and the estimated hours of unfinished work; **overloaded** when either is more than 1.5x the team average and at least one task / four hours above it; **underloaded** when open tasks are under half the average (at least one task below) and estimated hours are not above it; **balanced** otherwise and always for a one-person team. An Owner or Team Leader counts only once work is assigned to them. **Decided:** relative to the team. A member is overloaded when their active-plus-overdue tasks or estimated hours are clearly above the average of the same team, underloaded when clearly below; no fixed numbers. The margin is an implementation detail to tune. |
 | D-14 | Role creation (workflow §4 "Create or edit a role") | Required. An administrator may create, edit and delete extra **system** roles and assign them any of the seven permissions; the three built-in system roles keep their names and cannot be deleted; project roles stay the four built-ins (custom project roles are UNDEFINED). |
 | D-15 | Rename the stored value `TO_DO` to `TODO`? | The specification uses `TODO`; a rename is a separate migration decision. **Done 2026-10-09** (`V11`). |
 | D-16 | May users edit their own position and department? | Yes (Part A: users edit their profile; both are profile fields). They choose from the managed lists; only an administrator creates new list entries. An administrator or a project owner/leader may also set them for others (current behaviour). **Implemented 2026-10-09.** |
 | D-17 | Attachment limits (types, size) and who may upload/delete | Upload: `OWNER`, `ADMIN`, `MEMBER` on tasks they can see; delete: the uploader, `OWNER` (and `ADMIN`, D-01). **Limits chosen 2026-10-09 (they were UNDEFINED):** 10 MB per file, 25 files per task or project, an allow-list of types (images, PDF, text, CSV, JSON, Office / OpenDocument, ZIP; no executables, scripts, HTML or SVG), content checked against the type. |
+| D-18 | Which rules does a status change obey, whichever screen makes it (task panel, quick-advance circle, Kanban drag, API)? | The ones in workflow §15 and A4, kept by the server and the database, not by one screen: a task cannot start or finish before its prerequisites are `COMPLETED`, **and a prerequisite cannot be taken back out of `COMPLETED` while a task that depends on it has started** (move the dependants back first); a task is not `COMPLETED` with open subtasks; completing is an approval; a `COMPLETED` task is 100% and a reopened one is not (0% unless subtasks or checklist items derive it). The Kanban board and the quick-advance circle also keep the order of the stages (a task starts in In Progress, it does not jump from To Do to review or Completed); that order is a screen rule, the task panel's status list and the API allow the jump. A Kanban move reads the task again before saving, so an out-of-date card cannot overwrite a newer edit. **Implemented 2026-10-13** (`V17`, `TaskService`, `checkTaskMove`). A project's own status (Completed, Cancelled, On Hold) does not restrict changes to its tasks (no rule in the specification). |
 | D-18 | Calendar views | at least month; day and week are the target. |
 | D-19 | **Proposal, not yet approved** (2026-10-12): what are "Tasks Near Deadline", "Today" and "Upcoming" (Part A names them without definitions)? | Near deadline (*Due soon*) = an open task due today or within 3 days, matching the first reminder day. In *My Tasks*, **Today** = open tasks due today and **Upcoming** = open tasks due after today. *In Progress*, *Completed* and *Overdue* use the statuses and B1.3. **Implemented 2026-10-12** (`Derived.DUE_SOON_DAYS`, the Tasks quick views); change the value or the wording if the owner prefers another window. |
 | D-20 | **Proposal, not yet approved** (2026-10-12): the auto-logout timing (Part A leaves it undefined) | 15 minutes without activity, then a 60-second warning with *Stay signed in*, then sign-out. Activity in any open tab counts. It is a browser-side prototype: the token is not revoked on the server. **Implemented 2026-10-12** (`IDLE_LIMIT_MS`, `IDLE_WARNING_MS` in `frontend/src/auth/idleTimeout.js`). |

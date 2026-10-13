@@ -61,6 +61,11 @@ export function ProjectCard({ project, stats }) {
             size={22}
           />
           <span className="text-muted truncate text-[12px]">{project.manager.fullName}</span>
+          {project.lead && (
+            <span className="text-faint truncate text-[12px]" title="Project lead">
+              · Lead {project.lead.fullName}
+            </span>
+          )}
         </div>
       )}
 

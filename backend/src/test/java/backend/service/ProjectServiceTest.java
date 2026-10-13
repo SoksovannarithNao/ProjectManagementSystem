@@ -51,13 +51,16 @@ class ProjectServiceTest {
     @Mock
     private UpdateNotificationService updateNotificationService;
 
+    @Mock
+    private AuditLogService auditLogService;
+
     private ProjectService projectService;
 
     private User caller;
 
     @BeforeEach
     void setUp() {
-        projectService = new ProjectService(projectRepository, projectMemberRepository, userRepository, projectAccessGuard, projectOwnership, activityLogService, updateNotificationService);
+        projectService = new ProjectService(projectRepository, projectMemberRepository, userRepository, projectAccessGuard, projectOwnership, activityLogService, updateNotificationService, auditLogService);
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 7L);
         caller.setUsername("pm.olivia");
@@ -335,5 +338,102 @@ class ProjectServiceTest {
         verify(activityLogService).recordProjectEvent(
                 org.mockito.ArgumentMatchers.eq(caller), any(Project.class),
                 org.mockito.ArgumentMatchers.eq("PROJECT_COMPLETED"), any());
+    }
+
+    // ---- the project lead (V15, D-09) -------------------------------------------
+
+    private User teamLeader(Long id, boolean activeTeamLeader) {
+        User leader = new User();
+        ReflectionTestUtils.setField(leader, "id", id);
+        leader.setUsername("lead." + id);
+        leader.setFullName("Lead " + id);
+        backend.entity.ProjectMember row = new backend.entity.ProjectMember();
+        row.setUser(leader);
+        row.setProjectRole(activeTeamLeader ? "ADMIN" : "MEMBER");
+        row.setStatus("ACTIVE");
+        when(userRepository.findById(id)).thenReturn(Optional.of(leader));
+        when(projectMemberRepository.findByProjectIdAndUserId(5L, id)).thenReturn(Optional.of(row));
+        return leader;
+    }
+
+    @Test
+    void setLead_namesATeamLeaderOfTheProject_andLogsIt() {
+        Project project = existingProject();
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(project));
+        User leader = teamLeader(9L, true);
+        stubSave();
+
+        ProjectResponse response = projectService.setLead(5L, 9L, "pm.olivia");
+
+        assertThat(project.getLead()).isSameAs(leader);
+        assertThat(response.getLead().getId()).isEqualTo(9L);
+        verify(projectAccessGuard).assertCan(caller, 5L, Resource.PROJECT, Action.ASSIGN);
+        verify(activityLogService).recordProjectEvent(caller, project, "PROJECT_LEAD_CHANGED", "Lead 9 was named the project lead");
+    }
+
+    @Test
+    void setLead_refusesSomeoneWhoIsNotATeamLeaderOfThisProject() {
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(existingProject()));
+        teamLeader(9L, false);
+
+        assertThatThrownBy(() -> projectService.setLead(5L, 9L, "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Only a Team Leader can be its lead");
+        verify(projectRepository, never()).save(any());
+    }
+
+    @Test
+    void setLead_withNoUser_clearsTheLead() {
+        Project project = existingProject();
+        project.setLead(caller);
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(project));
+        stubSave();
+
+        ProjectResponse response = projectService.setLead(5L, null, "pm.olivia");
+
+        assertThat(project.getLead()).isNull();
+        assertThat(response.getLead()).isNull();
+        verify(activityLogService).recordProjectEvent(caller, project, "PROJECT_LEAD_CHANGED", "The project lead was cleared");
+    }
+
+    @Test
+    void setLead_toTheSamePerson_changesAndLogsNothing() {
+        Project project = existingProject();
+        User leader = teamLeader(9L, true);
+        project.setLead(leader);
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(project));
+
+        projectService.setLead(5L, 9L, "pm.olivia");
+
+        verify(projectRepository, never()).save(any());
+        verify(activityLogService, never()).recordProjectEvent(any(), any(), any(), any());
+    }
+
+    @Test
+    void setLead_needsThePermissionToAssign() {
+        org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("no"))
+                .when(projectAccessGuard).assertCan(caller, 5L, Resource.PROJECT, Action.ASSIGN);
+
+        assertThatThrownBy(() -> projectService.setLead(5L, 9L, "pm.olivia"))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        verify(projectRepository, never()).save(any());
+    }
+
+    // ---- the audit log (#44) ---------------------------------------------------------
+
+    @Test
+    void deletingAProject_isAudited_beforeItIsGone() {
+        Project project = existingProject();
+        project.setName("Website");
+        project.setStatus("IN_PROGRESS");
+        caller.setFullName("Olivia Bennett");
+        when(projectRepository.findById(5L)).thenReturn(Optional.of(project));
+
+        projectService.deleteProject(5L, "pm.olivia");
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(auditLogService, projectRepository);
+        order.verify(auditLogService).record(AuditLogService.PROJECT_DELETED, AuditLogService.PROJECT, 5L,
+                "PRJ-2005 Website", null, "IN_PROGRESS, managed by Olivia Bennett", null);
+        order.verify(projectRepository).delete(project);
     }
 }

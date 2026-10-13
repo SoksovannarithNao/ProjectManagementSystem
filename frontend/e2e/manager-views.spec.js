@@ -343,23 +343,25 @@ test.describe('manager views: UI', () => {
     const marcus = await apiLogin(request, 'pm.marcus')
     const project = await createProject(request, pm)
     let ownerHeaders = pm
+    // dev.raj, not dev.chen: reports.spec.js expects dev.chen to be refused every report, which is not
+    // true while he is a Team Leader here, and the two specs run at the same time.
     try {
-      await addMembers(request, pm, project, [['dev.chen', 'MEMBER'], ['pm.marcus', 'MEMBER']])
+      await addMembers(request, pm, project, [['dev.raj', 'MEMBER'], ['pm.marcus', 'MEMBER']])
 
       await login(page, 'pm.olivia')
       await page.goto(`/projects/${project.id}`)
 
       // a Team Member becomes a Team Leader
-      const chenRole = page.getByLabel('Project role of Chen Wu')
-      await expect(chenRole).toBeVisible()
-      await chenRole.selectOption('ADMIN')
-      await expect(page.getByText('Chen Wu is now a Team Leader')).toBeVisible()
-      expect((await membership(request, pm, project.id, 'dev.chen')).projectRole).toBe('ADMIN')
+      const rajRole = page.getByLabel('Project role of Raj Malhotra')
+      await expect(rajRole).toBeVisible()
+      await rajRole.selectOption('ADMIN')
+      await expect(page.getByText('Raj Malhotra is now a Team Leader')).toBeVisible()
+      expect((await membership(request, pm, project.id, 'dev.raj')).projectRole).toBe('ADMIN')
       // the Owner has no picker on their own row
       await expect(page.getByLabel('Project role of Olivia Bennett')).toHaveCount(0)
 
       // only someone who can own projects is offered "Owner"
-      await expect(chenRole.locator('option', { hasText: 'Owner' })).toHaveCount(0)
+      await expect(rajRole.locator('option', { hasText: 'Owner' })).toHaveCount(0)
       const marcusRole = page.getByLabel(/^Project role of .*Marcus/)
       await marcusRole.selectOption({ label: 'Owner (transfer ownership)' })
       await expect(page.getByText(/A project has exactly one Owner/)).toBeVisible()

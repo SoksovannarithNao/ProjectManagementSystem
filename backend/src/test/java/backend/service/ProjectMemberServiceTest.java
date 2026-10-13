@@ -58,6 +58,9 @@ class ProjectMemberServiceTest {
     @Mock
     private NotificationService notificationService;
 
+    @Mock
+    private AuditLogService auditLogService;
+
     private ProjectMemberService service;
 
     private User caller;
@@ -67,7 +70,7 @@ class ProjectMemberServiceTest {
         // the real ownership helper over the mocked repositories, so a transfer is tested end to end
         service = new ProjectMemberService(
                 projectMemberRepository, projectRepository, userRepository, projectAccessGuard, notificationService,
-                new ProjectOwnership(projectMemberRepository, projectRepository));
+                new ProjectOwnership(projectMemberRepository, projectRepository, auditLogService), auditLogService);
         caller = user(1L, "pm.olivia", "ACTIVE");
         Project project = new Project();
         ReflectionTestUtils.setField(project, "id", 10L);
@@ -509,5 +512,115 @@ class ProjectMemberServiceTest {
         service.updateProjectMember(7L, memberRequest(10L, 2L, "MEMBER"), "pm.olivia");
 
         assertThat(leader.getProjectRole()).isEqualTo("MEMBER");
+    }
+
+    // ---- the project lead is a Team Leader (V15, D-09) -------------------------
+
+    private ProjectMember teamLeaderWhoIsTheLead() {
+        Project project = projectRepository.findById(10L).orElseThrow();
+        User leader = user(2L, "lead.owen", "ACTIVE");
+        ProjectMember row = row(7L, project, leader, "ACTIVE");
+        row.setProjectRole("ADMIN");
+        project.setLead(leader);
+        lenient().when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(row));
+        lenient().when(userRepository.findById(2L)).thenReturn(Optional.of(leader));
+        lenient().when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+        return row;
+    }
+
+    @Test
+    void demotingTheLead_clearsTheLead() {
+        ProjectMember row = teamLeaderWhoIsTheLead();
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "MEMBER"), "pm.olivia");
+
+        assertThat(row.getProject().getLead()).isNull();
+    }
+
+    @Test
+    void keepingTheLeadAsATeamLeader_keepsTheLead() {
+        ProjectMember row = teamLeaderWhoIsTheLead();
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "ADMIN"), "pm.olivia");
+
+        assertThat(row.getProject().getLead()).isSameAs(row.getUser());
+    }
+
+    @Test
+    void removingTheLeadFromTheProject_clearsTheLead() {
+        ProjectMember row = teamLeaderWhoIsTheLead();
+
+        service.deleteProjectMember(7L, "pm.olivia");
+
+        assertThat(row.getProject().getLead()).isNull();
+        verify(projectMemberRepository).delete(row);
+    }
+
+    @Test
+    void makingTheLeadTheOwner_clearsTheLead() {
+        ProjectMember row = teamLeaderWhoIsTheLead();
+        withSystemRole(row.getUser(), "PROJECT_MANAGER");
+        ProjectMember oldOwner = row(5L, row.getProject(), withSystemRole(caller, "PROJECT_MANAGER"), "ACTIVE");
+        oldOwner.setProjectRole("OWNER");
+        when(projectMemberRepository.findFirstByProjectIdAndProjectRoleAndStatus(10L, "OWNER", "ACTIVE"))
+                .thenReturn(Optional.of(oldOwner));
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "OWNER"), "pm.olivia");
+
+        assertThat(row.getProject().getLead()).isNull();
+        assertThat(row.getProject().getManager()).isSameAs(row.getUser());
+    }
+
+    // ---- the audit log (#44) ---------------------------------------------------------
+
+    @Test
+    void changingAMembersProjectRole_isAudited() {
+        User member = user(2L, "dev.chen", "ACTIVE");
+        ProjectMember existing = row(7L, projectRepository.findById(10L).orElseThrow(), member, "ACTIVE");
+        existing.setProjectRole("MEMBER");
+        projectRepository.findById(10L).orElseThrow().setProjectCode("PRJ-2001");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(existing));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(member));
+        when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "VIEWER"), "pm.olivia");
+
+        verify(auditLogService).record(AuditLogService.PROJECT_ROLE_CHANGED, AuditLogService.USER, 2L,
+                "dev.chen full (@dev.chen) in PRJ-2001", 10L, "MEMBER", "VIEWER");
+    }
+
+    @Test
+    void savingAMembershipWithTheSameRole_isNotAudited() {
+        User member = user(2L, "dev.chen", "ACTIVE");
+        ProjectMember existing = row(7L, projectRepository.findById(10L).orElseThrow(), member, "ACTIVE");
+        existing.setProjectRole("MEMBER");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(existing));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(member));
+        when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "MEMBER"), "pm.olivia");
+
+        verify(auditLogService, never()).record(any(String.class), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void transferringOwnership_isAudited_withTheOldAndTheNewOwner() {
+        Project project = projectRepository.findById(10L).orElseThrow();
+        project.setProjectCode("PRJ-2001");
+        project.setName("Website");
+        ProjectMember oldRow = row(5L, project, withSystemRole(caller, "PROJECT_MANAGER"), "ACTIVE");
+        oldRow.setProjectRole("OWNER");
+        User next = withSystemRole(user(2L, "pm.marcus", "ACTIVE"), "PROJECT_MANAGER");
+        ProjectMember nextRow = row(7L, project, next, "ACTIVE");
+        nextRow.setProjectRole("ADMIN");
+        when(projectMemberRepository.findById(7L)).thenReturn(Optional.of(nextRow));
+        when(projectMemberRepository.findFirstByProjectIdAndProjectRoleAndStatus(10L, "OWNER", "ACTIVE"))
+                .thenReturn(Optional.of(oldRow));
+        when(projectMemberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.updateProjectMember(7L, memberRequest(10L, 2L, "OWNER"), "pm.olivia");
+
+        verify(auditLogService).record(AuditLogService.OWNERSHIP_TRANSFERRED, AuditLogService.PROJECT, 10L,
+                "PRJ-2001 Website", 10L, "pm.olivia full", "pm.marcus full");
     }
 }

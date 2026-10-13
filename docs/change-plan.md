@@ -182,7 +182,7 @@ Delivery followed §2 except the backup and migration, which a change without sc
 
 Not acceptance criteria. Build only if wanted; if shown they are labelled "Optional feature demonstration".
 
-Kanban drag-to-move (same status rules as §15) · report export to PDF/Excel · ~~Gantt chart prototype~~ (built 2026-10-10, outside the batches) · document management · audit log (B10) · @mentions (undefined in both sources).
+~~Kanban drag-to-move (same status rules as §15)~~ (built 2026-10-13) · report export to PDF/Excel · ~~Gantt chart prototype~~ (built 2026-10-10, outside the batches) · document management · audit log (B10) · @mentions (undefined in both sources).
 
 ## 7. Batch 5 — Housekeeping (2 left)
 
@@ -190,7 +190,7 @@ Kanban drag-to-move (same status rules as §15) · report export to PDF/Excel ·
 |---|---|
 | 5.1 | ~~Delete the leftover pending `newuser` invitation~~ — **done 2026-10-08**: the invitation was already gone; the one remaining failure in `project-team.spec.js` was a stale selector (`text-danger` → the message text), fixed. The suite is 43/43 |
 | 5.2 | ~~I-21: tasks 2, 3 and 5 of PRJ-2001 are assigned to `lead.owen`, who has no PRJ-2001 membership in the live database (seed has one)~~ — `verify_invariants.sql` query 3 returned no rows after batch 2 (2026-10-09); the cause of the change is not known, so keep watching it |
-| 5.3 | `api/openapi.yaml` is stale (documents 57 of 119 endpoints, old roles); regenerate it from the code or retire it |
+| 5.3 | `api/openapi.yaml` is stale (documents 57 of 122 endpoints, old roles); regenerate it from the code or retire it |
 | 5.4 | Run the Playwright suite in CI (it needs the Docker stack) |
 
 ## 8. Proposed order

@@ -9,6 +9,7 @@ import {
   BarChart3,
   Settings,
   HelpCircle,
+  ScrollText,
   ShieldCheck,
   UserCog,
   X,
@@ -29,10 +30,12 @@ const navItems = [
   { to: '/reports', label: 'Reports', icon: BarChart3, needs: ['REPORT', 'GENERATE_REPORTS'], anywhere: true },
 ]
 
-// Administration: shown only to someone who may view users / roles.
+// Administration: shown only to someone who may view users / roles (the audit log: the
+// Administrator role only).
 const adminItems = [
   { to: '/admin/users', label: 'Users', icon: UserCog, needs: ['USER', 'VIEW'] },
   { to: '/admin/roles', label: 'Roles & Permissions', icon: ShieldCheck, needs: ['ROLE', 'VIEW'] },
+  { to: '/admin/audit', label: 'Audit log', icon: ScrollText, administratorOnly: true },
 ]
 
 const itemBase =
@@ -44,12 +47,12 @@ const itemActive =
 
 export function Sidebar() {
   const { mobileNavOpen, closeMobileNav } = useLayout()
-  const { canSys, canAny } = useAuth()
+  const { canSys, canAny, isAdministrator } = useAuth()
   // `anywhere`: the permission may come from the system role OR from the role held in any project
   const visibleNav = navItems.filter(
     (item) => !item.needs || (item.anywhere ? canAny(...item.needs) : canSys(...item.needs))
   )
-  const visibleAdmin = adminItems.filter((item) => canSys(...item.needs))
+  const visibleAdmin = adminItems.filter((item) => (item.administratorOnly ? isAdministrator : canSys(...item.needs)))
 
   return (
     <>

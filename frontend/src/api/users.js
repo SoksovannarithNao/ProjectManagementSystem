@@ -55,3 +55,9 @@ export function assignUserRole(userId, roleId) {
 export function updateUserAccount(userId, request) {
   return apiFetch(`/users/${userId}`, { method: 'PUT', body: request })
 }
+
+// Administrator-only; the server refuses the last Administrator, your own
+// account and the sole owner of a project.
+export function deleteUser(userId) {
+  return apiFetch(`/users/${userId}`, { method: 'DELETE' })
+}

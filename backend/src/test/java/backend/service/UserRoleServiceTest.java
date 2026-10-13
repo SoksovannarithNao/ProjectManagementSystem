@@ -1,7 +1,9 @@
 package backend.service;
 
+import backend.dto.UserCreateRequest;
 import backend.dto.RegisterRequest;
 import backend.dto.UserResponse;
+import backend.dto.UserUpdateRequest;
 import backend.entity.Role;
 import backend.entity.User;
 import backend.exception.NotFoundException;
@@ -49,12 +51,15 @@ class UserRoleServiceTest {
     @Mock
     private PermissionService permissionService;
 
+    @Mock
+    private AuditLogService auditLogService;
+
     private UserService service;
 
     @BeforeEach
     void setUp() {
         service = new UserService(userRepository, roleRepository, positionRepository, departmentRepository,
-                projectMemberRepository, new BCryptPasswordEncoder(), projectAccessGuard, permissionService);
+                projectMemberRepository, new BCryptPasswordEncoder(), projectAccessGuard, permissionService, auditLogService);
         lenient().when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -186,5 +191,125 @@ class UserRoleServiceTest {
         service.assignRole(50L, 4L);
 
         assertThat(target.getRole()).isSameAs(plain);
+    }
+
+    @Test
+    void theLastAdministrator_cannotBeDeactivatedOrDeleted() {
+        Role admin = role(1L, "ADMINISTRATOR", "SYSTEM");
+        User target = user(50L, admin);
+        target.setAccountStatus("ACTIVE");
+        when(userRepository.countByRoleName("ADMINISTRATOR")).thenReturn(1L);
+        UserUpdateRequest request = new UserUpdateRequest();
+        request.setFullName("User 50");
+        request.setUsername("user50");
+        request.setEmail("user50@example.com");
+        request.setAccountStatus("INACTIVE");
+
+        assertThatThrownBy(() -> service.updateUser(50L, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("last Administrator cannot be deactivated");
+        assertThatThrownBy(() -> service.deleteUser(50L, "someoneelse"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("last Administrator cannot be deleted");
+        verify(userRepository, never()).delete(any());
+    }
+
+    @Test
+    void anAdministrator_canBeDeleted_whenAnotherOneExists() {
+        User target = user(50L, role(1L, "ADMINISTRATOR", "SYSTEM"));
+        when(userRepository.countByRoleName("ADMINISTRATOR")).thenReturn(2L);
+
+        service.deleteUser(50L, "someoneelse");
+
+        verify(userRepository).delete(target);
+    }
+
+    @Test
+    void anAccount_cannotDeleteItself() {
+        user(50L, role(4L, "USER", "SYSTEM"));
+
+        assertThatThrownBy(() -> service.deleteUser(50L, "User50"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("your own account");
+        verify(userRepository, never()).delete(any());
+    }
+
+    // ---- the audit log (#44) ---------------------------------------------------------
+
+    @Test
+    void givingAnAccountAnotherRole_isAudited_withTheRoleBeforeAndAfter() {
+        role(2L, "PROJECT_MANAGER", "SYSTEM");
+        user(50L, role(4L, "USER", "SYSTEM"));
+
+        service.assignRole(50L, 2L);
+
+        verify(auditLogService).record(AuditLogService.USER_ROLE_CHANGED, AuditLogService.USER, 50L,
+                "User 50 (@user50)", null, "USER", "PROJECT_MANAGER");
+    }
+
+    @Test
+    void aRoleChangeThatFails_isNotAudited() {
+        Role admin = role(1L, "ADMINISTRATOR", "SYSTEM");
+        role(4L, "USER", "SYSTEM");
+        user(50L, admin);
+        when(userRepository.countByRoleName("ADMINISTRATOR")).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.assignRole(50L, 4L)).isInstanceOf(IllegalArgumentException.class);
+
+        verify(auditLogService, never()).record(any(String.class), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void changingAnAccountsStatus_isAudited_andSoIsDeletingIt() {
+        User target = user(50L, role(4L, "USER", "SYSTEM"));
+        target.setAccountStatus("ACTIVE");
+        UserUpdateRequest request = new UserUpdateRequest();
+        request.setFullName("User 50");
+        request.setUsername("user50");
+        request.setEmail("user50@example.com");
+        request.setAccountStatus("SUSPENDED");
+
+        service.updateUser(50L, request);
+        verify(auditLogService).record(AuditLogService.ACCOUNT_STATUS_CHANGED, AuditLogService.USER, 50L,
+                "User 50 (@user50)", null, "ACTIVE", "SUSPENDED");
+
+        service.deleteUser(50L, "someoneelse");
+        verify(auditLogService).record(AuditLogService.ACCOUNT_DELETED, AuditLogService.USER, 50L,
+                "User 50 (@user50)", null, "role USER, status SUSPENDED", null);
+    }
+
+    @Test
+    void savingAnAccountWithoutChangingItsRoleOrStatus_isNotAudited() {
+        User target = user(50L, role(4L, "USER", "SYSTEM"));
+        target.setAccountStatus("ACTIVE");
+        UserUpdateRequest request = new UserUpdateRequest();
+        request.setFullName("User 50 renamed");
+        request.setUsername("user50");
+        request.setEmail("user50@example.com");
+
+        service.updateUser(50L, request);
+
+        verify(auditLogService, never()).record(any(String.class), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void anAdministratorCreatingAnAccount_isAudited() {
+        Role plain = role(4L, "USER", "SYSTEM");
+        UserCreateRequest request = new UserCreateRequest();
+        request.setFullName("New Person");
+        request.setUsername("new.person");
+        request.setEmail("new.person@example.com");
+        request.setPassword("Str0ng!Passw0rd");
+        request.setAccountStatus("ACTIVE");
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> {
+            User saved = inv.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", 77L);
+            return saved;
+        });
+
+        service.createUser(request);
+
+        verify(auditLogService).record(AuditLogService.ACCOUNT_CREATED, AuditLogService.USER, 77L,
+                "New Person (@new.person)", null, null, "role " + plain.getName() + ", status ACTIVE");
     }
 }

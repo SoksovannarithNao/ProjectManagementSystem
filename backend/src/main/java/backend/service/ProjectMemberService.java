@@ -33,6 +33,7 @@ public class ProjectMemberService {
     private final ProjectAccessGuard projectAccessGuard;
     private final NotificationService notificationService;
     private final ProjectOwnership projectOwnership;
+    private final AuditLogService auditLogService;
 
     public ProjectMemberService(
             ProjectMemberRepository projectMemberRepository,
@@ -40,7 +41,9 @@ public class ProjectMemberService {
             UserRepository userRepository,
             ProjectAccessGuard projectAccessGuard,
             NotificationService notificationService,
-            ProjectOwnership projectOwnership) {
+            ProjectOwnership projectOwnership,
+            AuditLogService auditLogService) {
+        this.auditLogService = auditLogService;
         this.projectMemberRepository = projectMemberRepository;
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
@@ -309,8 +312,28 @@ public class ProjectMemberService {
         }
         String effectiveNewRole = request.getProjectRole() != null ? request.getProjectRole() : projectMember.getProjectRole();
         assertNotRemovingLastOwner(projectMember, effectiveNewRole);
+        String roleBefore = projectMember.getProjectRole();
         applyRequest(projectMember, request);
-        return new ProjectMemberResponse(projectMemberRepository.save(projectMember));
+        clearLeadUnless("ADMIN".equals(projectMember.getProjectRole()), projectMember);
+        ProjectMember saved = projectMemberRepository.save(projectMember);
+        if (!roleBefore.equals(saved.getProjectRole())) {
+            Project project = saved.getProject();
+            auditLogService.record(AuditLogService.PROJECT_ROLE_CHANGED, AuditLogService.USER, saved.getUser().getId(),
+                    saved.getUser().getFullName() + " (@" + saved.getUser().getUsername() + ") in " + project.getProjectCode(),
+                    project.getId(), roleBefore, saved.getProjectRole());
+        }
+        return new ProjectMemberResponse(saved);
+    }
+
+    // The project lead must be a Team Leader (V15). The database clears it too; this keeps
+    // the loaded project from writing the old lead back.
+    private void clearLeadUnless(boolean remainsTeamLeader, ProjectMember member) {
+        Project project = member.getProject();
+        boolean isLead = project.getLead() != null && project.getLead().getId().equals(member.getUser().getId());
+        if (isLead && !remainsTeamLeader) {
+            project.setLead(null);
+            projectRepository.save(project);
+        }
     }
 
     // Who may set whose project role (assignment-brief.md B3.7 and B3.9):
@@ -345,6 +368,7 @@ public class ProjectMemberService {
         ProjectMember projectMember = getProjectMemberEntityById(id);
         projectAccessGuard.assertCan(requireUser(username), projectMember.getProject().getId(), Resource.MEMBER, Action.DELETE);
         assertNotRemovingLastOwner(projectMember, null);
+        clearLeadUnless(false, projectMember);
         projectMemberRepository.delete(projectMember);
     }
 

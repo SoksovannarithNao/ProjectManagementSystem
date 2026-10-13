@@ -1,6 +1,6 @@
 # Test cases
 
-The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-12** against the running stack: backend 328/328, frontend unit tests 128/128, Playwright 145 tests in 19 files (all of them also pass on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
+The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-13** against the running stack: backend 381/381, frontend unit tests 142/142, Playwright 182 tests in 25 files (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
 
 **Reading the tables**
 
@@ -75,6 +75,16 @@ The formal list of what the application is tested for: one row per case, with th
 | ROLE-06 | What each role sees | Sign in as a Team Member, a Team Leader, a Project Manager and the Administrator | A Team Member has no Reports link, no Administration, no *New Project*; a Team Leader reaches Reports through the project role; a Project Manager creates projects but is not an administrator; the Administrator manages roles and users | `roles-permissions.spec.js` |
 | ROLE-07 | Every role × resource × action | Check each grant against the permission matrix | Each listed grant is allowed, every unlisted one is refused | `PermissionServiceTest` |
 | ROLE-08 | Permission helpers in the browser | Ask whether a user may do something in a project | The answer follows the user's system and project roles | `permissions.test.js` |
+| ROLE-09 | Edit, deactivate and delete an account | In *Administration → Users*, edit an account's name and phone, set it Inactive, then delete it | The changes are saved; the inactive account cannot sign in; the account disappears | `user-management.spec.js` |
+| ROLE-10 | The last Administrator is protected | Deactivate or delete the only Administrator | Refused; allowed when another Administrator exists | `UserRoleServiceTest` |
+| ROLE-11 | You cannot delete your own account | Delete your own account; a Team Member deletes an account | The screen has no Delete on your own row and the server answers `400`; a Team Member gets `403` | `user-management.spec.js`; `UserRoleServiceTest` |
+| ROLE-12 | Create an extra system role and give it permissions | Roles & Permissions → *New role* (opens in the right-hand panel; closing it with text typed asks before discarding); tick *view projects* and *generate reports*; give the role to an account | The role starts with no permissions; the account's effective permissions are exactly those two; *create projects* is disabled for an extra role | `custom-roles.spec.js`; `RoleServiceTest` |
+| ROLE-13 | Rename and delete an extra role | Rename it; delete it while an account holds it; give the account another role and delete again | The rename is saved; the first delete is refused; the second succeeds; the built-in roles show no Edit or Delete | `custom-roles.spec.js`; `RoleServiceTest` |
+| ROLE-14 | The rules for extra roles | Use a name in use or an odd name; rename or delete a built-in role; give an extra role *create projects* or a system-wide task grant; a Team Member creates, edits or deletes a role | `409` / `400` / `400` / `400` / `400` with a clear message; `403` for the Team Member | `custom-roles.spec.js`; `RoleServiceTest`; `RolePermissionServiceTest` |
+| ROLE-15 | The audit log records sensitive changes | As an Administrator create an account, change its role, suspend it and delete it; change a role's permissions; transfer a project's ownership and delete the project | Each step is an entry with the actor, the target and the values before and after (the permissions: the full list); an unchanged save adds nothing; entries stay readable after the account, role or project is gone | `audit-log.spec.js`; `AuditLogServiceTest`; `UserRoleServiceTest`; `RolePermissionServiceTest` |
+| ROLE-16 | Who reads the audit log | A Project Manager, Team Leader and Team Member open it; a project's Owner asks for the project's entries | `403` "Only an Administrator can read the audit log" (`401` without a token); the Owner gets only the ownership transfers; a Team Leader or Viewer of the project gets `403` | `audit-log.spec.js`; `AuditLogServiceTest` |
+| ROLE-17 | The audit log cannot be changed | `PUT`, `PATCH` or `DELETE` on an entry; `UPDATE` / `DELETE` / `TRUNCATE` in SQL as the application role and as the owner | Refused: no such endpoint, no privilege for the application role, and a trigger that refuses the owner too | `audit-log.spec.js`; checked directly in PostgreSQL (manual, see section 18) |
+| ROLE-18 | Search and paging | Search by name, filter by action and dates, page through | Narrowed newest first; the page size is capped at 100 and the total is shown; a typed `%` is text | `audit-log.spec.js` |
 
 ## 4. Projects
 
@@ -98,6 +108,8 @@ The formal list of what the application is tested for: one row per case, with th
 | MEM-04 | One Owner per project | Invite a second Owner; transfer ownership | The second is refused; the previous owner becomes Team Leader; a single-owner project can be deleted by the new Owner | `roles-permissions.spec.js`; `ProjectOwnershipTest` |
 | MEM-05 | Project roles | Change a member's role | Nobody changes their own; a Team Leader only moves Team Members and Viewers; the Owner changes anyone's and can transfer ownership | `manager-views.spec.js` |
 | MEM-06 | A membership cannot be re-pointed | Change the project or user of a membership | Refused; its role can change | `ProjectMemberServiceTest`; `permissions.spec.js` |
+| MEM-07 | Name a Team Leader as the project lead | The Owner clicks *Make lead* beside a Team Leader (or `PUT /api/projects/{id}/lead`); clear it again | The Lead field, the project list and the activity feed show it; only a Team Leader of the project can be named; a Team Leader or Team Member cannot name one | `project-lead.spec.js`; `ProjectServiceTest` |
+| MEM-08 | The lead stops being the lead with the role | Demote the lead, remove them from the project, or make them the Owner | The project has no lead afterwards | `project-lead.spec.js`; `ProjectMemberServiceTest` |
 
 ## 6. Tasks
 
@@ -112,6 +124,13 @@ The formal list of what the application is tested for: one row per case, with th
 | TSK-07 | Viewers are read-only | A Viewer comments, adds a subtask or changes a task | Refused (API); the panel hides the controls | `permissions.spec.js`; `ViewerWriteAccessTest` |
 | TSK-08 | The quick-advance circle | Click the circle on a task | To Do → In Progress; In Progress → In Review (or Completed for an approver); In Review only for an approver; finished tasks do not move | `tasks.test.js` |
 | TSK-09 | Own position and department | Pick them on the Profile page | Saved from the managed lists; an id outside the list is refused | `batch1.spec.js` |
+| TSK-10 | Move a card on the Kanban board | Drag a card to another column; or open its *Move to* menu and pick one | The task takes that status (the column lights up while you drag); a finished task can be reopened on purpose | `kanban-moves.spec.js`; `tasks.test.js` |
+| TSK-11 | A move the rules refuse | Drop a task with an open subtask on Completed; a blocked task on In Progress; anything on Blocked; a Team Member drops their task on Completed | The card stays and the screen says why (the Move to menu shows the reason beside the disabled column); a Team Member is pointed to In Review, which opens the approval request | `kanban-moves.spec.js`; `tasks.test.js` |
+| TSK-12 | Who can move a card | A Team Member looks at cards not assigned to them; a Viewer looks at the board; a Team Member completes a task through the API | No handle and no menu; the server answers `403` | `kanban-moves.spec.js`; `permissions.spec.js` |
+| TSK-13 | A move keeps progress and dates right | Move a task up to Completed and back to To Do | Completed: 100% and a completion date, the approval request decided, the project and milestone progress up; reopened: 0% (or derived from its subtasks and items), no completion date, project and milestone progress back | `kanban-integrity.spec.js`; `TaskServiceTest` |
+| TSK-14 | A prerequisite cannot be reopened under a running dependant | Move a Completed prerequisite back (or cancel it) while a task that depends on it is In Progress, In Review or Completed | Refused with a message naming the dependants; allowed once they are back in To Do, which blocks them again | `kanban-integrity.spec.js`; `TaskServiceTest` |
+| TSK-15 | A move never overwrites a newer edit | Edit a task from another session, then drag its (old) card; or move it from another session first | The edit is kept; a task already moved by someone else is not moved and the board refreshes | `kanban-integrity.spec.js`; `tasks.test.js` |
+| TSK-16 | The order of the stages | Drag a To Do card to In Review or Completed | Refused ("A task starts in In Progress"); it goes To Do → In Progress → In Review or Completed, and can be taken back | `kanban-integrity.spec.js`; `tasks.test.js` |
 
 ## 7. Task approval
 
@@ -211,7 +230,7 @@ The formal list of what the application is tested for: one row per case, with th
 
 | ID | Case | Steps | Expected result | Automated by |
 |---|---|---|---|---|
-| DB-01 | Invariants | Run `database/verify_invariants.sql` on a database built from the init scripts | All twelve queries return no rows (dates, dependencies, assignees, milestones, progress, one active owner, approvals, completion date) | CI job `backend`; run by hand against the live and a fresh database |
+| DB-01 | Invariants | Run `database/verify_invariants.sql` on a database built from the init scripts | All fourteen queries return no rows (dates, dependencies, assignees, milestones, progress, one active owner, approvals, completion date, project lead, a completed task at 100%) | CI job `backend`; run by hand against the live and a fresh database |
 | DB-02 | A fresh database starts the whole stack | Build the stack on an empty volume | Init scripts and migrations apply, the backend is healthy, and the full browser suite passes | CI job `e2e` |
 | DB-03 | Each trigger rejects a bad write | Insert or update a row that breaks a rule | An error naming the rule | **Manual** (not automated) |
 
@@ -225,7 +244,7 @@ Small, fast tests of the logic in `frontend/src` that has no screen of its own. 
 | UNIT-02 | Passwords | The complexity rules accept and reject the right passwords; the first problem is named | `validation.test.js` |
 | UNIT-03 | Permissions | The system and project permission helpers, the project role, the owner or administrator check and the approval rule | `permissions.test.js` |
 | UNIT-04 | Display helpers | Task titles, blocked reasons, enum labels, colours and initials, short and long dates, days until, due-soon labels, "time ago" | `format.test.js` |
-| UNIT-05 | Task status moves | Which status comes next and who may advance it; the whole task is resent because the API replaces it | `tasks.test.js` |
+| UNIT-05 | Task status moves | Which status comes next and who may advance it; the Kanban move rules (`checkTaskMove`); the whole task is resent because the API replaces it | `tasks.test.js` |
 | UNIT-06 | Statistics | Board columns (with a Blocked column split out of To Do), the overview shares, the daily chart | `stats.test.js` |
 | UNIT-07 | API client | The bearer token is sent; error replies become `ApiError`s with the server message and field errors; `401` signs out (not for login); network and non-JSON failures read plainly; downloads | `client.test.js` |
 | UNIT-08 | Auto-logout storage | The limits (15 minutes, 60 seconds); shared activity; the sign-out notice; blocked storage does no harm | `idleTimeout.test.js` |

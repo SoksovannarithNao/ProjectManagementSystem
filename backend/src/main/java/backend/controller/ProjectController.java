@@ -1,5 +1,6 @@
 package backend.controller;
 
+import backend.dto.ProjectLeadRequest;
 import backend.dto.ProjectRequest;
 import backend.dto.ProjectResponse;
 import backend.service.ProjectService;
@@ -47,6 +48,18 @@ public class ProjectController {
             Authentication authentication
     ) {
         return projectService.updateProject(id, request, authentication.getName());
+    }
+
+    // Names a Team Leader of the project as its lead, or clears the lead. Needs
+    // PROJECT:ASSIGN in this project (the Owner, or an Administrator) - enforced in
+    // ProjectService.setLead.
+    @PutMapping("/{id}/lead")
+    public ProjectResponse setLead(
+            @PathVariable Long id,
+            @RequestBody ProjectLeadRequest request,
+            Authentication authentication
+    ) {
+        return projectService.setLead(id, request.getUserId(), authentication.getName());
     }
 
     // Requires OWNER of this specific project (or system ADMINISTRATOR) —

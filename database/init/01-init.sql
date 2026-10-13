@@ -308,12 +308,16 @@ CREATE TABLE projects (
     -- When the project became COMPLETED; stamped and cleared by
     -- trg_projects_completed_at below, never set by the application (V14).
     completed_at TIMESTAMPTZ,
+    -- A Team Leader listed beside the Owner as the project lead (D-09, V15); kept valid
+    -- by trg_projects_lead_is_team_leader and trg_project_members_clear_lead below.
+    lead_id      BIGINT REFERENCES users (id) ON DELETE SET NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (end_date >= start_date)
 );
 
 CREATE INDEX idx_projects_manager_id ON projects (manager_id);
+CREATE INDEX idx_projects_lead_id ON projects (lead_id);
 CREATE INDEX idx_projects_status ON projects (status);
 
 CREATE TRIGGER trg_projects_updated_at
@@ -424,6 +428,45 @@ CREATE CONSTRAINT TRIGGER trg_project_members_single_owner
     AFTER INSERT OR UPDATE OR DELETE ON project_members
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW EXECUTE FUNCTION check_project_has_single_owner();
+
+-- The project lead must be an ACTIVE Team Leader (project role ADMIN) of the project, and
+-- is cleared when that person stops being one (V15).
+CREATE OR REPLACE FUNCTION check_project_lead_is_team_leader()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.lead_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM project_members
+        WHERE project_id = NEW.id AND user_id = NEW.lead_id
+          AND project_role = 'ADMIN' AND status = 'ACTIVE'
+    ) THEN
+        RAISE EXCEPTION 'The project lead must be an active Team Leader of the project'
+            USING ERRCODE = '23514'; -- check_violation, cleaned for the client by GlobalExceptionHandler
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_projects_lead_is_team_leader ON projects;
+CREATE TRIGGER trg_projects_lead_is_team_leader
+    BEFORE INSERT OR UPDATE OF lead_id ON projects
+    FOR EACH ROW EXECUTE FUNCTION check_project_lead_is_team_leader();
+
+CREATE OR REPLACE FUNCTION clear_project_lead_when_not_team_leader()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        UPDATE projects SET lead_id = NULL WHERE id = OLD.project_id AND lead_id = OLD.user_id;
+    ELSIF NEW.project_role <> 'ADMIN' OR NEW.status <> 'ACTIVE' THEN
+        UPDATE projects SET lead_id = NULL WHERE id = NEW.project_id AND lead_id = NEW.user_id;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_project_members_clear_lead ON project_members;
+CREATE TRIGGER trg_project_members_clear_lead
+    AFTER UPDATE OF project_role, status OR DELETE ON project_members
+    FOR EACH ROW EXECUTE FUNCTION clear_project_lead_when_not_team_leader();
 
 -- ==================== milestones ==================== --
 
@@ -727,6 +770,31 @@ CREATE TRIGGER trg_task_dependencies_status_gate
     BEFORE INSERT OR UPDATE ON task_dependencies
     FOR EACH ROW EXECUTE FUNCTION check_new_dependency_against_task_status();
 
+-- The other direction (V17): a prerequisite cannot be taken back out of COMPLETED while a task
+-- that depends on it is running or finished, or that task would be left on an unfinished
+-- prerequisite. trg_tasks_dependencies_status_gate above only looks at a task's OWN prerequisites.
+CREATE OR REPLACE FUNCTION check_prerequisite_not_reopened()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status = 'COMPLETED' AND NEW.status <> 'COMPLETED' AND EXISTS (
+        SELECT 1
+        FROM task_dependencies td
+        JOIN tasks dependant ON dependant.id = td.task_id
+        WHERE td.depends_on_task_id = NEW.id
+          AND dependant.status IN ('IN_PROGRESS', 'IN_REVIEW', 'COMPLETED')
+    ) THEN
+        RAISE EXCEPTION 'Task % is a prerequisite of tasks that have already started; move those back to To Do before taking it out of COMPLETED',
+            NEW.id
+            USING ERRCODE = '23514'; -- check_violation, cleaned for the client by GlobalExceptionHandler
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_tasks_prerequisite_not_reopened
+    BEFORE UPDATE OF status ON tasks
+    FOR EACH ROW EXECUTE FUNCTION check_prerequisite_not_reopened();
+
 -- "A task under Project A should not be attachable to a milestone from
 -- Project B."
 CREATE OR REPLACE FUNCTION check_task_milestone_matches_project()
@@ -1004,6 +1072,12 @@ BEGIN
     v_progress := fn_compute_task_progress_from_subtasks(NEW.id, NEW.status);
     IF v_progress IS NOT NULL THEN
         NEW.progress = v_progress;
+    -- Nothing to derive it from: the status decides (V17). A task entering COMPLETED is 100 and
+    -- one leaving COMPLETED goes back to 0.
+    ELSIF NEW.status = 'COMPLETED' THEN
+        NEW.progress = 100;
+    ELSIF OLD.status = 'COMPLETED' THEN
+        NEW.progress = 0;
     END IF;
     RETURN NEW;
 END;
@@ -1174,7 +1248,7 @@ CREATE TABLE activity_logs (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id     BIGINT REFERENCES users (id) ON DELETE SET NULL,
     action      VARCHAR(30) NOT NULL
-                CHECK (action IN ('PROJECT_CREATED', 'PROJECT_UPDATED', 'PROJECT_COMPLETED',
+                CHECK (action IN ('PROJECT_CREATED', 'PROJECT_UPDATED', 'PROJECT_COMPLETED', 'PROJECT_LEAD_CHANGED',
                                    'TASK_CREATED', 'TASK_DELETED', 'TASK_ASSIGNED', 'TASK_UNASSIGNED',
                                    'TASK_STATUS_CHANGED', 'TASK_PRIORITY_CHANGED', 'TASK_DUE_DATE_CHANGED',
                                    'TASK_COMPLETED', 'SUBTASK_ADDED', 'SUBTASK_COMPLETED', 'SUBTASK_DELETED',
@@ -1198,6 +1272,47 @@ CREATE INDEX idx_activity_logs_user_id ON activity_logs (user_id);
 CREATE INDEX idx_activity_logs_project_id ON activity_logs (project_id);
 CREATE INDEX idx_activity_logs_task_id ON activity_logs (task_id);
 CREATE INDEX idx_activity_logs_created_at ON activity_logs (created_at DESC);
+
+-- ==================== audit_logs ==================== --
+-- The administrator audit log (V16; assignment-brief.md B10, workflow A7, D-11). Separate from
+-- activity_logs, which is the project members' feed. No foreign keys: an entry must outlive the
+-- user, role or project it describes. Append-only: the application role gets SELECT and INSERT
+-- only (03-app-role.sh) and the trigger below refuses UPDATE and DELETE for everyone.
+
+CREATE TABLE audit_logs (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    actor_id     BIGINT,
+    actor_name   VARCHAR(150) NOT NULL,
+    action       VARCHAR(40) NOT NULL
+                 CHECK (action IN ('USER_ROLE_CHANGED', 'PERMISSIONS_CHANGED', 'PROJECT_ROLE_CHANGED',
+                                   'OWNERSHIP_TRANSFERRED', 'ACCOUNT_CREATED', 'ACCOUNT_STATUS_CHANGED',
+                                   'ACCOUNT_DELETED', 'PROJECT_DELETED',
+                                   'ROLE_CREATED', 'ROLE_UPDATED', 'ROLE_DELETED')),
+    target_type  VARCHAR(20) NOT NULL CHECK (target_type IN ('USER', 'ROLE', 'PROJECT')),
+    target_id    BIGINT,
+    target_label VARCHAR(255),
+    -- The project an entry belongs to, so its Owner can read the ownership entries (D-11).
+    project_id   BIGINT,
+    before_value TEXT,
+    after_value  TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_audit_logs_created_at ON audit_logs (created_at DESC);
+CREATE INDEX idx_audit_logs_action ON audit_logs (action);
+CREATE INDEX idx_audit_logs_project_id ON audit_logs (project_id) WHERE project_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION audit_logs_append_only()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'The audit log is append-only: entries cannot be changed or deleted'
+        USING ERRCODE = '23514'; -- check_violation, cleaned for the client by GlobalExceptionHandler
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_audit_logs_append_only
+    BEFORE UPDATE OR DELETE ON audit_logs
+    FOR EACH ROW EXECUTE FUNCTION audit_logs_append_only();
 
 -- ==================== reporting views ==================== --
 -- Most of Role_Requirment.md's Reports section (Project/Task/Status/

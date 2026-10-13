@@ -19,6 +19,7 @@ const ICONS = {
   PROJECT_CREATED: FolderKanban,
   PROJECT_UPDATED: FolderKanban,
   PROJECT_COMPLETED: CheckCircle2,
+  PROJECT_LEAD_CHANGED: FolderKanban,
   MILESTONE_CREATED: Flag,
   MILESTONE_COMPLETED: Flag,
   COMMENT_ADDED: MessageSquare,

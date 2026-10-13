@@ -24,6 +24,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -298,5 +299,99 @@ class TaskServiceTest {
         assertThatThrownBy(() -> service.createTask(request(10L, "New", "TODO"), "pm.olivia"))
                 .isInstanceOf(AccessDeniedException.class);
         verify(taskRepository, never()).save(any());
+    }
+
+    // ---- status changes keep progress and dependencies consistent (Kanban moves, #35) ------
+
+    private void asApproverEditor() {
+        lenient().when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+    }
+
+    @Test
+    void completingATask_makesItHundredPercent_whateverNumberWasSent() {
+        asApproverEditor();
+        task.setStatus("IN_PROGRESS");
+        task.setProgress(new java.math.BigDecimal("40"));
+        TaskRequest completing = request(10L, "Original title", "COMPLETED");
+        completing.setProgress(new java.math.BigDecimal("40"));
+
+        service.updateTask(5L, completing, "pm.olivia");
+
+        assertThat(task.getProgress()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    void reopeningATaskWithNothingToDeriveProgressFrom_putsItBackToZero() {
+        asApproverEditor();
+        task.setStatus("COMPLETED");
+        task.setProgress(new java.math.BigDecimal("100"));
+        TaskRequest reopening = request(10L, "Original title", "TODO");
+        reopening.setProgress(new java.math.BigDecimal("100"));
+
+        service.updateTask(5L, reopening, "pm.olivia");
+
+        assertThat(task.getStatus()).isEqualTo("TODO");
+        assertThat(task.getProgress()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void reopeningATaskWithSubtasksOrChecklistItems_leavesProgressToTheDatabaseToDerive() {
+        asApproverEditor();
+        task.setStatus("COMPLETED");
+        task.setProgress(new java.math.BigDecimal("100"));
+        when(subtaskRepository.existsByTaskId(5L)).thenReturn(true);
+
+        service.updateTask(5L, request(10L, "Original title", "IN_PROGRESS"), "pm.olivia");
+
+        assertThat(task.getProgress()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    void anOrdinaryEditOfAnOpenTask_doesNotTouchProgress() {
+        asApproverEditor();
+        task.setStatus("IN_PROGRESS");
+        TaskRequest edit = request(10L, "New title", "IN_PROGRESS");
+        edit.setProgress(new java.math.BigDecimal("35"));
+
+        service.updateTask(5L, edit, "pm.olivia");
+
+        assertThat(task.getProgress()).isEqualByComparingTo("35");
+    }
+
+    @Test
+    void aPrerequisiteCannotLeaveCompleted_whileATaskThatDependsOnItHasStarted() {
+        asApproverEditor();
+        task.setStatus("COMPLETED");
+        when(taskDependencyRepository.findStartedDependentTitles(5L)).thenReturn(List.of("Build the page", "Test the page"));
+
+        assertThatThrownBy(() -> service.updateTask(5L, request(10L, "Original title", "TODO"), "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("prerequisite of tasks that have already started")
+                .hasMessageContaining("Build the page, Test the page");
+        assertThatThrownBy(() -> service.updateTask(5L, request(10L, "Original title", "CANCELLED"), "pm.olivia"))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(taskRepository, never()).save(any());
+        assertThat(task.getStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void aPrerequisiteCanLeaveCompleted_whenNothingThatDependsOnItHasStarted() {
+        asApproverEditor();
+        task.setStatus("COMPLETED");
+        when(taskDependencyRepository.findStartedDependentTitles(5L)).thenReturn(List.of());
+
+        service.updateTask(5L, request(10L, "Original title", "IN_PROGRESS"), "pm.olivia");
+
+        assertThat(task.getStatus()).isEqualTo("IN_PROGRESS");
+    }
+
+    @Test
+    void theDependentsAreOnlyCheckedWhenALeavesCompleted() {
+        asApproverEditor();
+        task.setStatus("IN_PROGRESS");
+
+        service.updateTask(5L, request(10L, "Original title", "IN_REVIEW"), "pm.olivia");
+
+        verify(taskDependencyRepository, never()).findStartedDependentTitles(any());
     }
 }

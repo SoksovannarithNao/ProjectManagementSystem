@@ -33,12 +33,15 @@ class ProjectOwnershipTest {
     @Mock
     private ProjectRepository projectRepository;
 
+    @Mock
+    private AuditLogService auditLogService;
+
     private ProjectOwnership ownership;
     private Project project;
 
     @BeforeEach
     void setUp() {
-        ownership = new ProjectOwnership(memberRepository, projectRepository);
+        ownership = new ProjectOwnership(memberRepository, projectRepository, auditLogService);
         project = new Project();
         ReflectionTestUtils.setField(project, "id", 10L);
         lenient().when(memberRepository.save(any(ProjectMember.class))).thenAnswer(inv -> inv.getArgument(0));

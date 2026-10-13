@@ -23,10 +23,13 @@ public class ProjectOwnership {
 
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
+    private final AuditLogService auditLogService;
 
-    public ProjectOwnership(ProjectMemberRepository projectMemberRepository, ProjectRepository projectRepository) {
+    public ProjectOwnership(ProjectMemberRepository projectMemberRepository, ProjectRepository projectRepository,
+                            AuditLogService auditLogService) {
         this.projectMemberRepository = projectMemberRepository;
         this.projectRepository = projectRepository;
+        this.auditLogService = auditLogService;
     }
 
     // Only a Project Manager or an Administrator can own a project (D-04).
@@ -85,7 +88,17 @@ public class ProjectOwnership {
         ProjectMember saved = projectMemberRepository.save(newOwner);
 
         project.setManager(saved.getUser());
+        // The new owner is no longer a Team Leader, so cannot stay the lead (the database
+        // clears it too; this keeps the loaded project from writing the old value back).
+        if (project.getLead() != null && project.getLead().getId().equals(saved.getUser().getId())) {
+            project.setLead(null);
+        }
         projectRepository.save(project);
+        if (current != null) {
+            auditLogService.record(AuditLogService.OWNERSHIP_TRANSFERRED, AuditLogService.PROJECT, project.getId(),
+                    project.getProjectCode() + " " + project.getName(), project.getId(),
+                    current.getUser().getFullName(), saved.getUser().getFullName());
+        }
         return saved;
     }
 

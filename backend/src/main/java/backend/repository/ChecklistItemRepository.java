@@ -12,6 +12,8 @@ public interface ChecklistItemRepository extends JpaRepository<ChecklistItem, Lo
 
     List<ChecklistItem> findByTaskIdOrderBySortOrderAscIdAsc(Long taskId);
 
+    boolean existsByTaskId(Long taskId);
+
     @Query("select coalesce(max(c.sortOrder), 0) from ChecklistItem c where c.task.id = :taskId")
     int maxSortOrder(@Param("taskId") Long taskId);
 
