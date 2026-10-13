@@ -113,3 +113,12 @@ WHERE p.lead_id IS NOT NULL
       WHERE m.project_id = p.id AND m.user_id = p.lead_id
         AND m.project_role = 'ADMIN' AND m.status = 'ACTIVE'
   );
+
+-- 14. A COMPLETED task with no subtasks or checklist items to derive its progress from is 100
+--     (trg_tasks_progress_derived_from_subtasks; V17). The other V17 rule, that a prerequisite
+--     is not reopened under a started dependant, leaves the state that check no. 2 catches.
+SELECT t.id, t.title, t.status, t.progress
+FROM tasks t
+WHERE t.status = 'COMPLETED' AND t.progress <> 100
+  AND NOT EXISTS (SELECT 1 FROM subtasks s WHERE s.task_id = t.id)
+  AND NOT EXISTS (SELECT 1 FROM checklist_items c WHERE c.task_id = t.id);

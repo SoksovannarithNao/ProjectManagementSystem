@@ -40,7 +40,7 @@ How the UI moves a task (`frontend/src/api/tasks.js`):
   - An approver can be **named** for a task (the *Approver* picker; needs `ASSIGN`): then only that person, the project Owner or an Administrator decides. Nobody decides their own work except the Owner and Administrators.
   - A request ends as `APPROVED`, `CHANGES_REQUESTED`, `REJECTED` or `WITHDRAWN` (the task left review without a decision). The panel lists the history with who decided, when and why. Tasks and Kanban show an *Awaiting approval* / *Changes requested* chip.
   - Every request and decision writes an activity entry and a notification ([notifications.md](notifications.md)).
-- **Kanban**: columns *To Do*, *In Progress*, *In Review*, *Completed*, plus a computed *Blocked* column (a `TODO` task that is blocked by an unfinished dependency — "Blocked" is never a stored status). Cards open the task panel; **cards cannot be dragged** to change status.
+- **Kanban**: columns *To Do*, *In Progress*, *In Review*, *Completed*, plus a computed *Blocked* column (a `TODO` task that is blocked by an unfinished dependency — "Blocked" is never a stored status). Cards open the task panel. A card can be **dragged** to another column or moved from its **Move to** menu (since 2026-10-13); both use the task panel's status change, so the rules below apply: Blocked is not a place to drop, a blocked task cannot start, Completed needs an approver and every subtask done (everyone else moves a task to In Review, which opens the approval request), and someone who may not change the task gets no handle and no menu.
 
 **Priorities** — `LOW`, `MEDIUM`, `HIGH`, `URGENT` (tasks); projects use `CRITICAL` instead of `URGENT`. The Tasks page can sort by priority (Urgent first).
 
@@ -87,7 +87,7 @@ Rules:
 
 - **Permissions:** reading needs project membership; creating, editing and deleting subtasks need the `SUBTASK:*` grants (everyone except `VIEWER`) — a `VIEWER` gets `403` and the task panel hides the controls (changed 2026-10-06).
 - **Assignee:** must be an active member of the project and `ACTIVE` — checked only when the assignee actually *changes* (`SubtaskService.applyRequest`), so editing an old subtask whose assignee later left the project still works.
-- **Progress:** if a task has subtasks, its `progress` is `100 × completed ÷ total`, recomputed by triggers (`trg_subtasks_sync_parent_task`, `trg_tasks_progress_derived_from_subtasks`). With no subtasks, progress is not subtask-derived.
+- **Progress:** if a task has subtasks, its `progress` is `100 × completed ÷ total`, recomputed by triggers (`trg_subtasks_sync_parent_task`, `trg_tasks_progress_derived_from_subtasks`). With no subtasks or checklist items, the status decides (since `V17`, D-18): a task entering `COMPLETED` is **100** and one leaving it goes back to **0**, whichever screen or client changed the status (`TaskService` sets it and `trg_tasks_progress_derived_from_subtasks` backs it up); a task that has subtasks or items gets the number derived from them.
 - **Completion gate:** a task cannot **enter** `COMPLETED` while any subtask is not `COMPLETED` — `400 "Complete all subtasks before marking this task as done."`, checked in `TaskService` and again by trigger `trg_tasks_not_completed_with_open_subtasks`. It only blocks the transition; an already-`COMPLETED` task stays completed if a subtask is added or reopened later.
 - **Auto-promotion:** updating any subtask of a task that is still `TODO` promotes the task to `IN_PROGRESS` once (`SubtaskService.startTaskIfStillToDo`), and writes a `TASK_STATUS_CHANGED` entry. It is skipped when the task is blocked by an unfinished dependency, and it never demotes or completes a task.
 - **Activity:** `SUBTASK_ADDED`, `SUBTASK_COMPLETED` (only when it newly becomes completed) and `SUBTASK_DELETED`.
@@ -119,7 +119,8 @@ Database rules:
 
 - a task cannot depend on itself (`CHECK`), and **cycles are rejected** (`trg_task_dependencies_no_cycle`, recursive check);
 - a task cannot move to `IN_PROGRESS`, `IN_REVIEW` or `COMPLETED` while any dependency is not `COMPLETED` (`trg_tasks_dependencies_status_gate`); `TODO` and `CANCELLED` are always allowed;
-- a new dependency cannot be added to an already-active task if the prerequisite is not `COMPLETED` (`trg_task_dependencies_status_gate`).
+- a new dependency cannot be added to an already-active task if the prerequisite is not `COMPLETED` (`trg_task_dependencies_status_gate`);
+- the other direction (since `V17`, D-18): a prerequisite cannot be taken back out of `COMPLETED` (reopened or cancelled) while a task that depends on it is `IN_PROGRESS`, `IN_REVIEW` or `COMPLETED` (`trg_tasks_prerequisite_not_reopened`; `TaskService` gives the message naming those tasks). Move the dependants back to `TODO` first, which blocks them again.
 
 Surfacing: `TaskResponse.blocked` and `blockingTaskTitles` (names of the unfinished prerequisites) come from one batched query (`TaskDependencyRepository.findBlockingTasks`); the UI shows a lock icon with a tooltip and the Kanban *Blocked* column.
 

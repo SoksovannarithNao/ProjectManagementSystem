@@ -6,16 +6,19 @@ import { Badge } from '../components/ui/Badge'
 import { TimeChip } from '../components/ui/TimeChip'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { TaskFormModal } from '../components/TaskFormModal'
+import { KanbanMoveMenu } from '../components/KanbanMoveMenu'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Dropdown } from '../components/ui/Dropdown'
+import { useToast } from '../components/ui/Toast'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
-import { getTasks } from '../api/tasks'
+import { getTasks, moveTaskToStatus, checkTaskMove, KANBAN_STATUS_LABELS } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
 import { buildTaskAssigneeMap } from '../api/relations'
+import { canApproveTask } from '../api/permissions'
 import { groupTasksByStatus } from '../api/stats'
 import { formatDate, humanizeEnum, taskDisplayTitle, blockedReason } from '../api/format'
 import { ApprovalChip } from '../components/ApprovalChip'
@@ -30,8 +33,12 @@ const COLUMN_ACCENT = {
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 
+// The status a column stands for when a card is dropped on it; the Blocked column is not one.
+const columnTarget = (col) => (col.id === 'blocked' ? 'BLOCKED' : col.status)
+
 export function Kanban() {
-  const { canAny } = useAuth()
+  const { canAny, can, permissions, profile } = useAuth()
+  const notify = useToast()
   const { getMember } = useMembers()
   const { data: tasks, loading, error: tasksError, refetch } = useApi(getTasks)
   const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
@@ -41,6 +48,10 @@ export function Kanban() {
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState(() => new Set())
   const [projectFilter, setProjectFilter] = useState('')
+  // A card being dragged, the column under it, and the card whose move is being saved.
+  const [dragTask, setDragTask] = useState(null)
+  const [overColumn, setOverColumn] = useState(null)
+  const [movingId, setMovingId] = useState(null)
   // Whether there's at least one project the caller can add tasks to —
   // gates the top-level "New Task" affordances; TaskFormModal itself only
   // offers projects the caller can actually create tasks in.
@@ -76,6 +87,47 @@ export function Kanban() {
   const refetchAll = () => {
     refetch()
     refetchAssignees()
+  }
+
+  // What this person may do to one task's status: an editor, or an assignee (TASK_STATUS:EDIT);
+  // completing it is an approval. The server checks again.
+  const abilitiesFor = (task) => {
+    const projectId = task.project?.id
+    const isAssignee = (assigneeMap.get(task.id) ?? []).includes(profile?.id)
+    return {
+      canChange: can('TASK', 'EDIT', projectId) || (can('TASK_STATUS', 'EDIT', projectId) && isAssignee),
+      canApprove: canApproveTask(permissions, profile?.id, task, isAssignee),
+    }
+  }
+
+  // Moves a card to a status, from a drop or the "Move to" menu. A move the rules refuse
+  // says why; one that changes nothing is silent.
+  const moveTask = async (task, target) => {
+    // One move at a time per card: a second drop while the first is saving would resend a stale task.
+    if (movingId === task.id || task.status === target) return
+    setMovingId(task.id)
+    try {
+      // Reads the task again and checks the rules against what it finds, never against the
+      // board's copy, which may be out of date (see moveTaskToStatus).
+      const result = await moveTaskToStatus(task, target, abilitiesFor)
+      if (result.moved) {
+        notify(`Moved "${taskDisplayTitle(task.title, task.project?.name)}" to ${KANBAN_STATUS_LABELS[target]}`, { tone: 'success' })
+      } else if (result.message) {
+        notify(result.message, { tone: result.stale ? 'info' : 'error' })
+      }
+      // Whatever happened, show the server's version of the board.
+      refetchAll()
+    } catch (err) {
+      notify(err.message || 'Failed to move the task', { tone: 'error' })
+      refetchAll()
+    } finally {
+      setMovingId(null)
+    }
+  }
+
+  const endDrag = () => {
+    setDragTask(null)
+    setOverColumn(null)
   }
 
   const togglePriorityFilter = (p) => {
@@ -179,10 +231,40 @@ export function Kanban() {
 
       {!tasksError && (
       <div className="scroll-x flex items-start gap-[18px] pb-2">
-        {columns.map((col) => (
+        {columns.map((col) => {
+          // While a card is dragged, the column under it shows whether the drop would be accepted.
+          const dropState =
+            dragTask && overColumn === col.id
+              ? checkTaskMove(dragTask, columnTarget(col), abilitiesFor(dragTask)).ok
+                ? 'ok'
+                : 'refused'
+              : null
+          return (
           <div
             key={col.id}
-            className="bg-container border-divider flex w-[268px] shrink-0 flex-col gap-2.5 rounded-md border p-3.5"
+            data-testid={`kanban-column-${col.id}`}
+            onDragOver={(e) => {
+              if (!dragTask) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              if (overColumn !== col.id) setOverColumn(col.id)
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget) && overColumn === col.id) setOverColumn(null)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              const task = dragTask
+              endDrag()
+              if (task) moveTask(task, columnTarget(col))
+            }}
+            className={`bg-container flex w-[268px] shrink-0 flex-col gap-2.5 rounded-md border p-3.5 transition-colors ${
+              dropState === 'ok'
+                ? 'border-focus bg-info-soft'
+                : dropState === 'refused'
+                  ? 'border-danger border-dashed'
+                  : 'border-divider'
+            }`}
           >
             <div className="flex items-center justify-between px-1 pt-0.5 pb-1.5">
               <span className="inline-flex items-center gap-2">
@@ -212,14 +294,41 @@ export function Kanban() {
                 {col.tasks.map((task, i) => {
                   const assigneeIds = assigneeMap.get(task.id) ?? []
                   const member = getMember(assigneeIds[0])
+                  // A card can be dragged, and has a "Move to" menu, only for someone who may change its status.
+                  const abilities = abilitiesFor(task)
+                  const movable = abilities.canChange
+                  const saving = movingId === task.id
                   return (
-                    <button
+                    <div
                       key={task.id}
-                      className="bg-card border-border hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in shrink-0 rounded-md border p-[13px] text-left transition hover:-translate-y-px"
+                      data-testid="kanban-card"
+                      data-task-id={task.id}
+                      draggable={movable && !saving}
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move'
+                        e.dataTransfer.setData('text/plain', String(task.id))
+                        setDragTask(task)
+                      }}
+                      onDragEnd={endDrag}
+                      aria-busy={saving}
+                      className={`bg-card border-border hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] animate-fade-in relative shrink-0 rounded-md border text-left transition hover:-translate-y-px ${
+                        movable ? 'cursor-grab active:cursor-grabbing' : ''
+                      } ${dragTask?.id === task.id || saving ? 'opacity-50' : ''}`}
                       style={{ animationDelay: `${Math.min(i, 8) * 30}ms`, animationFillMode: 'backwards' }}
-                      onClick={() => setActiveTaskId(task.id)}
                     >
-                      <span className="text-muted text-[12px] font-medium">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      className="block w-full p-[13px] text-left"
+                      onClick={() => setActiveTaskId(task.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setActiveTaskId(task.id)
+                        }
+                      }}
+                    >
+                      <span className="text-muted block pr-8 text-[12px] font-medium">
                         {task.project?.name}
                       </span>
                       <p className="text-ink mt-2 mb-1.5 text-[13px] leading-normal font-semibold">
@@ -259,7 +368,19 @@ export function Kanban() {
                           />
                         )}
                       </div>
-                    </button>
+                    </div>
+                    {movable && (
+                      <div className="absolute top-2 right-2">
+                        <KanbanMoveMenu
+                          task={task}
+                          label={taskDisplayTitle(task.title, task.project?.name)}
+                          abilities={abilities}
+                          disabled={saving}
+                          onMove={(target) => moveTask(task, target)}
+                        />
+                      </div>
+                    )}
+                    </div>
                   )
                 })}
               </div>
@@ -273,7 +394,8 @@ export function Kanban() {
               )}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
       )}
 

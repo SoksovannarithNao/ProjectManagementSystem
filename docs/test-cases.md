@@ -1,6 +1,6 @@
 # Test cases
 
-The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-13** against the running stack: backend 374/374, frontend unit tests 128/128, Playwright 170 tests in 23 files (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
+The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-13** against the running stack: backend 381/381, frontend unit tests 142/142, Playwright 182 tests in 25 files (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
 
 **Reading the tables**
 
@@ -124,6 +124,13 @@ The formal list of what the application is tested for: one row per case, with th
 | TSK-07 | Viewers are read-only | A Viewer comments, adds a subtask or changes a task | Refused (API); the panel hides the controls | `permissions.spec.js`; `ViewerWriteAccessTest` |
 | TSK-08 | The quick-advance circle | Click the circle on a task | To Do → In Progress; In Progress → In Review (or Completed for an approver); In Review only for an approver; finished tasks do not move | `tasks.test.js` |
 | TSK-09 | Own position and department | Pick them on the Profile page | Saved from the managed lists; an id outside the list is refused | `batch1.spec.js` |
+| TSK-10 | Move a card on the Kanban board | Drag a card to another column; or open its *Move to* menu and pick one | The task takes that status (the column lights up while you drag); a finished task can be reopened on purpose | `kanban-moves.spec.js`; `tasks.test.js` |
+| TSK-11 | A move the rules refuse | Drop a task with an open subtask on Completed; a blocked task on In Progress; anything on Blocked; a Team Member drops their task on Completed | The card stays and the screen says why (the Move to menu shows the reason beside the disabled column); a Team Member is pointed to In Review, which opens the approval request | `kanban-moves.spec.js`; `tasks.test.js` |
+| TSK-12 | Who can move a card | A Team Member looks at cards not assigned to them; a Viewer looks at the board; a Team Member completes a task through the API | No handle and no menu; the server answers `403` | `kanban-moves.spec.js`; `permissions.spec.js` |
+| TSK-13 | A move keeps progress and dates right | Move a task up to Completed and back to To Do | Completed: 100% and a completion date, the approval request decided, the project and milestone progress up; reopened: 0% (or derived from its subtasks and items), no completion date, project and milestone progress back | `kanban-integrity.spec.js`; `TaskServiceTest` |
+| TSK-14 | A prerequisite cannot be reopened under a running dependant | Move a Completed prerequisite back (or cancel it) while a task that depends on it is In Progress, In Review or Completed | Refused with a message naming the dependants; allowed once they are back in To Do, which blocks them again | `kanban-integrity.spec.js`; `TaskServiceTest` |
+| TSK-15 | A move never overwrites a newer edit | Edit a task from another session, then drag its (old) card; or move it from another session first | The edit is kept; a task already moved by someone else is not moved and the board refreshes | `kanban-integrity.spec.js`; `tasks.test.js` |
+| TSK-16 | The order of the stages | Drag a To Do card to In Review or Completed | Refused ("A task starts in In Progress"); it goes To Do → In Progress → In Review or Completed, and can be taken back | `kanban-integrity.spec.js`; `tasks.test.js` |
 
 ## 7. Task approval
 
@@ -223,7 +230,7 @@ The formal list of what the application is tested for: one row per case, with th
 
 | ID | Case | Steps | Expected result | Automated by |
 |---|---|---|---|---|
-| DB-01 | Invariants | Run `database/verify_invariants.sql` on a database built from the init scripts | All thirteen queries return no rows (dates, dependencies, assignees, milestones, progress, one active owner, approvals, completion date, project lead) | CI job `backend`; run by hand against the live and a fresh database |
+| DB-01 | Invariants | Run `database/verify_invariants.sql` on a database built from the init scripts | All fourteen queries return no rows (dates, dependencies, assignees, milestones, progress, one active owner, approvals, completion date, project lead, a completed task at 100%) | CI job `backend`; run by hand against the live and a fresh database |
 | DB-02 | A fresh database starts the whole stack | Build the stack on an empty volume | Init scripts and migrations apply, the backend is healthy, and the full browser suite passes | CI job `e2e` |
 | DB-03 | Each trigger rejects a bad write | Insert or update a row that breaks a rule | An error naming the rule | **Manual** (not automated) |
 
@@ -237,7 +244,7 @@ Small, fast tests of the logic in `frontend/src` that has no screen of its own. 
 | UNIT-02 | Passwords | The complexity rules accept and reject the right passwords; the first problem is named | `validation.test.js` |
 | UNIT-03 | Permissions | The system and project permission helpers, the project role, the owner or administrator check and the approval rule | `permissions.test.js` |
 | UNIT-04 | Display helpers | Task titles, blocked reasons, enum labels, colours and initials, short and long dates, days until, due-soon labels, "time ago" | `format.test.js` |
-| UNIT-05 | Task status moves | Which status comes next and who may advance it; the whole task is resent because the API replaces it | `tasks.test.js` |
+| UNIT-05 | Task status moves | Which status comes next and who may advance it; the Kanban move rules (`checkTaskMove`); the whole task is resent because the API replaces it | `tasks.test.js` |
 | UNIT-06 | Statistics | Board columns (with a Blocked column split out of To Do), the overview shares, the daily chart | `stats.test.js` |
 | UNIT-07 | API client | The bearer token is sent; error replies become `ApiError`s with the server message and field errors; `401` signs out (not for login); network and non-JSON failures read plainly; downloads | `client.test.js` |
 | UNIT-08 | Auto-logout storage | The limits (15 minutes, 60 seconds); shared activity; the sign-out notice; blocked storage does no harm | `idleTimeout.test.js` |

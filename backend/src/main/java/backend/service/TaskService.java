@@ -231,6 +231,11 @@ public class TaskService {
         String effectiveStatus = request.getStatus() != null ? request.getStatus() : task.getStatus();
         boolean newlyCompleting = !"COMPLETED".equals(previousStatus) && "COMPLETED".equals(effectiveStatus);
         Long currentProjectId = task.getProject().getId();
+        if ("COMPLETED".equals(previousStatus) && !"COMPLETED".equals(effectiveStatus)) {
+            // Taking a finished task back out of Completed (reopening or cancelling it) must not
+            // leave tasks that depend on it running on an unfinished prerequisite.
+            assertNoStartedDependents(id);
+        }
         if (newlyCompleting) {
             // Marking a task Completed is an approval, not just a status change:
             // it needs TASK:APPROVE (Project Manager, Team Leader, Administrator).
@@ -266,6 +271,7 @@ public class TaskService {
             applyStatusAndProgressOnly(task, request);
         }
 
+        syncProgressWithStatus(task, previousStatus);
         Task saved = taskRepository.save(task);
         logFieldChanges(caller, saved, previousStatus, previousPriority, previousDueDate);
 
@@ -311,6 +317,35 @@ public class TaskService {
             activityLogService.record(actor, saved, "TASK_DUE_DATE_CHANGED",
                     "Due date changed from " + (previousDueDate != null ? previousDueDate : "none")
                             + " to " + (saved.getDueDate() != null ? saved.getDueDate() : "none"));
+        }
+    }
+
+    // A task that depends on this one cannot already be running (or done) while this one is
+    // reopened: trg_tasks_dependencies_status_gate only looks at a task's OWN prerequisites, so
+    // this is the other direction. The database trigger trg_tasks_prerequisite_not_reopened
+    // refuses it too; this copy gives the clean message naming the tasks.
+    private void assertNoStartedDependents(Long taskId) {
+        List<String> started = taskDependencyRepository.findStartedDependentTitles(taskId);
+        if (!started.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "This task is a prerequisite of tasks that have already started (" + String.join(", ", started)
+                            + "). Move those back to To Do first");
+        }
+    }
+
+    // A Completed task is 100% done, and one that is reopened is not. Subtasks and checklist
+    // items drive the number when there are any (the database recalculates it from them); a
+    // task with neither gets it from its status, so it never sits at 100% in To Do or at its old
+    // number once Completed. Whichever screen or client changed the status gets the same result.
+    private void syncProgressWithStatus(Task task, String previousStatus) {
+        boolean completedNow = "COMPLETED".equals(task.getStatus());
+        boolean completedBefore = "COMPLETED".equals(previousStatus);
+        if (completedNow && !completedBefore) {
+            task.setProgress(new BigDecimal("100"));
+        } else if (!completedNow && completedBefore
+                && !subtaskRepository.existsByTaskId(task.getId())
+                && !checklistItemRepository.existsByTaskId(task.getId())) {
+            task.setProgress(BigDecimal.ZERO);
         }
     }
 

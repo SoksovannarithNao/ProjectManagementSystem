@@ -15,6 +15,8 @@ public interface SubtaskRepository extends JpaRepository<Subtask, Long> {
     // incomplete subtask — see TaskService.assertNotCompletingWithOpenSubtasks.
     boolean existsByTaskIdAndStatusNot(Long taskId, String status);
 
+    boolean existsByTaskId(Long taskId);
+
     // One grouped query for a whole task list's subtask counts (task list ->
     // "N/M subtasks" progress in TaskResponse) instead of a per-task fetch —
     // see TaskService.subtaskCountsByTaskId.

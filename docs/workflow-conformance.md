@@ -2,11 +2,10 @@
 
 The running application tested against [project-workflow.md](../project-workflow.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). Sections 1–5 record the test **before any change** to the application, so the result could be trusted; section 6 records the re-test after the role-model migration (`V10`) done later the same day; section 7 records the re-test after change-plan batch 1 (2026-10-09); sections 8–11 record the later batches; section 12 the scheduled reminders, section 13 the Gantt prototype and section 14 the error and help pages (all 2026-10-10), section 15 the quick-wins batch and section 16 the auto-logout and notifications batch (both 2026-10-12).
 
-**Where things stand now (44 flows, derived on 2026-10-12 by applying the "After" columns of §6–§16 to the table in §2): PASS 42 · PARTIAL 1 · MISSING 1, after §19.** The tables in §2–§5 below are the starting point and are kept as the record of that first test; they are not the current state. What is still not a PASS:
+**Where things stand now (44 flows, derived on 2026-10-12 by applying the "After" columns of §6–§16 to the table in §2): PASS 43 · PARTIAL 0 · MISSING 1, after §20.** The tables in §2–§5 below are the starting point and are kept as the record of that first test; they are not the current state. What is still not a PASS:
 
 | § | Flow | Class | Why |
 |---|---|---|---|
-| 19 | Kanban board | REQUIRED / OPTIONAL | Cards cannot be dragged between columns |
 | A9 | Document management | OPTIONAL | Not built |
 
 ## 1. How it was tested
@@ -280,3 +279,11 @@ No flow changed state, but one defect turned up while the whole suite was run on
 | A7 Audit log | MISSING | **PASS** | an append-only administrator log of a system role change, a permissions change, a project role change, an ownership transfer, an account created / activated / suspended / deleted and a project deleted (and extra roles), each with the actor, the target and the value before and after; *Administration → Audit log* for the Administrator (search, action filter, dates, paging); the Owner reads the project's ownership transfers through the API (D-11). Nothing can change or delete an entry: the application role has no `UPDATE` / `DELETE`, and a trigger refuses both even for the table owner (both checked directly in PostgreSQL) |
 
 **New totals (44 flows): PASS 42 · PARTIAL 1 · MISSING 1** (the partial flow is Kanban; the missing one is the optional document management). Backend tests **374/374**; frontend unit tests **128/128**; Playwright **169/169** at 4 workers (four runs in a row); ESLint clean.
+
+## 20. Re-test after the Kanban moves (2026-10-13)
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 19 Kanban board | PARTIAL | **PASS** | a card is dragged to another column, or moved from its *Move to* menu; both use the task panel's status change, so the approval workflow, the dependency gate and the open-subtask rule still apply. A Team Member moves their own cards (to In Review, which opens the approval request) but cannot complete one (the screen says so, the server answers `403`); a blocked task will not start and names what blocks it; a Viewer has no handle and no menu. Checking it against the rest of the system found two holes that the task panel had too, now closed for every way of changing a status (D-18, `V17`): a prerequisite could be reopened under a dependant that had started (the invariant of flow 15 rule 8 seen from the other side), and a task completed from the panel kept its old progress while a reopened one stayed at 100%. Also found: a task list could fail with a `500` when a project was deleted at the same moment (F-45) |
+
+**New totals (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **381/381**; frontend unit tests **142/142**; Playwright **182/182** at 4 workers (five runs in a row); ESLint clean.

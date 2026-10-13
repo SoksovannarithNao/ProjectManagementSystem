@@ -187,7 +187,7 @@ Authorization                 done (data-driven role x resource x action matrix,
 CORS, password hashing        done
 Login rate limiting           done (in-memory, 5 attempts / 15 min per IP+username)
 Least-privilege DB role       done
-Unit tests                    partial: 374 unit/context tests, no controller or repository tests; see testing.md
+Unit tests                    partial: 381 unit/context tests, no controller or repository tests; see testing.md
 File logging                  done (rotating backend/logs/log.txt)
 Notifications                 done: all 11 types produced (comments, project and milestone updates since 2026-10-12)
 Deadline reminders, overdue   done (2026-10-10): @Scheduled daily 08:00 + at startup

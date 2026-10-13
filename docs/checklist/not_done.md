@@ -9,4 +9,4 @@ These requirements are missing. Item numbers are shared by every file in this fo
 |---|---|---|---|---|
 | *(none)* | | | | |
 
-**Nothing in the audit is missing any more**; the 1 item in [partially_done.md](partially_done.md) (#35, Kanban moves) is built but incomplete. Optional and not built, noted inside the done items: PDF / Excel report export (#54), document management (#42).
+**Nothing in the audit is missing any more**; **nothing is partly done either** ([partially_done.md](partially_done.md) lists no rows). Optional and not built, noted inside the done items: PDF / Excel report export (#54), document management (#42).

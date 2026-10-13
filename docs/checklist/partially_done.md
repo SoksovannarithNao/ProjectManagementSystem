@@ -1,4 +1,4 @@
-# Checklist — Partially Done (1 item)
+# Checklist — Partially Done (0 items)
 
 Audit date: 2026-10-08, synchronised with the code 2026-10-13 · Compared against [assignment-brief.md](../../assignment-brief.md) and [project-workflow.md](../../project-workflow.md). Roles, permissions, approval and the open decisions follow the approved specification in the brief's Part B (updated 2026-10-08).
 Sibling lists: [done.md](done.md) · [not_done.md](not_done.md) · [not_fully_satisfy.md](not_fully_satisfy.md) · [unclear.md](unclear.md).
@@ -7,7 +7,6 @@ These requirements are implemented but incomplete, or have an issue. Each row sa
 
 | # | Requirement | Status | What exists / what is wrong | Evidence | Still needed |
 |---|---|---|---|---|---|
-| 35 | Kanban with task moves | Partial | Columns To Do, In Progress, In Review, Completed (+ Blocked), but cards only open the panel. No drag-and-drop or move control | [Kanban.jsx](../../frontend/src/pages/Kanban.jsx) | Move between columns |
 
 ## Specification alignment gaps
 
@@ -17,8 +16,10 @@ Differences between the application and the approved specification that are not 
 
 | ID | Gap | Brief |
 |---|---|---|
-| G-14 | @mentions, Kanban moving, report export (see #35); the audit log was built 2026-10-13, deadline reminders and the Gantt chart 2026-10-10, auto-logout 2026-10-12 | §B13.1 |
+| G-14 | @mentions and report export (optional, not built); Kanban moving and the audit log were built 2026-10-13, deadline reminders and the Gantt chart 2026-10-10, auto-logout 2026-10-12 | §B13.1 |
 | G-16 | The list endpoints take no filter or search parameters; filtering runs in the browser over the already-scoped list | §B13.1 |
+
+**Resolved on 2026-10-13 (Kanban moves, front end only, verified live; moved to [done.md](done.md)):** #35 a card can be dragged to another column or moved from its *Move to* menu.
 
 **Resolved on 2026-10-13 (audit log, migration `V16`, verified live; moved to [done.md](done.md)):** #44 an append-only administrator audit log with a screen.
 

@@ -79,7 +79,7 @@ This has a side effect on invitations: the notification is the only place the UI
 
 ## 7. Seed data
 
-`02-seed.sql` inserts notifications so the bell has content on first run: invitation notifications, one `TASK_ASSIGNED` per seeded assignment, one `TASK_STATUS_CHANGED` per assignment on a non-`TODO` task, and — by calling `fn_generate_overdue_notifications()` once — `OVERDUE_TASK` rows. Read/unread flags on the generated ones are randomised (`random()`), and the seeded status messages print the raw status (for example `IN_PROGRESS`) whereas notifications created by the app print `In Progress`.
+`02-seed.sql` inserts notifications so the bell has content on first run, written with the application's own wording: the invitation notifications, `TASK_ASSIGNED` for recently created tasks, `TASK_STATUS_CHANGED`, `COMMENT_ADDED`, `APPROVAL_REQUESTED` and `APPROVAL_DECIDED` for the last two weeks, `DEADLINE_REMINDER` for work due tomorrow or in three days, and — by calling `fn_generate_overdue_notifications()` once — `OVERDUE_TASK` rows. Nothing is random: anything older than four days is read, newer is unread.
 
 ## 8. Deadline reminders and overdue notices (since 2026-10-10)
 

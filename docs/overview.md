@@ -88,7 +88,7 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Activity feed (task, project, recent) | Done (2026-10-09); time logs are not written |
 | Notifications | Done (2026-10-12) — all 11 types are produced, including comments, project updates and milestone updates |
 | Dashboard, project timeline, team tasks, workload | Done (2026-10-09) |
-| Kanban | Partial — cards cannot be moved (see [roadmap.md](roadmap.md)) |
+| Kanban | Done (2026-10-13) — drag a card to another column or use its *Move to* menu |
 | Calendar | Done (2026-10-12) — month, week and day views of task due dates and milestones |
 | Task approval workflow | Done (2026-10-09) |
 | Reports and KPIs | Done (2026-10-09) — overview charts, five KPIs, seven named reports; no PDF / Excel export |

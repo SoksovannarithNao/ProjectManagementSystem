@@ -52,7 +52,7 @@ Documentation for the **TaskFlow** task and project management system (React fro
 
 ## Where the old folder READMEs went
 
-The `README.md` files in `api/`, `backend/`, `frontend/` and `database/` were removed on 2026-10-08 and their content moved here, with out-of-date statements corrected (endpoint count 84 → 87, tests 60 → 67 and 30 → 33, work logs now implemented, 16 entities; later syncs on 2026-10-09, 2026-10-10, 2026-10-12 and 2026-10-13 brought the counts to 122 endpoints, 23 entities, 374 backend tests, 128 frontend unit tests and 170 Playwright tests).
+The `README.md` files in `api/`, `backend/`, `frontend/` and `database/` were removed on 2026-10-08 and their content moved here, with out-of-date statements corrected (endpoint count 84 → 87, tests 60 → 67 and 30 → 33, work logs now implemented, 16 entities; later syncs on 2026-10-09, 2026-10-10, 2026-10-12 and 2026-10-13 brought the counts to 122 endpoints, 23 entities, 381 backend tests, 142 frontend unit tests and 182 Playwright tests).
 
 | Old file and section | Now |
 |---|---|

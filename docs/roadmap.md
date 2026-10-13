@@ -63,7 +63,7 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | Task approval workflow | Done (2026-10-09) | ✓ | ✓ | ✓ `V12` | Good | Request, designated approver, Approved / Changes requested / Rejected |
 | Attachments and checklists | Done (2026-10-09) | ✓ | ✓ | ✓ `V13` | Good | 10 MB, 25 per target, type allow-list; checklist items count in progress |
 | Milestones | Done (2026-10-12) | add / edit / delete | ✓ full CRUD | ✓ | Good | Edit form with a warning when completing with open tasks; shown on the calendar; no picker on the task forms |
-| Kanban board | Partial | ✓ view | uses `/tasks` | ✓ | None | Cards open the panel; **no drag-and-drop** |
+| Kanban board | Done (2026-10-13) | ✓ view, drag and drop, *Move to* menu | uses `/tasks` | ✓ | `tasks.test.js` (`checkTaskMove`), `kanban-moves.spec.js` | Cards open the panel; a move goes through the task panel's status rules |
 | Error pages (404, 403, 5xx …) | Done (2026-10-10) | ✓ | — | — | e2e | One `ErrorPage` for every status; a mistyped address no longer shows an empty screen |
 | Help & Support page | Done (2026-10-10) | ✓ page (was a modal) | — | — | e2e | Static FAQ, corrected and extended |
 | Gantt chart prototype | Done (2026-10-10) | ✓ | uses `/tasks`, `/task-dependencies` | ✓ | e2e | Duration bars, dependency arrows, conflict warning, overlap fading; open to every member; no dragging |
@@ -127,7 +127,7 @@ From the root `README.md` (*Future Enhancements*), `backend.md` (*Next Steps*), 
 11. ~~A project-wide activity feed~~ — done 2026-10-09; ~~an administrator audit view~~ — done 2026-10-13.
 12. ~~Closing the CI vs `03-app-role.sh` grant drift~~ — the lists match (21 tables plus `audit_logs`, checked 2026-10-13).
 
-Requirement-document items that are **not** on any of the project's own lists (so there is no stated plan for them): Kanban drag-and-drop. (Email login and the per-member Team Tasks view were on this list until 2026-10-09; the "Today / Upcoming" task views, calendar milestones, the project completion date and editing a milestone until 2026-10-12.)
+Requirement-document items that are **not** on any of the project's own lists (so there is no stated plan for them): none. (Kanban drag-and-drop was on this list until 2026-10-13; email login and the per-member Team Tasks view were on this list until 2026-10-09; the "Today / Upcoming" task views, calendar milestones, the project completion date and editing a milestone until 2026-10-12.)
 
 ## 3a. Specification alignment (approved 2026-10-08, mostly done)
 
@@ -138,7 +138,7 @@ Work needed to bring the application to the model in [ADR-0015](adr/0015-two-lev
 3. ~~**Approval workflow:** approval records, designated approver, Approved / Changes requested / Rejected, notifications, activity entries.~~ — **done 2026-10-09** (`V12`).
 4. **Profile and roles:** ~~users edit their own position/department (D-16)~~ — **done 2026-10-09**; ~~administrators create and edit extra system roles (D-14)~~ — **done 2026-10-13**.
 5. **Required features still missing:** none. *(Auto-logout and the comment, project and milestone notifications: done 2026-10-12. Deadline reminders and overdue notifications: done 2026-10-10.)* *(Checklists, attachments, comment replies and project activity: 3a; the project timeline, Team Tasks, Delayed projects, the workload page, dashboard statistics and role / ownership UI: 3b; the five KPIs and the seven named reports, server-side: 3c; all 2026-10-09.)*
-6. **Optional, if time allows:** Kanban moving, time-tracking polish (exists), report export, documents. (The Gantt prototype was built on 2026-10-10 and the audit log on 2026-10-13.)
+6. **Optional, if time allows:** time-tracking polish (exists), report export, documents. (The Gantt prototype was built on 2026-10-10; the audit log and Kanban moving on 2026-10-13.)
 
 ## 4. In progress
 
@@ -161,4 +161,4 @@ Not a commitment — an ordering derived from the risks and gaps found. Items re
 | 2 | **Make the demo flow complete** | ~~named reports~~, ~~dashboard project counts~~, ~~email login~~ (all done 2026-10-09); ~~deadline/overdue notifications~~ (done 2026-10-10); ~~comment notifications~~ (done 2026-10-12) | The requirement flow expects reminders |
 | 3 | **Finish half-built features** | pending-invitation list/cancel, ~~admin user screens (edit / deactivate / delete)~~ (done 2026-10-13), a role picker in the project page's Add Member dialog (~~role assignment UI~~, ~~comment replies~~, ~~search/filter/sort~~, ~~milestone edit + calendar milestones~~, ~~project completion date~~, ~~"Today / Upcoming" views~~ are done) | Each is a small gap in an otherwise working feature |
 | 4 | **Quality and delivery** | ~~Playwright in CI~~ (done 2026-10-12), service/controller tests, fix migration drift, regenerate OpenAPI (~~CI grants~~ are in step) | Protects everything above |
-| 5 | **Optional modules** | report export, ~~audit view~~, Kanban drag-and-drop, document management (~~attachments~~, ~~time tracking~~, ~~KPIs~~, ~~Gantt~~ are done) | The requirement documents mark most of these as optional |
+| 5 | **Optional modules** | report export, ~~audit view~~, ~~Kanban drag-and-drop~~, document management (~~attachments~~, ~~time tracking~~, ~~KPIs~~, ~~Gantt~~ are done) | The requirement documents mark most of these as optional |

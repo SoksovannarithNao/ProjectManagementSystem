@@ -182,7 +182,7 @@ Delivery followed §2 except the backup and migration, which a change without sc
 
 Not acceptance criteria. Build only if wanted; if shown they are labelled "Optional feature demonstration".
 
-Kanban drag-to-move (same status rules as §15) · report export to PDF/Excel · ~~Gantt chart prototype~~ (built 2026-10-10, outside the batches) · document management · audit log (B10) · @mentions (undefined in both sources).
+~~Kanban drag-to-move (same status rules as §15)~~ (built 2026-10-13) · report export to PDF/Excel · ~~Gantt chart prototype~~ (built 2026-10-10, outside the batches) · document management · audit log (B10) · @mentions (undefined in both sources).
 
 ## 7. Batch 5 — Housekeeping (2 left)
 

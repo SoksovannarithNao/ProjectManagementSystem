@@ -770,6 +770,31 @@ CREATE TRIGGER trg_task_dependencies_status_gate
     BEFORE INSERT OR UPDATE ON task_dependencies
     FOR EACH ROW EXECUTE FUNCTION check_new_dependency_against_task_status();
 
+-- The other direction (V17): a prerequisite cannot be taken back out of COMPLETED while a task
+-- that depends on it is running or finished, or that task would be left on an unfinished
+-- prerequisite. trg_tasks_dependencies_status_gate above only looks at a task's OWN prerequisites.
+CREATE OR REPLACE FUNCTION check_prerequisite_not_reopened()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status = 'COMPLETED' AND NEW.status <> 'COMPLETED' AND EXISTS (
+        SELECT 1
+        FROM task_dependencies td
+        JOIN tasks dependant ON dependant.id = td.task_id
+        WHERE td.depends_on_task_id = NEW.id
+          AND dependant.status IN ('IN_PROGRESS', 'IN_REVIEW', 'COMPLETED')
+    ) THEN
+        RAISE EXCEPTION 'Task % is a prerequisite of tasks that have already started; move those back to To Do before taking it out of COMPLETED',
+            NEW.id
+            USING ERRCODE = '23514'; -- check_violation, cleaned for the client by GlobalExceptionHandler
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_tasks_prerequisite_not_reopened
+    BEFORE UPDATE OF status ON tasks
+    FOR EACH ROW EXECUTE FUNCTION check_prerequisite_not_reopened();
+
 -- "A task under Project A should not be attachable to a milestone from
 -- Project B."
 CREATE OR REPLACE FUNCTION check_task_milestone_matches_project()
@@ -1047,6 +1072,12 @@ BEGIN
     v_progress := fn_compute_task_progress_from_subtasks(NEW.id, NEW.status);
     IF v_progress IS NOT NULL THEN
         NEW.progress = v_progress;
+    -- Nothing to derive it from: the status decides (V17). A task entering COMPLETED is 100 and
+    -- one leaving COMPLETED goes back to 0.
+    ELSIF NEW.status = 'COMPLETED' THEN
+        NEW.progress = 100;
+    ELSIF OLD.status = 'COMPLETED' THEN
+        NEW.progress = 0;
     END IF;
     RETURN NEW;
 END;
