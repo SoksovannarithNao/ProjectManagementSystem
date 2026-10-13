@@ -1,6 +1,6 @@
 # Project Overview
 
-> First verified against the repository on **2026-10-06**; last brought in line with the code on **2026-10-12**. Everything here was confirmed in the code, the database scripts, the running application, or an existing project document. Where something could not be confirmed it is marked **Unknown / Needs clarification**.
+> First verified against the repository on **2026-10-06**; last brought in line with the code on **2026-10-14**. Everything here was confirmed in the code, the database scripts, the running application, or an existing project document. Where something could not be confirmed it is marked **Unknown / Needs clarification**.
 
 ## 1. Purpose and scope
 
@@ -46,25 +46,26 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 .
 ├── backend/               Spring Boot API
 │   └── src/main/java/backend/
-│       ├── controller/    26 REST controllers (122 endpoints)
+│       ├── controller/    26 REST controllers (125 endpoints)
 │       ├── service/       business rules, transactions, ProjectAccessGuard
 │       ├── repository/    Spring Data JPA repositories
-│       ├── entity/        22 JPA entities
+│       ├── entity/        24 JPA entities
 │       ├── dto/           request/response objects, PasswordPolicy
 │       ├── security/      Resource and Action enums, PermissionChecker
-│       ├── exception/     GlobalExceptionHandler, NotFoundException, ConflictException, TooManyRequestsException
+│       ├── exception/     GlobalExceptionHandler, NotFoundException, ConflictException, TooManyRequestsException, SessionExpiredException
 │       ├── config/        SecurityConfig, JwtSecretGuard, ActiveAccountJwtValidator, DeadlineScheduler
-│       └── util/          TextFormat, Derived, WorkloadClassifier, FileTypeGuard
+│       └── util/          TextFormat, Derived, WorkloadClassifier, FileTypeGuard, Mentions, ProjectListQuery, TaskListQuery, PageParams
 ├── frontend/              React app
-│   ├── src/pages/         one file per screen (18, including the two under admin/)
+│   ├── src/pages/         one file per screen (19, including the three under admin/)
 │   ├── src/components/    shared components; components/ui/ = primitives
 │   ├── src/api/           fetch client + one module per backend resource
 │   ├── src/auth|data|theme|layout/   context providers and the app shell
 │   └── e2e/               Playwright specs
 ├── database/
 │   ├── init/              01-init.sql (schema), 02-seed.sql (demo data), 03-app-role.sh, 04-flyway-baseline.sql
-│   ├── taskmanager/       Flyway project (migrations V1–V16) — applied by the Compose `migrate` service, not by the app
-│   └── verify_invariants.sql
+│   ├── taskmanager/       Flyway project (migrations V1–V20) — applied by the Compose `migrate` service, not by the app
+│   ├── verify_invariants.sql
+│   └── verify_grants.sql
 ├── api/                   openapi.yaml (partly out of date — see issues.md)
 ├── docs/                  this documentation
 ├── .github/workflows/     ci.yml, cd.yml
@@ -85,8 +86,8 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Milestones | Done (2026-10-12) — add, edit and delete in the UI; shown on the calendar; the task forms have no milestone picker |
 | Tasks, subtasks, dependencies, assignment | Done |
 | Comments | Done — replies and @mentions (2026-10-13); the people around the task are notified (2026-10-12) |
-| Activity feed (task, project, recent) | Done (2026-10-09); time logs are not written |
-| Notifications | Done (2026-10-12) — all 12 types are produced, including comments, project updates, milestone updates and @mentions |
+| Activity feed (task, project, recent) | Done (2026-10-09); time logs are written since 2026-10-13 |
+| Notifications | Done (2026-10-12) — all 12 types are produced, including comments, project updates, milestone updates and @mentions; the bell loads 20 at a time (2026-10-14) |
 | Dashboard, project timeline, team tasks, workload | Done (2026-10-09) |
 | Kanban | Done (2026-10-13) — drag a card to another column or use its *Move to* menu |
 | Calendar | Done (2026-10-12) — month, week and day views of task due dates and milestones |
@@ -96,7 +97,9 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Attachments, work logs, checklist items | Done (work logs earlier; attachments and checklists 2026-10-09) |
 | Deadline reminders, overdue notifications | Done (2026-10-10) — a daily scheduled job |
 | Gantt chart prototype | Done (2026-10-10) |
-| Auto-logout | Done (2026-10-12) — 15 idle minutes, a 60-second warning, then sign-out (browser-side) |
+| Auto-logout | Done (2026-10-12) — 15 idle minutes, a 60-second warning, then sign-out (the timer is browser-side; signing out also deletes the refresh token on the server) |
+| Sign-in session | Done (2026-10-14) — a 15-minute access token in memory, renewed from a 7-day httpOnly refresh cookie; sign-out and a password change end it |
+| List search, filter, sort and paging | Done (2026-10-13 / 2026-10-14) — optional parameters on the project and task lists, optional paging on those and the notification list; the screens that need a whole list still read it whole |
 
 ## 6. Where to read next
 

@@ -54,12 +54,15 @@ class UserRoleServiceTest {
     @Mock
     private AuditLogService auditLogService;
 
+    @Mock
+    private RefreshTokenService refreshTokenService;
+
     private UserService service;
 
     @BeforeEach
     void setUp() {
         service = new UserService(userRepository, roleRepository, positionRepository, departmentRepository,
-                projectMemberRepository, new BCryptPasswordEncoder(), projectAccessGuard, permissionService, auditLogService);
+                projectMemberRepository, new BCryptPasswordEncoder(), projectAccessGuard, permissionService, auditLogService, refreshTokenService);
         lenient().when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 

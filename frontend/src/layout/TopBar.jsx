@@ -29,7 +29,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
   const { openMobileNav } = useLayout()
   const { profile, username, logout, refreshProfile } = useAuth()
   const { theme, setTheme } = useTheme()
-  const { notifications, unreadCount, markRead, markAllRead, dismiss } = useNotifications()
+  const { notifications, total, unreadCount, hasMore, loadingMore, loadMore, markRead, markAllRead, dismiss } = useNotifications()
   const notify = useToast()
   const navigate = useNavigate()
   const displayName = profile?.fullName || username || ''
@@ -204,6 +204,16 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                     </div>
                   )
                 })}
+                {hasMore && (
+                  <button
+                    type="button"
+                    className="text-muted hover:text-ink hover:bg-subtle mt-1 w-full rounded-md px-2.5 py-2 text-center text-[12px] font-semibold"
+                    disabled={loadingMore}
+                    onClick={loadMore}
+                  >
+                    {loadingMore ? 'Loading…' : `Show more (${total - notifications.length} older)`}
+                  </button>
+                )}
               </div>
             </div>
           )}

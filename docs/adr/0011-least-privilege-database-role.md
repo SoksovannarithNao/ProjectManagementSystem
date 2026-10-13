@@ -13,7 +13,7 @@ Docker Compose creates a PostgreSQL superuser (`POSTGRES_USER`). Letting the app
 `database/init/03-app-role.sh` creates a separate login role **`taskmanager_app`** (password from `TASKMANAGER_APP_PASSWORD`) with only:
 
 - `CONNECT` on the database and `USAGE` on schema `public`;
-- `SELECT, INSERT, UPDATE, DELETE` on the **21 tables that have read-write JPA entities** (originally 15; the permission, work-log, approval, attachment and checklist tables were added later), and `SELECT` only on `permissions`;
+- `SELECT, INSERT, UPDATE, DELETE` on the **22 tables that have read-write JPA entities** (originally 15; the permission, work-log, approval, attachment, checklist and refresh-token tables were added later), and `SELECT` only on `permissions`;
 - `USAGE, SELECT` on all sequences (needed because `GENERATED ALWAYS AS IDENTITY` keys use a sequence);
 - explicit `EXECUTE` on three functions (redundant today, kept as documentation).
 
@@ -27,7 +27,7 @@ No `SUPERUSER`, `CREATEDB` or `CREATEROLE`. The backend's defaults and the compo
 ## Consequences
 
 - A compromised application process cannot alter the schema, create roles or read tables it has no entity for.
-- **Adding an entity for a new table requires adding a `GRANT`** to `03-app-role.sh` — and to the duplicated list in `.github/workflows/ci.yml`. The two lists drifted once (CI granted 10 tables, the script 15); they were brought back in line and match today (21 tables each, re-checked 2026-10-12), but nothing enforces it (issue X-05). A migration that adds a table grants it itself (`V9`, `V12`, `V13` do).
+- **Adding an entity for a new table requires adding a `GRANT`** to `03-app-role.sh`. CI used to keep its own copy of the list, which drifted once (CI granted 10 tables, the script 15); since 2026-10-14 CI runs the script itself, and `database/verify_grants.sql` fails the build for any table the role cannot read (apart from three that deliberately have no entity), so a forgotten grant is caught there. A migration that adds a table grants it itself (`V9`, `V12`, `V13`, `V16` do), because the script only runs on a new volume.
 - The 2 tables without entities (`report_exports`, `kpi_snapshots`) and all views are not granted, so a future endpoint over them needs new grants.
 - The role only exists in databases initialised from an empty volume; an existing volume needs a reset (or a manual `CREATE ROLE`).
 - The development default password (`taskmanager_app_password`) is in `.env.example` and `docker-compose.yml`; production must override it.

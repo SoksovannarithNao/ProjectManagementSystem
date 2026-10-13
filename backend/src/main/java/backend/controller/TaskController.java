@@ -3,6 +3,8 @@ package backend.controller;
 import backend.dto.TaskRequest;
 import backend.dto.TaskResponse;
 import backend.service.TaskService;
+import backend.util.PageParams;
+import backend.util.TaskListQuery;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -25,9 +27,28 @@ public class TaskController {
         this.taskService = taskService;
     }
 
+    // Every parameter is optional (B1.9, B7.2); filters combine with AND, several values of
+    // status or priority with OR. They only narrow what the caller may already see.
+    // With ?page and/or ?size the answer is a page ({ items, total, page, size }) instead of the
+    // whole list; without them it is the whole list, as before.
     @GetMapping
-    public List<TaskResponse> getAllTasks(Authentication authentication) {
-        return taskService.getAllTasks(authentication.getName());
+    public Object getAllTasks(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) List<String> priority,
+            @RequestParam(required = false) Long assigneeId,
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String due,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            Authentication authentication
+    ) {
+        TaskListQuery query = new TaskListQuery(search, status, priority, assigneeId, projectId, due, sort);
+        PageParams paging = PageParams.of(page, size);
+        return paging == null
+                ? taskService.getAllTasks(authentication.getName(), query)
+                : taskService.getTasksPage(authentication.getName(), query, paging);
     }
 
     @GetMapping("/{id}")

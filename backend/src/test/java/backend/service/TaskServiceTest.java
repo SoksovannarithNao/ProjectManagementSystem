@@ -15,6 +15,8 @@ import backend.repository.UserRepository;
 import backend.repository.WorkLogRepository;
 import backend.security.Action;
 import backend.security.Resource;
+import backend.util.PageParams;
+import backend.util.TaskListQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -393,5 +395,72 @@ class TaskServiceTest {
         service.updateTask(5L, request(10L, "Original title", "IN_REVIEW"), "pm.olivia");
 
         verify(taskDependencyRepository, never()).findStartedDependentTitles(any());
+    }
+
+    @Test
+    void getAllTasks_aSearchOnlyNarrowsTheTasksOfTheCallersProjects() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        when(taskRepository.findByProjectIdIn(List.of(10L))).thenReturn(List.of(task));
+
+        List<backend.dto.TaskResponse> narrowed = service.getAllTasks("pm.olivia",
+                new TaskListQuery("no such title", null, null, null, null, null, null));
+        List<backend.dto.TaskResponse> found = service.getAllTasks("pm.olivia",
+                new TaskListQuery("original", null, null, null, null, null, null));
+
+        // A task of a project the caller is not a member of is never loaded, so no query can find it.
+        assertThat(narrowed).isEmpty();
+        assertThat(found).extracting(backend.dto.TaskResponse::getTitle).containsExactly("Original title");
+        verify(taskRepository, never()).findAll();
+    }
+
+    // ---- one page at a time (risk R-5) ---------------------------------------
+
+    private Task taskWithId(Long id, String title) {
+        Task t = new Task();
+        ReflectionTestUtils.setField(t, "id", id);
+        t.setProject(current);
+        t.setTitle(title);
+        t.setStatus("TODO");
+        t.setPriority("MEDIUM");
+        t.setStartDate(LocalDate.of(2026, 10, 1));
+        t.setDueDate(LocalDate.of(2026, 10, 30));
+        return t;
+    }
+
+    @Test
+    void getTasksPage_buildsOnlyTheRequestedPageInIdOrderAndReportsTheTotalOfAllThatMatch() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        when(taskRepository.findByProjectIdIn(List.of(10L)))
+                .thenReturn(List.of(taskWithId(9L, "Nine"), taskWithId(5L, "Five"), taskWithId(7L, "Seven")));
+
+        backend.dto.PageResponse<backend.dto.TaskResponse> page = service.getTasksPage("pm.olivia",
+                new TaskListQuery(null, null, null, null, null, null, null), PageParams.of(0, 2));
+
+        assertThat(page.getItems()).extracting(backend.dto.TaskResponse::getId).containsExactly(5L, 7L);
+        assertThat(page.getTotal()).isEqualTo(3);
+        assertThat(page.getPage()).isZero();
+        assertThat(page.getSize()).isEqualTo(2);
+        // the work behind a response (subtask counts, hours, approvals...) was done for the two
+        // tasks of the page, not for all three
+        org.mockito.ArgumentCaptor<List<Long>> ids = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(subtaskRepository).countByTaskIds(ids.capture());
+        assertThat(ids.getValue()).containsExactlyInAnyOrder(5L, 7L);
+    }
+
+    @Test
+    void getTasksPage_pagesTheFilteredList() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        Task done = taskWithId(6L, "Done one");
+        done.setStatus("COMPLETED");
+        when(taskRepository.findByProjectIdIn(List.of(10L))).thenReturn(List.of(taskWithId(5L, "Five"), done, taskWithId(7L, "Seven")));
+
+        backend.dto.PageResponse<backend.dto.TaskResponse> page = service.getTasksPage("pm.olivia",
+                new TaskListQuery(null, List.of("TODO"), null, null, null, null, null), PageParams.of(1, 1));
+
+        assertThat(page.getItems()).extracting(backend.dto.TaskResponse::getId).containsExactly(7L);
+        assertThat(page.getTotal()).isEqualTo(2);
     }
 }

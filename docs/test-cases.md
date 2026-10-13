@@ -1,6 +1,6 @@
 # Test cases
 
-The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-13** against the running stack: backend 397/397, frontend unit tests 166/166, Playwright 194 tests in 27 files (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
+The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-13** against the running stack: backend 447/447, frontend unit tests 172/172, Playwright 208 tests in 31 files (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
 
 **Reading the tables**
 
@@ -51,6 +51,10 @@ The formal list of what the application is tested for: one row per case, with th
 | AUTH-09 | Activity in another tab | Keep working in a second tab of the same browser | The idle tab is not signed out | `idle-and-updates.spec.js`; `idleTimeout.test.js` |
 | AUTH-10 | Sign out by choice | Click *Sign out now* on the warning | Signed out without the inactivity message | `idle-and-updates.spec.js` |
 | AUTH-11 | Network and server errors read plainly | Make a request while the server is unreachable, or while a proxy returns an HTML page | "Could not reach the server…" or "The server sent an unexpected response…", never a raw browser message | `client.test.js` |
+| AUTH-12 | The token is not kept in storage | Sign in; look at the browser's local storage and cookies | Storage holds only the username and role; the refresh cookie is `HttpOnly` and `SameSite=Strict`, so a script cannot read it; a reload keeps the session | `session.spec.js` |
+| AUTH-13 | A token that ran out is renewed silently | Use the app for longer than 15 minutes (or have one request answered `401`) | The request is repeated with a new token and the person notices nothing; only a failed refresh signs them out | `session.spec.js`; `client.test.js` |
+| AUTH-14 | Signing out ends the session on the server | Sign out; replay the old refresh cookie | `401 "Session expired"`; the cookie is cleared; a reload shows the sign-in page | `session.spec.js`; `AuthServiceTest` |
+| AUTH-15 | A changed or reset password, or a suspension, ends the session | Change the password (or have an administrator reset it, or suspend the account); refresh with the old cookie | `401 "Session expired"` each time | `session.spec.js`; `UserServiceTest`; `RefreshTokenServiceTest` |
 
 ## 2. Registration and verification
 
@@ -97,6 +101,8 @@ The formal list of what the application is tested for: one row per case, with th
 | PRJ-05 | Completion date | Complete a project; edit it; reopen it | The date is set by the database and returned by the same save; kept on edit; cleared on reopening; shown on the page and in two reports | `quick-wins.spec.js`; `database/verify_invariants.sql` |
 | PRJ-06 | A project that does not exist | Open the address of a project id that does not exist | A 404 page inside the app | `help-errors.spec.js` |
 | PRJ-07 | Delayed is calculated | A project passes its end date unfinished | It shows *Delayed* and can be filtered; completing it removes the flag; a future one never is | `manager-views.spec.js`; `DerivedTest`; `DashboardServiceTest` |
+| PRJ-08 | Server-side search, filter and sort | `GET /api/projects?status=&priority=&managerId=&search=&sort=` as an Administrator and as a member of two projects; then an unknown value | Only matching projects, within what the caller may see; an unknown status, priority or sort is `400` | `ProjectListQueryTest`; `ProjectServiceTest`; checked by hand against the live stack (2026-10-13) |
+| PRJ-09 | Projects a page at a time | `GET /api/projects?page=0&size=3`, then `page=1`, a page past the end, with a `sort` and a `status` filter | `{ items, total, page, size }`; pages do not overlap and follow id order; the total counts what matches; a page past the end is empty; without parameters the whole list | `paging.spec.js`; `ProjectServiceTest`; `PageParamsTest` |
 
 ## 5. Members, invitations and ownership
 
@@ -110,6 +116,7 @@ The formal list of what the application is tested for: one row per case, with th
 | MEM-06 | A membership cannot be re-pointed | Change the project or user of a membership | Refused; its role can change | `ProjectMemberServiceTest`; `permissions.spec.js` |
 | MEM-07 | Name a Team Leader as the project lead | The Owner clicks *Make lead* beside a Team Leader (or `PUT /api/projects/{id}/lead`); clear it again | The Lead field, the project list and the activity feed show it; only a Team Leader of the project can be named; a Team Leader or Team Member cannot name one | `project-lead.spec.js`; `ProjectServiceTest` |
 | MEM-08 | The lead stops being the lead with the role | Demote the lead, remove them from the project, or make them the Owner | The project has no lead afterwards | `project-lead.spec.js`; `ProjectMemberServiceTest` |
+| MEM-09 | Invite with a role | Project page → *Add member*: pick *Team Leader*, type a username, send; the person accepts | The dialog offers Team Member (default), Team Leader and Viewer, never Owner; the invitation and then the membership carry the chosen role | `invite-role.spec.js` |
 
 ## 6. Tasks
 
@@ -131,6 +138,8 @@ The formal list of what the application is tested for: one row per case, with th
 | TSK-14 | A prerequisite cannot be reopened under a running dependant | Move a Completed prerequisite back (or cancel it) while a task that depends on it is In Progress, In Review or Completed | Refused with a message naming the dependants; allowed once they are back in To Do, which blocks them again | `kanban-integrity.spec.js`; `TaskServiceTest` |
 | TSK-15 | A move never overwrites a newer edit | Edit a task from another session, then drag its (old) card; or move it from another session first | The edit is kept; a task already moved by someone else is not moved and the board refreshes | `kanban-integrity.spec.js`; `tasks.test.js` |
 | TSK-16 | The order of the stages | Drag a To Do card to In Review or Completed | Refused ("A task starts in In Progress"); it goes To Do → In Progress → In Review or Completed, and can be taken back | `kanban-integrity.spec.js`; `tasks.test.js` |
+| TSK-17 | Server-side search, filter and sort | `GET /api/tasks?status=&priority=&assigneeId=&projectId=&due=&search=&sort=` as an Administrator and as a member of two projects; then an unknown value | Only matching tasks, within the caller's projects; an unknown status, priority, due or sort is `400` | `TaskListQueryTest`; `TaskServiceTest`; checked by hand against the live stack (2026-10-13) |
+| TSK-18 | Tasks a page at a time | `GET /api/tasks?page=0&size=5` as a member and as an Administrator; with `status` and `sort`; `size=0`, `size=201`, `page=-1` | A member's total counts only their projects; the filter runs first; a bad value is `400` | `paging.spec.js`; `TaskServiceTest`; `PageParamsTest` |
 
 ## 7. Task approval
 
@@ -165,7 +174,10 @@ The formal list of what the application is tested for: one row per case, with th
 | TIM-01 | Log time | Enter `1h30` | The time is saved and shows in the list and the summary | `time-tracking.spec.js`; `duration.test.js` |
 | TIM-02 | A time that cannot be read | Enter `2 apples` | Refused with a message that says what to type | `time-tracking.spec.js`; `duration.test.js` |
 | TIM-03 | Timer | Start the timer, reload, stop | The clock survives the reload and stops cleanly | `time-tracking.spec.js` |
-| TIM-04 | Rules | Log a future date; a Viewer logs time; delete someone else's entry | Refused; the author or a Project Manager may delete | `WorkLogServiceTest` |
+| TIM-04 | Rules | Log a date two days ahead; a Viewer logs time; delete someone else's entry | Refused; the author or a Project Manager may delete. Tomorrow's date is accepted (the person's own "today" can be one day ahead of the server's) | `WorkLogServiceTest` |
+| TIM-05 | Change an entry | Click the pencil on your own entry, change the time and note, save; try a time that cannot be read; cancel | The entry shows the new values; the bad time is refused on the form; nothing else changes. Others' entries have no pencil | `time-log-edit.spec.js`; `WorkLogServiceTest` |
+| TIM-06 | Who may change an entry | An Administrator or manager changes someone else's entry; the author moves it to another task or a future date | Refused (`403` even for an administrator; `400`) | `time-log-edit.spec.js`; `WorkLogServiceTest` |
+| TIM-07 | Time log in the feed | Log, change and delete an entry; open the task's Activity and the project's Activity card | One line each (`WORK_LOGGED`, `WORK_LOG_UPDATED` with old and new values, `WORK_LOG_DELETED`; a manager's delete names the author); saving without a change adds nothing | `time-log-edit.spec.js`; `WorkLogServiceTest` |
 
 ## 10. Milestones, calendar, Gantt and timeline
 
@@ -195,6 +207,7 @@ The formal list of what the application is tested for: one row per case, with th
 | REP-04 | In the interface | Open every tab; generate a report; leave a required filter empty | Every tab loads; figures match the server; the filter is checked first | `reports.spec.js` |
 | REP-05 | Formatting | Display a date, a rate, hours | `Oct 12, 2026`, `50.0%`, `1.5`; a dash when there is nothing | `reportFormat.test.js` |
 | REP-06 | Export | Generate each report (and open the KPIs); press *Excel*, then *PDF*; look at the page before generating | No buttons before *Generate*; an `.xlsx` and a `.pdf` named after the report and the day are saved, holding its title, scope and tables | `report-export.spec.js`; `reportExport.test.js` |
+| REP-07 | Overview workload chart | Open Reports and choose a project in *Filter* | One group of bars per member (assigned, active, overdue); the tooltip adds the estimated and actual hours and the load level; the numbers equal the Workload report's; a person who may not assign tasks has no chart | `reports.spec.js` |
 
 ## 13. Notifications
 
@@ -207,6 +220,7 @@ The formal list of what the application is tested for: one row per case, with th
 | NTF-05 | Deadline reminders | A task, milestone or project is 3 or 1 days from its end | The assignee and Owner get one reminder; overdue work gets one notice; finished work, switched-off and inactive accounts are skipped | `DeadlineNotificationServiceTest` |
 | NTF-06 | Approvals | Submit and decide | Approvers are told of a request, the requester of the decision | `approvals.spec.js`; `TaskApprovalServiceTest` |
 | NTF-07 | Mentions | @mention a member in a comment; edit it to mention another | The mentioned member gets "You were mentioned" instead of the generic comment notice, the assignee and Owner still get that one, the author and an outsider get nothing; an edit tells only the newly mentioned | `mentions.spec.js`; `UpdateNotificationServiceTest`; `CommentServiceTest` |
+| NTF-08 | The bell loads a page at a time | With more than 20 notifications, open the bell; press *Show more* | The newest 20 are shown with *Show more (N older)*; pressing it loads the rest and the button goes; the unread dot comes from the server's count | `paging.spec.js`; `NotificationServiceTest` |
 
 ## 14. Errors, help and every screen
 
@@ -216,7 +230,7 @@ The formal list of what the application is tested for: one row per case, with th
 | ERR-02 | Each status | Open `/error/403`, `/429`, `/500`, `/503`, `/0` and an unknown status | Each has its own title; *Try again* only where it helps; unknown statuses are still readable | `help-errors.spec.js` |
 | ERR-03 | Help & Support | Open it from the sidebar | A page of its own with five sections; the item is marked current | `help-errors.spec.js` |
 | ERR-04 | An unknown API path | Call `/api/does-not-exist` | `404`, not `500` | `batch1.spec.js`; `GlobalExceptionHandlerTest` |
-| ERR-05 | Every screen opens | As an administrator, open the dashboard, tasks, projects, calendar, Kanban, team, reports, both administration pages, profile, settings, help, and a project with each of its views | No script error, no `5xx` from the API, no error page | `smoke.spec.js` |
+| ERR-05 | Every screen opens | As an administrator, open the dashboard, tasks, projects, calendar, Kanban, team, reports, the three administration pages (users, roles and permissions, audit log), profile, settings, help, and a project with each of its views | No script error, no `5xx` from the API, no error page | `smoke.spec.js` |
 | ERR-06 | Text helpers | Format a title, a status, a date, "time ago" | Readable output; missing values handled | `format.test.js` |
 
 ## 15. Data isolation and security
@@ -237,6 +251,7 @@ The formal list of what the application is tested for: one row per case, with th
 | DB-01 | Invariants | Run `database/verify_invariants.sql` on a database built from the init scripts | All fourteen queries return no rows (dates, dependencies, assignees, milestones, progress, one active owner, approvals, completion date, project lead, a completed task at 100%) | CI job `backend`; run by hand against the live and a fresh database |
 | DB-02 | A fresh database starts the whole stack | Build the stack on an empty volume | Init scripts and migrations apply, the backend is healthy, and the full browser suite passes | CI job `e2e` |
 | DB-03 | Each trigger rejects a bad write | Insert or update a row that breaks a rule | An error naming the rule | **Manual** (not automated) |
+| DB-04 | The application role can read every table | Run `database/verify_grants.sql` after the role exists; add a table without a grant and run it again | Nothing is printed; the new table is listed (a table with no entity goes on the script's own list) | CI job `backend` (step *Verify the app role can read every table*); checked by hand 2026-10-14 |
 
 ## 17. Front-end unit tests
 

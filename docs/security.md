@@ -25,14 +25,15 @@ The UI checks are conveniences only; the backend and database repeat every rule 
 
 | Control | Detail | Source |
 |---|---|---|
-| Stateless JWT | HS512, `sub`, optional `role`, expiry 1 h by default | `JwtService`, `SecurityConfig` |
+| Stateless JWT | HS512, `sub`, optional `role`, expiry 15 min by default, kept in the browser's memory | `JwtService`, `SecurityConfig` |
+| Refresh cookie | random 256-bit token, `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, 7 days; only its SHA-256 hash is stored; deleted on sign-out, a password change or reset, and refused for an account that is not `ACTIVE` | `RefreshTokenService`, `AuthController`, table `refresh_tokens` |
 | Secret handling | `JWT_SECRET` from the environment; a startup warning if it is still the built-in development value | `JwtSecretGuard` |
 | Login throttling | 5 failures / 15 min per `remoteAddr:username` → `429`; in memory | `LoginRateLimiter` |
 | Per-request account check | token rejected (`401`) as soon as the account is not `ACTIVE`, even before the token expires | `ActiveAccountJwtValidator`, `SecurityConfig.jwtDecoder` |
 | Uniform login failure | one `401` message for unknown user, wrong password and non-active account **(verified live)** | `AuthService`, `GlobalExceptionHandler` |
 | Email verification | 6-digit `SecureRandom` code, bcrypt-hashed, 10 min expiry, 5 attempts, 60 s resend cooldown | `OtpService` |
 | Unverified accounts | cannot log in | `CustomUserDetailsService` |
-| Session ends | client deletes the token; `401` on any call also logs out; after 15 idle minutes (60-second warning) the app logs out by itself, since 2026-10-12 (the token stays valid on the server until it expires) | `api/client.js`, `auth/IdleLogout.jsx` |
+| Session ends | sign-out calls `POST /api/auth/logout` (deletes the refresh token, clears the cookie) and the browser forgets who signed in; a `401` that a refresh cannot fix also logs out; after 15 idle minutes (60-second warning) the app signs out by itself, since 2026-10-12. The 15-minute access token cannot be recalled, it expires | `api/client.js`, `auth/IdleLogout.jsx`, `AuthController` |
 
 **Gaps:**
 
@@ -40,7 +41,7 @@ The UI checks are conveniences only; the backend and database repeat every rule 
 2. **Username/email enumeration (verified live).** Login is uniform, but `POST /api/auth/resend-otp` and `/verify-otp` answer `404 "User not found"` for an unknown username and `400 "This account is already verified"` for a real verified one, and registration answers `"Username is already taken"` / `"Email is already registered"`.
 3. **Rate-limit key behind the proxy — Needs verification.** The key uses `HttpServletRequest.getRemoteAddr()`. In the Docker stack the backend sits behind nginx, and `application.properties` sets no forwarded-header handling, so by code reading the address is probably the nginx container's for every user; that would make the limit effectively per username across all clients (a lockout of one account affects everyone). Not tested.
 4. **Abandoned registrations keep their username and email reserved** indefinitely (no expiry job).
-5. The token lives in `localStorage` (`taskflow.auth`), readable by any script running on the page; there is no `HttpOnly` cookie alternative.
+5. ~~The token lives in `localStorage`~~ — **fixed 2026-10-14 (R-4):** the access token is in memory only and the long-lived credential is an `HttpOnly` cookie. A script running on the page can still *use* the session while the page is open (it can call the API), which no token storage prevents.
 
 ## 4. Authorization enforcement
 
@@ -123,7 +124,7 @@ Full catalogue in [database.md](database.md). The security-relevant ones:
 
 ## 8. Infrastructure and browser-facing measures
 
-- **Least-privilege database role:** the backend connects as `taskmanager_app` (no `SUPERUSER`/`CREATEDB`/`CREATEROLE`; DML only on the 21 read-write tables, `SELECT` on `permissions`, `SELECT` and `INSERT` only on the append-only `audit_logs`) — [ADR-0011](adr/0011-least-privilege-database-role.md).
+- **Least-privilege database role:** the backend connects as `taskmanager_app` (no `SUPERUSER`/`CREATEDB`/`CREATEROLE`; DML only on the 22 read-write tables, `SELECT` on `permissions`, `SELECT` and `INSERT` only on the append-only `audit_logs`) — [ADR-0011](adr/0011-least-privilege-database-role.md).
 - **Container:** the backend image runs as a non-root user `spring`.
 - **CORS:** allow-list from `app.cors.allowed-origins` (`CORS_ALLOWED_ORIGINS`; default `http://localhost:5173`, `http://localhost:80`), all headers, methods `GET POST PUT PATCH DELETE OPTIONS`, credentials allowed.
 - **CSRF:** disabled — acceptable because authentication is a bearer header, not a cookie.
@@ -134,7 +135,7 @@ Full catalogue in [database.md](database.md). The security-relevant ones:
 ## 9. Security checklist for contributors
 
 - New endpoint → decide its access rule as a *(resource, action)* pair; use `ProjectAccessGuard.assertCan` (or a `@PreAuthorize` permission check for system-wide ones) and add the grant rows in a new Flyway migration (see `V13`) and in `01-init.sql`; remember `assertAccess` returns `404` by design. Check the permission against the **target** project when a request body can change `projectId`.
-- New table → add a `GRANT` to `database/init/03-app-role.sh` **and** the duplicate in `.github/workflows/ci.yml`.
+- New table → add a `GRANT` to `database/init/03-app-role.sh` (CI runs that script and then `database/verify_grants.sql`, which fails when a table has no grant) and, for a database that already exists, to the migration that creates it.
 - New cross-row rule as a trigger → `USING ERRCODE = '23514'`, and add the same change to a new Flyway migration.
 - New user-visible error → throw `IllegalArgumentException`/`ConflictException` with a human sentence rather than relying on a database message.
 - Never return an entity; add a DTO that omits sensitive fields.

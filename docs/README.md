@@ -25,7 +25,7 @@ Documentation for the **TaskFlow** task and project management system (React fro
 | 5 | Task management — fields, statuses, assignment, *My Tasks*, subtasks, comments, activity, rules | [tasks.md](tasks.md) |
 | 6 | Notifications — types, triggers, read/unread, deletion | [notifications.md](notifications.md) |
 | 7 | Database — tables, relationships, constraints, ERD, triggers, migrations, running and inspecting, design decisions | [database.md](database.md) |
-| 8 | API reference — all 122 endpoints, permissions, payloads, error codes, known quirks | [api-reference.md](api-reference.md) |
+| 8 | API reference — all 125 endpoints, permissions, payloads, error codes, known quirks | [api-reference.md](api-reference.md) |
 | 9 | Validation & security — validation layers, error handling, hardening, gaps | [security.md](security.md) |
 | 10 | Testing — inventory, coverage, regression tests, gaps | [testing.md](testing.md) |
 | 11 | Bug & issue tracking — open defects, inconsistencies, fixed, limitations, debt | [issues.md](issues.md) |
@@ -52,7 +52,7 @@ Documentation for the **TaskFlow** task and project management system (React fro
 
 ## Where the old folder READMEs went
 
-The `README.md` files in `api/`, `backend/`, `frontend/` and `database/` were removed on 2026-10-08 and their content moved here, with out-of-date statements corrected (endpoint count 84 → 87, tests 60 → 67 and 30 → 33, work logs now implemented, 16 entities; later syncs on 2026-10-09, 2026-10-10, 2026-10-12 and 2026-10-13 brought the counts to 122 endpoints, 23 entities, 397 backend tests, 166 frontend unit tests and 194 Playwright tests).
+The `README.md` files in `api/`, `backend/`, `frontend/` and `database/` were removed on 2026-10-08 and their content moved here, with out-of-date statements corrected (endpoint count 84 → 87, tests 60 → 67 and 30 → 33, work logs now implemented, 16 entities; later syncs on 2026-10-09, 2026-10-10, 2026-10-12 and 2026-10-13 brought the counts to 125 endpoints, 24 entities, 447 backend tests, 172 frontend unit tests and 208 Playwright tests).
 
 | Old file and section | Now |
 |---|---|

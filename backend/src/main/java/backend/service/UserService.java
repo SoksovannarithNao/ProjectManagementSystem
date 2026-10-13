@@ -57,6 +57,7 @@ public class UserService {
     private final ProjectAccessGuard projectAccessGuard;
     private final PermissionService permissionService;
     private final AuditLogService auditLogService;
+    private final RefreshTokenService refreshTokenService;
 
     public UserService(
             UserRepository userRepository,
@@ -67,8 +68,10 @@ public class UserService {
             PasswordEncoder passwordEncoder,
             ProjectAccessGuard projectAccessGuard,
             PermissionService permissionService,
-            AuditLogService auditLogService) {
+            AuditLogService auditLogService,
+            RefreshTokenService refreshTokenService) {
         this.auditLogService = auditLogService;
+        this.refreshTokenService = refreshTokenService;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.positionRepository = positionRepository;
@@ -218,6 +221,8 @@ public class UserService {
                 throw new IllegalArgumentException(PasswordPolicy.MESSAGE);
             }
             user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+            // A reset password ends every session the account had.
+            refreshTokenService.revokeAll(user.getId());
         }
 
         User saved = userRepository.save(user);
@@ -473,6 +478,8 @@ public class UserService {
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
+        // Changing the password ends every session, this browser included: it signs in again.
+        refreshTokenService.revokeAll(user.getId());
     }
 
     // Appearance/notification preferences — separate from updateOwnProfile

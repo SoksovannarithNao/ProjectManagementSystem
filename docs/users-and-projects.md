@@ -67,7 +67,7 @@ Observations:
 - **Completion date (since 2026-10-12, `V14`).** `projects.completed_at` is stamped by the trigger `trg_projects_completed_at` when the status becomes `COMPLETED`, kept while a completed project is edited, and cleared when it is reopened. It is returned as `completedAt`, shown as *Completed on <date>* on the project page and listed in the Project and Project Status reports; the application never writes it. Projects that were already completed when `V14` ran got their last update time.
 - **Project lead (since 2026-10-13, `V15`).** A project has one responsible person, the Owner (D-09); a Team Leader can be named beside them as the **lead**. `projects.lead_id` holds it, and the Owner or an Administrator (`PROJECT:ASSIGN`) sets or clears it with `PUT /api/projects/{id}/lead` (the project page's *Make lead* / *Remove as lead*). Only an *active Team Leader of that project* can be named (`400` otherwise). The lead is cleared when that person is demoted, removed or made the Owner (`ProjectMemberService` and `ProjectOwnership` clear it; the trigger `trg_project_members_clear_lead` backs them up, and `trg_projects_lead_is_team_leader` refuses any other value). The lead has the rights of a Team Leader and no more. The change is logged as `PROJECT_LEAD_CHANGED`; the project header, the Lead field and the project card show the lead.
 - The Projects page search matches the project name, description, code, manager, status and dates.
-- **Filter** (since 2026-10-09): status (Planning, Active, On Hold, Completed, Cancelled), priority and project manager; they combine with AND and with the search, and **Clear filters** resets them. **Sort**: Default (fully complete 100% projects last), name, start date, end date, priority, progress. Both work in the browser over the projects the server already limited to the caller, so they never reveal a project the user cannot open.
+- **Filter** (since 2026-10-09): status (Planning, Active, On Hold, Completed, Cancelled), priority and project manager; they combine with AND and with the search, and **Clear filters** resets them. **Sort**: Default (fully complete 100% projects last), name, start date, end date, priority, progress. Both work in the browser over the projects the server already limited to the caller, so they never reveal a project the user cannot open. `GET /api/projects` takes the same fields as parameters ([api-reference.md](api-reference.md#6-projects)). `GET /api/projects` takes the same fields as parameters ([api-reference.md](api-reference.md#6-projects)). `GET /api/projects` takes the same fields as parameters ([api-reference.md](api-reference.md#6-projects)). `GET /api/projects` takes the same fields as parameters ([api-reference.md](api-reference.md#6-projects)). `GET /api/projects` takes the same fields as parameters ([api-reference.md](api-reference.md#6-projects)). `GET /api/projects` takes the same fields as parameters ([api-reference.md](api-reference.md#6-projects)).
 - The Projects page subtitle reads "N active projects" but counts every project the caller can see.
 
 ## 3. Project membership
@@ -110,7 +110,7 @@ There is no separate invitation table: a project is the team, and an invitation 
 
 ### 4.2 Sending an invitation — `POST /api/project-members/invite`
 
-Request: `{ "projectId": 1, "username": "newuser", "projectRole": "MEMBER" }` (`projectRole` optional: `ADMIN`, `MEMBER` (default) or `VIEWER`) → `201` with a `ProjectMemberResponse` (`status: PENDING`). The Team page's invite form has a role picker (Team Member, Team Leader, Viewer).
+Request: `{ "projectId": 1, "username": "newuser", "projectRole": "MEMBER" }` (`projectRole` optional: `ADMIN`, `MEMBER` (default) or `VIEWER`) → `201` with a `ProjectMemberResponse` (`status: PENDING`). The Team page's invite form and the project page's *Add Member* dialog each have a role picker (Team Member, Team Leader, Viewer).
 
 Rules, in order (`ProjectMemberService.inviteMember`):
 
@@ -121,7 +121,7 @@ Rules, in order (`ProjectMemberService.inviteMember`):
 5. If a row already exists: `ACTIVE` → `400 "…is already a member of this team"`; `PENDING` → `400 "An invitation is already pending for …"`; `DECLINED` → the row is reused and set back to `PENDING`.
 6. A `TEAM_INVITATION` notification is created for the invitee (unless they turned notifications off).
 
-The API default is `MEMBER`. The Team page sends the chosen role; the project page's *Add Member* dialog sends none, so the invitee joins as a Team Member and the Owner or a Team Leader changes the role afterwards (section 3).
+The API default is `MEMBER`. The Team page and the project page's *Add Member* dialog (since 2026-10-14) both send the chosen role; the dialog offers Team Member (the default), Team Leader and Viewer, never Owner, and the Owner or a Team Leader can change the role afterwards (section 3).
 
 ### 4.3 Accepting or declining
 
@@ -148,7 +148,7 @@ The count comes from a database count of `PENDING` rows (`ProjectMemberRepositor
 
 | Where | What it does |
 |---|---|
-| Project page → Members → **Add member** (managers only) | Opens `AddProjectMemberModal`: type or pick a username (suggestions are searched as you type), **Send Invitation** → `POST /api/project-members/invite` |
+| Project page → Members → **Add member** (managers only) | Opens `AddProjectMemberModal`: type or pick a username (suggestions are searched as you type), choose the *Role in this project* (Team Member by default, Team Leader or Viewer), **Send Invitation** → `POST /api/project-members/invite` with that `projectRole` |
 | Team page → select a member → **Invite to team** | Picks a project the caller administers and calls the same endpoint for the selected member. Hidden, with an explanatory note, when the member is not `ACTIVE` |
 | Top bar bell | Accept / Decline an invitation you received |
 | Team page → ✕ beside a project | Remove that member from the project |

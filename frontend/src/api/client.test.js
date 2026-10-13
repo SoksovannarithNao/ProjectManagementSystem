@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, apiDownload, apiFetch, getStoredAuth, setUnauthorizedHandler, storeAuth } from './client'
+import {
+  ApiError,
+  apiDownload,
+  apiFetch,
+  endSession,
+  getStoredAuth,
+  refreshSession,
+  setUnauthorizedHandler,
+  storeAuth,
+} from './client'
 
 // A tiny in-memory localStorage; the module reads and writes the saved login through it.
 function memoryStorage() {
@@ -38,6 +47,22 @@ describe('the saved login', () => {
     expect(getStoredAuth()).toEqual({ token: 'abc', username: 'dev.chen' })
     storeAuth(null)
     expect(getStoredAuth()).toBeNull()
+  })
+
+  it('never writes the access token to storage: only who signed in', () => {
+    storeAuth({ token: 'secret-token', username: 'dev.chen', role: 'USER' })
+
+    const saved = localStorage.getItem('taskflow.auth')
+    expect(saved).not.toContain('secret-token')
+    expect(JSON.parse(saved)).toEqual({ username: 'dev.chen', role: 'USER' })
+  })
+
+  it('has no token after a reload until the session is renewed', () => {
+    localStorage.setItem('taskflow.auth', JSON.stringify({ username: 'dev.chen', role: 'USER' }))
+    storeAuth(null) // the in-memory token of an earlier test is gone
+    localStorage.setItem('taskflow.auth', JSON.stringify({ username: 'dev.chen', role: 'USER' }))
+
+    expect(getStoredAuth()).toEqual({ username: 'dev.chen', role: 'USER', token: null })
   })
 
   it('treats corrupt storage as signed out', () => {
@@ -85,11 +110,13 @@ describe('apiFetch', () => {
     expect(error.fieldErrors).toEqual({ name: 'required' })
   })
 
-  it('signs the user out on a 401, but not for login itself', async () => {
+  it('signs the user out on a 401 that a refresh cannot fix, but not for login itself', async () => {
     storeAuth({ token: 'old' })
     fetchMock.mockResolvedValue(reply(401, { message: 'expired' }))
 
     await expect(apiFetch('/tasks')).rejects.toMatchObject({ status: 401 })
+    // the request, then the refresh that was refused
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/tasks', '/api/auth/refresh'])
     expect(onUnauthorized).toHaveBeenCalledTimes(1)
     expect(getStoredAuth()).toBeNull()
 
@@ -97,6 +124,41 @@ describe('apiFetch', () => {
     await expect(apiFetch('/auth/login', { method: 'POST', body: {}, skipAuth: true })).rejects.toMatchObject({ status: 401 })
     expect(onUnauthorized).toHaveBeenCalledTimes(1)
     expect(getStoredAuth()).not.toBeNull()
+  })
+
+  it('renews the access token once on a 401 and repeats the request with the new one', async () => {
+    storeAuth({ token: 'old', username: 'dev.chen' })
+    fetchMock
+      .mockResolvedValueOnce(reply(401, { message: 'expired' }))
+      .mockResolvedValueOnce(reply(200, { token: 'fresh', username: 'dev.chen', role: 'USER' }))
+      .mockResolvedValueOnce(reply(200, [{ id: 1 }]))
+
+    const data = await apiFetch('/tasks')
+
+    expect(data).toEqual([{ id: 1 }])
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/tasks', '/api/auth/refresh', '/api/tasks'])
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer old')
+    expect(fetchMock.mock.calls[2][1].headers.Authorization).toBe('Bearer fresh')
+    expect(fetchMock.mock.calls[1][1]).toEqual({ method: 'POST' }) // the cookie is the only credential
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    expect(getStoredAuth()).toMatchObject({ token: 'fresh', username: 'dev.chen' })
+  })
+
+  it('shares one refresh between requests that run out of token together', async () => {
+    storeAuth({ token: 'old' })
+    let refreshes = 0
+    fetchMock.mockImplementation((url, init) => {
+      if (url === '/api/auth/refresh') {
+        refreshes += 1
+        return Promise.resolve(reply(200, { token: 'fresh', username: 'dev.chen', role: 'USER' }))
+      }
+      return Promise.resolve(init.headers.Authorization === 'Bearer fresh' ? reply(200, { ok: true }) : reply(401, {}))
+    })
+
+    const results = await Promise.all([apiFetch('/a'), apiFetch('/b'), apiFetch('/c')])
+
+    expect(results).toEqual([{ ok: true }, { ok: true }, { ok: true }])
+    expect(refreshes).toBe(1)
   })
 
   it('says so in plain words when the server cannot be reached', async () => {
@@ -116,6 +178,31 @@ describe('apiFetch', () => {
     const failure = await apiFetch('/tasks').catch((e) => e)
     expect(failure.status).toBe(502)
     expect(failure.message).toBe('status 502')
+  })
+})
+
+describe('the session', () => {
+  it('refreshSession keeps the new token in memory and reports no session when refused or unreachable', async () => {
+    fetchMock.mockResolvedValueOnce(reply(200, { token: 'fresh', username: 'dev.chen', role: 'USER' }))
+    expect(await refreshSession()).toEqual({ token: 'fresh', username: 'dev.chen', role: 'USER' })
+    expect(getStoredAuth().token).toBe('fresh')
+    expect(localStorage.getItem('taskflow.auth')).not.toContain('fresh')
+
+    fetchMock.mockResolvedValueOnce(reply(401, { message: 'Session expired' }))
+    expect(await refreshSession()).toBeNull()
+
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    expect(await refreshSession()).toBeNull()
+  })
+
+  it('endSession asks the server to end the session and never throws', async () => {
+    fetchMock.mockResolvedValueOnce(reply(204))
+    await endSession()
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/auth/logout')
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST')
+
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await expect(endSession()).resolves.toBeUndefined()
   })
 })
 

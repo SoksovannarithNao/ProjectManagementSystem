@@ -185,16 +185,20 @@ Defaults work for local development; every variable has a fallback in `docker-co
 |---|---|---|
 | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/taskmanager` | JDBC URL (Compose sets `postgres` as the host) |
 | `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | `taskmanager_app` / `taskmanager_app_password` | Database login |
-| `JWT_EXPIRATION_MS` | `3600000` (1 hour) | Token lifetime |
+| `JWT_EXPIRATION_MS` | `900000` (15 minutes) | Access-token lifetime |
+| `REFRESH_EXPIRATION_MS` | `604800000` (7 days) | Lifetime of the refresh cookie that renews the access token |
+| `REFRESH_COOKIE_SECURE` | `false` | Set `true` when the site is served over HTTPS, so the refresh cookie is only sent over it |
 | `OTP_EXPIRATION_MINUTES` / `OTP_MAX_ATTEMPTS` / `OTP_RESEND_COOLDOWN_SECONDS` | `10` / `5` / `60` | Registration code rules |
 | `SECURITY_LOG_LEVEL` | `INFO` | Spring Security log level (`DEBUG` for JWT troubleshooting) |
+| `ATTACHMENT_MAX_BYTES` / `ATTACHMENT_MAX_PER_TARGET` | `10485760` (10 MB) / `25` | Largest file and most files per task or project |
+| `MULTIPART_MAX_FILE_SIZE` / `MULTIPART_MAX_REQUEST_SIZE` | `10MB` / `11MB` | Spring's own upload limits (a request larger than these is refused before the attachment rules run) |
 | `DEADLINES_ENABLED` / `DEADLINES_CRON` / `DEADLINES_RUN_ON_STARTUP` | `true` / `0 0 8 * * *` / `true` | Deadline reminders and overdue notices: on/off, when they run (Spring cron, server time) and whether they also run once at startup. The first run on existing data creates a notice for every open overdue task |
 
 The frontend has **no** environment variables: it calls relative `/api/...` paths ([ADR-0010](adr/0010-relative-api-paths-and-proxy.md)).
 
 ## Database setup
 
-There is nothing to run by hand. On the **first start with an empty data volume**, PostgreSQL executes `database/init/` in filename order: `01-init.sql` (schema, triggers, views), `02-seed.sql` (demo data), `03-app-role.sh` (creates `taskmanager_app`), then `04-flyway-baseline.sql`. A fresh volume therefore already has the latest schema. An **existing** volume does not re-run those scripts, so the one-shot `migrate` service (Flyway, `database/taskmanager/migrations/`, baseline version 8) brings it up to date every time you run `docker compose up -d`: it applies `V9` to `V18` to volumes that predate them (the role matrix, the two-level roles, the `TODO` status rename, the approval workflow, attachments and checklists, the project completion date) and does nothing when the database is current. A fresh volume gets `04-flyway-baseline.sql`, which records that it is already at version 18. To change the schema: add a new `V<n>__*.sql` migration **and** mirror the end state in `01-init.sql`, so fresh and existing databases end up identical. Details: [database.md](database.md#8-migrations-vs-the-init-script).
+There is nothing to run by hand. On the **first start with an empty data volume**, PostgreSQL executes `database/init/` in filename order: `01-init.sql` (schema, triggers, views), `02-seed.sql` (demo data), `03-app-role.sh` (creates `taskmanager_app`), then `04-flyway-baseline.sql`. A fresh volume therefore already has the latest schema. An **existing** volume does not re-run those scripts, so the one-shot `migrate` service (Flyway, `database/taskmanager/migrations/`, baseline version 8) brings it up to date every time you run `docker compose up -d`: it applies `V9` to `V20` to volumes that predate them (the role matrix, the two-level roles, the `TODO` status rename, the approval workflow, attachments and checklists, the project completion date) and does nothing when the database is current. A fresh volume gets `04-flyway-baseline.sql`, which records that it is already at version 20. To change the schema: add a new `V<n>__*.sql` migration **and** mirror the end state in `01-init.sql`, so fresh and existing databases end up identical. Details: [database.md](database.md#8-migrations-vs-the-init-script).
 
 ## Build commands
 
@@ -206,7 +210,7 @@ There is nothing to run by hand. On the **first start with an empty data volume*
 | Both Docker images | `docker compose build` (or `docker compose build backend frontend`) |
 | Everything, then start | `docker compose up -d --build` |
 
-CI runs lint, unit tests and the build for the frontend, `mvn -B verify` (with a throwaway PostgreSQL) for the backend, the database invariant check, the Playwright suite against a freshly built copy of the whole stack, and a Docker build of both images ([.github/workflows/ci.yml](../.github/workflows/ci.yml)). Pushes to `dev`/`main` publish images to GitHub Container Registry ([cd.yml](../.github/workflows/cd.yml)); there is no automatic deploy.
+CI runs lint, unit tests and the build for the frontend, `mvn -B verify` (with a throwaway PostgreSQL) for the backend, the database invariant check, a check that the application role can read every table, the Playwright suite against a freshly built copy of the whole stack, and a Docker build of both images ([.github/workflows/ci.yml](../.github/workflows/ci.yml)). Pushes to `dev`/`main` publish images to GitHub Container Registry ([cd.yml](../.github/workflows/cd.yml)); there is no automatic deploy.
 
 ## 4. Verify it works
 

@@ -1,6 +1,7 @@
 package backend.service;
 
 import backend.dto.ProjectRequest;
+import backend.dto.PageResponse;
 import backend.dto.ProjectResponse;
 import backend.entity.Project;
 import backend.entity.User;
@@ -10,6 +11,8 @@ import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
 import backend.security.Action;
 import backend.security.Resource;
+import backend.util.PageParams;
+import backend.util.ProjectListQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -435,5 +438,69 @@ class ProjectServiceTest {
         order.verify(auditLogService).record(AuditLogService.PROJECT_DELETED, AuditLogService.PROJECT, 5L,
                 "PRJ-2005 Website", null, "IN_PROGRESS, managed by Olivia Bennett", null);
         order.verify(projectRepository).delete(project);
+    }
+
+    @Test
+    void getAllProjects_aSearchOnlyNarrowsTheProjectsTheCallerIsAMemberOf() {
+        Project mine = existingProject();
+        mine.setName("Apollo");
+        mine.setStatus("IN_PROGRESS");
+        mine.setStartDate(LocalDate.of(2026, 10, 1));
+        mine.setEndDate(LocalDate.of(2026, 12, 31));
+        when(projectMemberRepository.findProjectIdsByUserId(7L)).thenReturn(List.of(5L));
+        when(projectRepository.findByIdIn(List.of(5L))).thenReturn(List.of(mine));
+
+        // A project the caller is not a member of is never loaded, so no query can find it.
+        List<ProjectResponse> found = projectService.getAllProjects("pm.olivia",
+                new ProjectListQuery(null, null, null, null, null));
+        List<ProjectResponse> narrowed = projectService.getAllProjects("pm.olivia",
+                new ProjectListQuery("zzz", null, null, null, null));
+
+        assertThat(found).extracting(ProjectResponse::getName).containsExactly("Apollo");
+        assertThat(narrowed).isEmpty();
+        verify(projectRepository, never()).findAll();
+    }
+
+    // ---- one page at a time (risk R-5) ---------------------------------------
+
+    private Project projectWithId(Long id, String name) {
+        Project p = existingProject();
+        org.springframework.test.util.ReflectionTestUtils.setField(p, "id", id);
+        p.setName(name);
+        p.setStatus("IN_PROGRESS");
+        return p;
+    }
+
+    @Test
+    void getProjectsPage_cutsTheMatchingProjectsIntoPagesInIdOrderWithTheTotalOfAll() {
+        when(projectMemberRepository.findProjectIdsByUserId(7L)).thenReturn(List.of(9L, 5L, 7L));
+        // the repository answers in no particular order; a page must still be the same page every time
+        when(projectRepository.findByIdIn(List.of(9L, 5L, 7L)))
+                .thenReturn(List.of(projectWithId(9L, "Nine"), projectWithId(5L, "Five"), projectWithId(7L, "Seven")));
+
+        ProjectListQuery all = new ProjectListQuery(null, null, null, null, null);
+        PageResponse<ProjectResponse> first = projectService.getProjectsPage("pm.olivia", all, PageParams.of(0, 2));
+        PageResponse<ProjectResponse> second = projectService.getProjectsPage("pm.olivia", all, PageParams.of(1, 2));
+        PageResponse<ProjectResponse> beyond = projectService.getProjectsPage("pm.olivia", all, PageParams.of(5, 2));
+
+        assertThat(first.getItems()).extracting(ProjectResponse::getId).containsExactly(5L, 7L);
+        assertThat(second.getItems()).extracting(ProjectResponse::getId).containsExactly(9L);
+        assertThat(first.getTotal()).isEqualTo(3);
+        assertThat(beyond.getItems()).isEmpty();
+        assertThat(beyond.getTotal()).isEqualTo(3);
+    }
+
+    @Test
+    void getProjectsPage_theTotalCountsOnlyWhatMatchesTheQueryAndNeverWhatTheCallerCannotSee() {
+        when(projectMemberRepository.findProjectIdsByUserId(7L)).thenReturn(List.of(5L, 7L));
+        when(projectRepository.findByIdIn(List.of(5L, 7L)))
+                .thenReturn(List.of(projectWithId(5L, "Apollo"), projectWithId(7L, "Borealis")));
+
+        PageResponse<ProjectResponse> page = projectService.getProjectsPage("pm.olivia",
+                new ProjectListQuery("apollo", null, null, null, "name"), PageParams.of(0, 10));
+
+        assertThat(page.getItems()).extracting(ProjectResponse::getName).containsExactly("Apollo");
+        assertThat(page.getTotal()).isEqualTo(1);
+        verify(projectRepository, never()).findAll();
     }
 }

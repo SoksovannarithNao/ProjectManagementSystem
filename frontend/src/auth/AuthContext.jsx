@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { login as loginRequest } from '../api/auth'
 import { getUserByUsername, getMyPermissions } from '../api/users'
-import { getStoredAuth, setUnauthorizedHandler, storeAuth } from '../api/client'
+import { endSession, getStoredAuth, refreshSession, setUnauthorizedHandler, storeAuth } from '../api/client'
 import { EMPTY_PERMISSIONS, canAnywhere, canInProject, canSystem } from '../api/permissions'
 
 const AuthContext = createContext(null)
@@ -12,11 +12,15 @@ export function AuthProvider({ children }) {
   // What the user may do (GET /api/users/me/permissions). Loaded together with
   // the profile; the UI hides whatever it does not allow.
   const [permissions, setPermissions] = useState(EMPTY_PERMISSIONS)
-  // Only start "loading" when there's a stored token to look up — a fresh,
-  // never-logged-in session has nothing to fetch, so no effect runs at all.
-  const [loading, setLoading] = useState(() => Boolean(getStoredAuth()?.token))
+  // Only start "loading" when someone was signed in before this page load — a fresh,
+  // never-logged-in session has nothing to fetch, so no effect runs at all. The access token
+  // lives in memory only, so after a reload it is first renewed from the refresh cookie (below).
+  const [loading, setLoading] = useState(() => Boolean(getStoredAuth()?.username))
 
   const logout = useCallback(() => {
+    // Ends the session on the server too (the refresh token is deleted); the browser is
+    // signed out whether or not that reaches it.
+    endSession()
     storeAuth(null)
     setAuth(null)
     setProfile(null)
@@ -25,6 +29,26 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     setUnauthorizedHandler(logout)
+  }, [logout])
+
+  // After a reload: someone was signed in but the access token is gone, so trade the refresh
+  // cookie for a new one. Without a live session the person goes back to the sign-in page.
+  useEffect(() => {
+    const saved = getStoredAuth()
+    if (!saved?.username || saved.token) return undefined
+    let cancelled = false
+    refreshSession().then((result) => {
+      if (cancelled) return
+      if (result) {
+        setAuth({ token: result.token, username: result.username, role: result.role })
+      } else {
+        logout()
+        setLoading(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [logout])
 
   const syncProfile = useCallback(() => {

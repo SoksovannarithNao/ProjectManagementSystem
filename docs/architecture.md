@@ -58,7 +58,8 @@ Errors from any layer are turned into JSON by `exception/GlobalExceptionHandler`
 | Service | Responsibility |
 |---|---|
 | `AuthService` | Login (with `LoginRateLimiter`), registration, OTP verify/resend |
-| `JwtService` | Issues HS512 tokens (`sub` = username, optional `role` claim, 1 h default expiry) |
+| `JwtService` | Issues HS512 access tokens (`sub` = username, optional `role` claim, 15 min default expiry) |
+| `RefreshTokenService` | The long-lived half of the session: random refresh tokens stored as SHA-256 hashes (`refresh_tokens`), validated, revoked on sign-out and on a password change |
 | `OtpService`, `MailService` | One-time codes (bcrypt-hashed), expiry, attempt cap, resend cooldown, the email |
 | `CustomUserDetailsService` | Adapts a `User` for Spring Security; only `ACTIVE` accounts are enabled |
 | `UserService` | User CRUD, self-service profile/password/photo/preferences, position/department, registration |
@@ -136,7 +137,7 @@ BrowserRouter
 
 ### 3.2 Data access
 
-- `api/client.js` — `apiFetch(path, { method, body, skipAuth })` adds `Authorization: Bearer <token>` (token read from `localStorage`, key `taskflow.auth`), sends JSON, and throws an `ApiError(status, message, fieldErrors)`. A `401` on an authenticated call clears the stored auth and triggers logout. `apiUpload` does the same for multipart uploads and `apiDownload` fetches a file with the token (attachments).
+- `api/client.js` — `apiFetch(path, { method, body, skipAuth })` adds `Authorization: Bearer <token>` (the access token is kept in memory only; `localStorage` key `taskflow.auth` holds just the username and role), sends JSON, and throws an `ApiError(status, message, fieldErrors)`. A `401` on an authenticated call first asks `POST /api/auth/refresh` (the httpOnly cookie is the credential) for a new token, once, and repeats the request; only a failed refresh clears the stored auth and triggers logout. `apiUpload` does the same for multipart uploads and `apiDownload` fetches a file with the token (attachments).
 - `api/<resource>.js` — one small module per backend resource (`projects.js`, `tasks.js`, `projectMembers.js`, …). They are thin wrappers over `apiFetch`.
 - `api/useApi.js` — a minimal fetch-on-mount hook returning `{ data, loading, error, refetch }`. It refetches when the `fetcher` function identity changes, so callers wrap fetchers in `useCallback`. There is no React Query/SWR; mutations call `refetch()` afterwards.
 - Derived data helpers: `api/stats.js` (dashboard/report/Kanban grouping), `api/relations.js` (id → users maps, the caller's role per project), `api/format.js`, `api/validation.js` (password rules, mirrored from the backend), `api/permissions.js`.
@@ -172,7 +173,7 @@ The task detail panel (`components/TaskDetailPanel.jsx`) is a right-hand drawer 
 - JSON in, JSON out; success codes `200`, `201` (every `POST` that creates), `204` (every `DELETE` and `POST /api/notifications/read-all`). Endpoints that return nothing but are not deletes (`verify-otp`, `resend-otp`, `PUT /api/users/me/password`) answer `200` with an empty body.
 - Errors use one shape (`timestamp`, `status`, `error`, `message`, `fieldErrors`) — see [api-reference.md](api-reference.md#2-conventions).
 - Updates are **full-replace** `PUT`s (no `PATCH`): the client resends the whole object (`taskResponseToRequest` in `api/tasks.js` builds it).
-- List endpoints return everything the caller may see; there is **no pagination** (the one bounded endpoint is the invitable-user search, capped at 20).
+- List endpoints return everything the caller may see. Paging is optional (`?page` / `?size`) on the project, task and notification lists only, and the notification bell uses it; the invitable-user search is capped at 20.
 - Data is fetched on page load and after the user's own actions. There is **no polling or push**: for example, a newly received notification appears after the next reload/refetch.
 
 ## 5. Database access

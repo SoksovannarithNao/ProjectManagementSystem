@@ -46,13 +46,16 @@ psql -v ON_ERROR_STOP=1 \
 
     -- Only the tables the backend's JPA entities actually touch today.
     -- Add a matching line here when a new table gets a real entity/repository
-    -- (see docs/database.md).
+    -- (see docs/database.md). CI runs this very script and then database/verify_grants.sql,
+    -- which fails on any table left without a grant, so a forgotten line is caught there.
+    -- (A database that already exists also needs the GRANT in the migration that creates
+    -- the table: this script only runs on a new data volume.)
     GRANT SELECT, INSERT, UPDATE, DELETE ON
         roles, users, projects, project_members, milestones,
         tasks, task_assignees, task_dependencies, notifications,
         otp_verifications, positions, departments, subtasks, comments,
         activity_logs, work_logs, role_permissions, task_approvals,
-        attachments, attachment_contents, checklist_items
+        attachments, attachment_contents, checklist_items, refresh_tokens
         TO taskmanager_app;
 
     -- The permission catalog (VIEW, CREATE, ...) is read-only for the backend;

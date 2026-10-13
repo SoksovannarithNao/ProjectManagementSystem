@@ -52,7 +52,7 @@ Details worth knowing:
 
 | Operation | Endpoint | Result |
 |---|---|---|
-| List mine (newest first) | `GET /api/notifications` | `NotificationResponse[]` — `id`, `type`, `title`, `message`, `projectId`, `projectName`, `taskId`, `taskTitle`, `read`, `createdAt` |
+| List mine (newest first) | `GET /api/notifications` (`?page=0&size=20` answers `{ items, total, page, size }`) | `NotificationResponse[]` — `id`, `type`, `title`, `message`, `projectId`, `projectName`, `taskId`, `taskTitle`, `read`, `createdAt` |
 | Unread count | `GET /api/notifications/unread-count` | `{ "count": n }` **(verified live)** |
 | Mark one read | `PUT /api/notifications/{id}/read` | updated notification |
 | Mark all read | `POST /api/notifications/read-all` | `204` |
@@ -64,7 +64,7 @@ Marking or deleting someone else's notification returns **404** (not 403), so a 
 
 - Users delete a notification individually ("dismiss"); there is **no "delete all"** and no automatic expiry or cleanup.
 - Notifications are removed by the database when the **recipient** is deleted, or when the related **project or task** is deleted (`ON DELETE CASCADE`).
-- There is no pagination: the full list is returned each time.
+- Paging is optional: with `?page` and `?size` (page from 0, size 1 to 200) the answer is `{ items, total, page, size }`, newest first with the id breaking ties; without them it is the full list. The bell uses 20 at a time.
 
 ## 5. The preference switch
 
@@ -74,10 +74,10 @@ This has a side effect on invitations: the notification is the only place the UI
 
 ## 6. UI behaviour
 
-- The bell (top bar) shows a dot when there are unread notifications and a dropdown list.
+- The bell (top bar) shows a dot when there are unread notifications and a dropdown list of the newest 20, with a *Show more (N older)* button that loads 20 more at a time (up to 200 shown).
 - Clicking an unread notification marks it read; a **Mark all read** control and a per-item dismiss (✕) are available.
 - A `TEAM_INVITATION` notification renders **Accept** and **Decline** buttons that call `POST /api/project-members/project/{projectId}/accept|decline`.
-- The list is loaded when the app loads / after login and re-fetched after the user marks, dismisses or responds. There is **no polling or live push**, so a notification created while the page is open appears after a reload. (`GET /api/notifications/unread-count` exists but the UI computes the count from the loaded list.)
+- The list is loaded when the app loads / after login and re-fetched after the user marks, dismisses or responds. There is **no polling or live push**, so a notification created while the page is open appears after a reload. The unread dot comes from `GET /api/notifications/unread-count`, so it counts the unread ones that are not loaded as well.
 
 ## 7. Seed data
 

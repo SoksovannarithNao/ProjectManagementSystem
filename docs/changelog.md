@@ -6,6 +6,117 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-14 (a full documentation sync)
+
+Documentation only: no code, migration or test changed. Every documented number and name was recomputed from the code and compared with the text, as the documentation rules ask.
+
+**Checked and found in step:** the API reference against the 26 controllers (125 endpoints, in both directions); every per-class backend test count (38 classes, 447 tests) and every per-file Vitest count (11 files, 172 tests) in `testing.md`; the tables, views, triggers and functions of the live database against `database.md`, and every column of every table; the permission matrix in `authentication-authorization.md` against `role_permissions` (198 grants, 98 for the Administrator); the seeded dataset (24 users, 10 projects, 98 tasks, task statuses, 51 comments, 23 replies, 73 subtasks, 358 time entries); the frontend routes against `App.jsx`; every environment variable, framework and image version; every file and class name the documents mention.
+
+**Corrected** (also recorded as issue D-12): the structure listings (26 controllers, 24 entities, 19 pages, `SessionExpiredException`, `PageParams`, `Mentions`, the frontend helpers `reportFormat`, `useReportableProjects`, `layoutContextStore`, `useLayout`, `auditLog`); a paragraph for `refresh_tokens` in `database.md`; the seed's notification count (118 in the file; the start-up deadline job can add more); two per-spec Playwright counts that cancelled out (`smoke.spec.js` 14, `audit-log.spec.js` 7); four upload settings missing from the environment tables; the two checklist counts missing from `TaskResponse`; the figures about the legacy `openapi.yaml` (68 endpoints missing, 39 of 60 DTOs without a schema); "export is not built"; ADR-0005's trigger count; the roadmap's comments and login rows; `security.md` on how a session ends; the README feature list, design decisions and security list, `PRODUCT.md` and `overview.md` for the refresh-cookie session, search, filter, sort and paging, and the editable, feed-writing time logs; the dates of the checklist files and of `overview.md`, `roadmap.md` and `testing.md`.
+
+## 2026-10-14 (optional paging, and a repair of the docs) — checklist R-5 partly closed
+
+**Added**
+- **Optional paging on three lists (R-5, D-25).** `GET /api/projects`, `GET /api/tasks` and `GET /api/notifications` take `page` (from 0) and `size` (1 to 200, default 50 when only `page` is sent) and then answer `{ items, total, page, size }`; without them they answer the whole list, so nothing that already works changes. The search, filter and sort run first and only over what the caller may see; without a sort the order is by id so that pages are stable; for tasks only the requested page is built into responses; a bad value is `400`.
+- **The notification bell loads 20 at a time.** *Show more (N older)* loads the next page (up to 200 shown, newer arrivals are not repeated) and the unread dot comes from `GET /api/notifications/unread-count`, so it also counts unread notifications that are not loaded.
+
+**Not changed (and why R-5 stays open in part):** the Dashboard, Tasks, Kanban, Calendar, Gantt, Projects and Reports Overview pages still read every task, because they group, chart or count the whole list; paging it would break them. They need server-side aggregation, which is a different piece of work.
+
+**Docs repaired.** Re-running my own edit scripts had repeated some inserted lines (the same "still says No pagination" bullet six times in `api-reference.md`, and the search / filter / sort rows of `test-cases.md` and `testing.md` up to six times), and a too-loose "already there?" check had silently skipped a few rows I meant to add: the `PUT /api/work-logs/{id}` row, the `/api/auth/refresh` and `/logout` rows and the two session test classes. The duplicates are removed, the missing rows are in, and the four new session test cases are numbered AUTH-12 to AUTH-15 (AUTH-10 and AUTH-11 already existed).
+
+**Tests:** backend 438 → **447** (`PageParamsTest` 4, `ProjectServiceTest` +2, `TaskServiceTest` +2, `NotificationServiceTest` +1); Playwright 204 → **208** (`paging.spec.js`); the full suites passed (447/447, 172/172, 208/208 twice in a row); ESLint clean.
+
+**Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `assignment-brief.md` (B7 item 6, D-25), `api-reference.md`, `architecture.md`, `backend.md`, `notifications.md`, `frontend.md`, `roadmap.md`, `issues.md` (F-55), `testing.md`, `test-cases.md` (PRJ-09, TSK-18, NTF-08), `workflow-conformance.md` (section 26), README.
+
+## 2026-10-14 (the sign-in session: refresh tokens) — migration `V20`; checklist R-4 closed
+
+Backend, front end and database redeployed (a `pg_dump` taken first) and verified there. The brief records the design as decision **D-24** (a proposal awaiting approval, like D-19 to D-23).
+
+**Changed**
+- **The access token is a 15-minute JWT (was 1 hour) and is kept in the browser's memory only.** `localStorage` (`taskflow.auth`) now holds just the username and role, so a script on the page can no longer read a stored credential.
+- **A refresh token keeps the person signed in.** Sign-in sets the cookie `taskflow_refresh` (random 256-bit value, `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, 7 days; `Secure` when `REFRESH_COOKIE_SECURE=true`). `POST /api/auth/refresh` trades it for a new access token after checking the account is still `ACTIVE`. The browser does this after a reload and when a request is answered `401` (once, shared between requests that run out together, then the request is repeated), so there is no abrupt logout; only a refresh that fails signs the person out. The token is not rotated on use, so two tabs cannot invalidate each other.
+- **Signing out ends the session on the server.** `POST /api/auth/logout` deletes the refresh token and clears the cookie (the idle auto-logout does the same). A changed password and an administrator's reset delete every refresh token of the account; a suspended or deactivated account is refused at refresh.
+- The endpoint count is now **125** (`/refresh`, `/logout`); `JWT_EXPIRATION_MS` defaults to `900000`, and `REFRESH_EXPIRATION_MS` and `REFRESH_COOKIE_SECURE` are new (passed through `docker-compose.yml`, listed in `.env.example`).
+
+**Database**
+- `V20__refresh_tokens.sql`: table `refresh_tokens` (only the SHA-256 hash is stored; removed with the account) and its grant to the application role; idempotent (run twice). Same end state in `01-init.sql`, the grant in `03-app-role.sh` (`verify_grants.sql` checks it); `04-flyway-baseline.sql` records version 20.
+
+**Tests:** backend 421 → **438** (`RefreshTokenServiceTest` 8, `AuthServiceTest` 5, `UserServiceTest` +4); frontend unit tests 166 → **172** (`client.test.js`); Playwright 198 → **204** (`session.spec.js`); the full suites passed (438/438, 172/172, 204/204 twice in a row); ESLint clean.
+
+**Docs:** `checklist/not_fully_satisfy.md` (R-4, R-6, R-7), `assignment-brief.md` (session line, D-24), ADR-0001, `api-reference.md`, `architecture.md`, `authentication-authorization.md`, `backend.md`, `frontend.md`, `security.md`, `database.md`, `setup.md`, `roadmap.md`, `issues.md` (F-54), `testing.md`, `test-cases.md` (AUTH-12 … AUTH-15), `workflow-conformance.md` (section 25), README, `.env.example`.
+
+## 2026-10-14 (database grants checked by CI) — checklist R-3 closed
+
+Build / CI and database scripts only; no application code, migration or test changed.
+
+**Changed**
+- **CI runs the real `03-app-role.sh`** to create the application role, instead of a copy of its grant list pasted into `ci.yml` (the copy had drifted once). The role CI tests with is now the role the application uses, and the grants live in one place.
+- **New `database/verify_grants.sql`**, run by CI right after the role is created: it prints every table the role cannot read and must print nothing. Three tables are on its own list of tables that deliberately have no entity (`flyway_schema_history`, `kpi_snapshots`, `report_exports`), so leaving a table ungranted is a decision. Before this a forgotten `GRANT` only showed up as a `500` at run time (as it did for `work_logs`).
+
+**Checked:** the query is empty on the live database; on a throw-away database built from `01-init.sql` and the real script it is empty, and with a table added without a grant it names that table. The script also ran cleanly against that database and the live backend kept working. The GitHub workflow itself was not run (no push), only its commands.
+
+**Docs:** `checklist/not_fully_satisfy.md` (R-3), `adr/0011`, `security.md`, `database.md` (section 7), `testing.md`, `test-cases.md` (DB-04), `setup.md`, `overview.md` (tree), `roadmap.md`, `issues.md` (X-05, F-53), README.
+
+## 2026-10-14 (who may log time: decision D-23) — checklist R-2 closed as by design
+
+Documentation only; no code, migration or test changed.
+
+**Changed**
+- **R-2 ("any member can log time on any task, not only its assignees") is not a defect.** The approved matrix (B3.4) gives *create work log* to Owner, Team Leader and Team Member with no "assigned" condition, while the rows just below it add "assigned" for status and progress; Part A says only that members' time is recorded. Limiting time entries to assignees would add a restriction the matrix does not contain and would stop pair work and reviews being recorded. The behaviour is therefore kept and written down as decision **D-23**, a proposal awaiting the project owner's approval like D-19 to D-22. The check is unchanged: `WorkLogService.createWorkLog` needs `WORK_LOG:CREATE` in the project and a Viewer is refused.
+
+**Docs:** `assignment-brief.md` (D-23), `checklist/not_fully_satisfy.md` (R-2), `checklist/done.md` (#48), `tasks.md`, `issues.md` (F-50), this file.
+
+## 2026-10-14 (Add member with a role, and a work-date time-zone fix) — checklist #14 closed
+
+**Changed**
+- **The project page's *Add member* dialog** always invited a Team Member, although the API takes a role. It now has a *Role in this project* picker (Team Member by default, Team Leader, Viewer; never Owner: ownership is transferred, not invited), with a line saying who the person will become once they accept. Front end only.
+
+**Fixed**
+- **Logging time just after midnight was refused for people east of the server.** The browser sends its own calendar date, which is already tomorrow by the server's clock (UTC in the Compose stack) for the first hours of the day there, so `POST /api/work-logs` (and the new change endpoint) answered `400 "Work date cannot be in the future"`. The server now accepts a work date up to one day ahead of its own; two days ahead is still refused. Found when `time-tracking.spec.js` began failing at 00:01 local time on code nobody had touched.
+
+**Tests:** backend 420 → **421** (`WorkLogServiceTest` +1); Playwright 197 → **198** (`invite-role.spec.js`); the full suites passed (421/421; 198/198 twice in a row); ESLint clean. Two cross-spec races were seen once each in full runs and passed on rerun: `permissions.spec.js` (memberships compared with a project list fetched a moment later) and `audit-log.spec.js` (two page requests while another spec wrote an audit entry); neither was changed.
+
+**Docs:** `checklist/not_fully_satisfy.md` (#14, R-6, R-7), `checklist/done.md` (#17, #65), `adr/0003`, `roadmap.md`, `users-and-projects.md`, `api-reference.md`, `tasks.md`, `testing.md`, `test-cases.md` (MEM-09, TIM-04), `workflow-conformance.md` (section 24), `issues.md` (F-51, F-52), README.
+
+## 2026-10-13 (time logs: change an entry, activity feed) — migration `V19`; checklist #9 and #15 closed
+
+Backend, front end and database redeployed (a `pg_dump` taken first) and verified there.
+
+**Added**
+- **Changing a time entry.** `PUT /api/work-logs/{id}` (the endpoint count is now 123) lets the author change the time, date and note. Only the author may: not an administrator and not a manager, because an entry is the author's own statement; an author who can no longer log time (a Viewer) may not either; the entry stays on its task and cannot be dated in the future. In the task panel the author's own rows have a pencil that opens the entry as a small form (*Save* / *Cancel*, the same checks as the log form).
+- **Time logs in the activity feed.** Logging, changing and deleting an entry write `WORK_LOGGED`, `WORK_LOG_UPDATED` (with the old and new values, and nothing at all when nothing changed) and `WORK_LOG_DELETED` (naming the author when a manager deletes someone else's entry) to the task's feed, so they show in the project's Activity card and the dashboard's recent activity as well. They send no notification.
+
+**Database**
+- `V19__work_log_activity.sql`: `activity_logs_action_check` also allows the three actions; idempotent (run twice). Same end state in `01-init.sql` (a fresh build checked); `04-flyway-baseline.sql` records version 19.
+
+**Not changed:** who may log time on a task (checklist R-2), which the 2026-10-14 pass recorded as decision D-23: the matrix lets any member log their own time.
+
+**Tests:** backend 413 → **420** (`WorkLogServiceTest` 7 → 14); Playwright 195 → **197** (`time-log-edit.spec.js`: the author's change and the three feed entries in the browser, and the refusals through the API); the full suites passed once after the change (420/420, 197/197); ESLint clean.
+
+**Docs:** `checklist/not_fully_satisfy.md` (#9, #15, R-2, R-6, R-7), `checklist/done.md` (#48, #65), `assignment-brief.md` (status table), `api-reference.md` (§13b, counts), `database.md` and `setup.md` (`V19`, baseline 19), `tasks.md`, `backend.md`, `authentication-authorization.md`, `overview.md`, `roadmap.md`, `testing.md`, `test-cases.md` (TIM-05 … TIM-07), `workflow-conformance.md` (section 23), `issues.md` (F-50), README.
+
+## 2026-10-13 (Reports workload chart) — checklist "not fully satisfy" #6 closed
+
+Front end only: no backend, migration or endpoint change. Front end redeployed and verified live.
+
+**Changed**
+- **The Reports *Overview* "Workload" chart** counted assigned tasks per person only. It now shows each member's assigned, active and overdue tasks as three bars, with the estimated and actual hours and the load level (overloaded, balanced, underloaded) in the tooltip. The figures come from the server (`GET /api/workload`, or `/api/projects/{id}/workload` once a project is chosen in the page's filter), the same as the workload page and the dashboard card, so every screen shows the same numbers. The card is shown only to people who may assign tasks, as those endpoints require; the other three charts are unchanged.
+
+**Tests:** Playwright 194 → **195** (`reports.spec.js`: a manager sees a project's workload chart with the same figures as the Workload report); the full suite passed once at 4 workers (195/195); ESLint clean.
+
+**Docs:** `checklist/not_fully_satisfy.md` (#6, R-6, R-7), `checklist/done.md` (#49, #65), `assignment-brief.md` (B-status line), `frontend.md`, `database.md`, `change-plan.md`, `roadmap.md`, `testing.md`, `test-cases.md` (REP-07), `workflow-conformance.md` (section 22), `issues.md` (F-49), README.
+
+## 2026-10-13 (server-side search, filter and sort) — checklist G-16 closed
+
+The last specification-alignment gap. Backend only: no migration, no endpoint added, no screen changed. Backend redeployed and verified live.
+
+**Added**
+- **Search, filter and sort parameters on the two lists (G-16, B7 item 2).** `GET /api/projects` takes `search`, `status` (also the calculated `DELAYED`), `priority`, `managerId` and `sort` (`name`, `startDate`, `endDate`, `priority`, `progress`); `GET /api/tasks` takes `search`, `status`, `priority`, `assigneeId`, `projectId`, `due` (`overdue`, `today`, `week`, `none`) and `sort` (`latest`, `dueDate`, `priority`, `progress`, `status`). `status` and `priority` accept several values; different parameters combine with AND. `ProjectListQuery` and `TaskListQuery` (`util/`) run after the permission scoping, over what the caller may already see, so a search never finds a project or task the caller cannot open. An unknown status, priority, due or sort is `400`. A request without parameters returns what it did before, so the screens, which still filter in the browser, are unchanged.
+
+**Tests:** backend 397 → **413** (`ProjectListQueryTest` 7, `TaskListQueryTest` 7, `ProjectServiceTest` +1, `TaskServiceTest` +1); checked against the live stack as the Administrator and as a member of two of the ten projects.
+
+**Docs:** `assignment-brief.md` (B1.9, G-16, B13.1 note; the old pointer "B11 criterion 2" now reads B7 item 2 and B12 criterion 19), `api-reference.md` (sections 2, 6, 9 and 18), `testing.md`, `test-cases.md` (PRJ-08, TSK-17), `workflow-conformance.md` (section 21), `roadmap.md`, `backend.md`, `overview.md`, `change-plan.md`, `tasks.md`, `users-and-projects.md`, `issues.md` (F-48), checklist, README. Pagination is still undefined and not built.
+
 ## 2026-10-13 (@mentions and report export) — migration `V18`; checklist G-14 closed
 
 The last two optional features of the specification (G-14). Decisions D-21 and D-22 in the brief are proposals, not yet approved. Backend, front end and database redeployed (a `pg_dump` taken first) and verified there.
