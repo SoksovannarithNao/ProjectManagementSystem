@@ -9,7 +9,7 @@ import { useToast } from './ui/Toast'
 import { useApi } from '../api/useApi'
 import { getTeamTasks } from '../api/teamViews'
 import { createTaskAssignee, deleteTaskAssignee } from '../api/taskAssignees'
-import { formatDate, humanizeEnum, initialsFor, colorForId } from '../api/format'
+import { formatDate, humanizeEnum, projectRoleLabel, initialsFor, colorForId } from '../api/format'
 
 // Team Tasks (workflow flow 22): every active member of the project with the
 // tasks assigned to them and how far along they are, plus the tasks nobody has
@@ -118,7 +118,7 @@ export function TeamTasksView({ projectId, canAssign, onOpenTask, refreshKey = 0
             />
             <div className="min-w-0 flex-1">
               <p className="text-ink truncate text-[14px] font-[650]">{m.user.fullName}</p>
-              <p className="text-faint text-[12px]">{humanizeEnum(m.projectRole)}</p>
+              <p className="text-faint text-[12px]">{projectRoleLabel(m.projectRole)}</p>
             </div>
             <div className="text-muted flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
               <span>

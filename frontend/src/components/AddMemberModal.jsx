@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Modal } from './ui/Modal'
+import { SidePanel } from './ui/SidePanel'
 import { LookupSelect } from './ui/LookupSelect'
 import { AddLookupModal } from './AddLookupModal'
 import { useToast } from './ui/Toast'
@@ -67,105 +67,113 @@ export function AddMemberModal({ onClose, onCreated }) {
     }
   }
 
+  // The "add a position / department" dialogs are rendered beside the panel, not inside it: the panel slides
+  // in with a transform, which would pin their fixed overlay to the panel instead of the screen.
   return (
-    <Modal title="Invite Member" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-muted text-[12px] font-semibold">Full name</span>
-          <input
-            type="text"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            className="field"
-            autoFocus
-            required
-          />
-        </label>
+    <>
+      <SidePanel title="Add User" onClose={onClose}>
+        {() => (
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-[22px] pt-5 pb-6">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">Full name</span>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="field"
+                  autoFocus
+                  required
+                />
+              </label>
 
-        <div className="flex gap-3">
-          <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12px] font-semibold">Username</span>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="field"
-              required
-            />
-          </label>
-          <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12px] font-semibold">Email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="field"
-              required
-            />
-          </label>
-        </div>
+              <div className="flex gap-3">
+                <label className="flex flex-1 flex-col gap-1.5">
+                  <span className="text-muted text-[12px] font-semibold">Username</span>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="field"
+                    required
+                  />
+                </label>
+                <label className="flex flex-1 flex-col gap-1.5">
+                  <span className="text-muted text-[12px] font-semibold">Email</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="field"
+                    required
+                  />
+                </label>
+              </div>
 
-        <label className="flex flex-col gap-1.5">
-          <span className="text-muted text-[12px] font-semibold">Temporary password</span>
-          <input
-            type="text"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
-            className="field"
-            required
-          />
-          <PasswordChecklist password={password} />
-        </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">Temporary password</span>
+                <input
+                  type="text"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  className="field"
+                  required
+                />
+                <PasswordChecklist password={password} />
+              </label>
 
-        <div className="flex gap-3">
-          <label className="flex flex-1 flex-col gap-1.5">
-            <span className="text-muted text-[12px] font-semibold">System role</span>
-            <select
-              value={roleId}
-              onChange={(e) => setRoleId(e.target.value)}
-              className="field"
-            >
-              <option value="">User (default)</option>
-              {assignableRoles
-                .filter((r) => r.name !== 'USER')
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {humanizeEnum(r.name)}
-                  </option>
-                ))}
-            </select>
-          </label>
-        </div>
+              <div className="flex gap-3">
+                <label className="flex flex-1 flex-col gap-1.5">
+                  <span className="text-muted text-[12px] font-semibold">System role</span>
+                  <select
+                    value={roleId}
+                    onChange={(e) => setRoleId(e.target.value)}
+                    className="field"
+                  >
+                    <option value="">User (default)</option>
+                    {assignableRoles
+                      .filter((r) => r.name !== 'USER')
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {humanizeEnum(r.name)}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              </div>
 
-        <div className="flex gap-3">
-          <LookupSelect
-            label="Position"
-            items={positions}
-            value={positionId}
-            onChange={setPositionId}
-            onAddNew={() => setAddingPosition(true)}
-          />
-          <LookupSelect
-            label="Department"
-            items={departments}
-            value={departmentId}
-            onChange={setDepartmentId}
-            onAddNew={() => setAddingDepartment(true)}
-          />
-        </div>
+              <div className="flex gap-3">
+                <LookupSelect
+                  label="Position"
+                  items={positions}
+                  value={positionId}
+                  onChange={setPositionId}
+                  onAddNew={() => setAddingPosition(true)}
+                />
+                <LookupSelect
+                  label="Department"
+                  items={departments}
+                  value={departmentId}
+                  onChange={setDepartmentId}
+                  onAddNew={() => setAddingDepartment(true)}
+                />
+              </div>
 
-        {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
+              {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
+            </div>
 
-        <div className="mt-1 flex justify-end gap-2">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Adding…' : 'Add Member'}
-          </button>
-        </div>
-      </form>
+            <div className="border-divider flex justify-end gap-2 border-t px-[22px] py-4">
+              <button type="button" className="btn btn-secondary" onClick={onClose}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={submitting}>
+                {submitting ? 'Adding…' : 'Add User'}
+              </button>
+            </div>
+          </form>
+        )}
+      </SidePanel>
 
       {addingPosition && (
         <AddLookupModal
@@ -192,6 +200,6 @@ export function AddMemberModal({ onClose, onCreated }) {
           }}
         />
       )}
-    </Modal>
+    </>
   )
 }

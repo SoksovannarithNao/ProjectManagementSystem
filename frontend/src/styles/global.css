@@ -256,6 +256,8 @@
    * reflowing; this stops the rest of the page from shifting too. */
   html {
     scrollbar-gutter: stable;
+    /* The page header is sticky: keep an element that is focused or scrolled to out from under it. */
+    scroll-padding-top: 8rem;
   }
 
   body {

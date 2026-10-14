@@ -45,7 +45,7 @@ import { getTasksByProjectId } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getMilestonesByProjectId, createMilestone, deleteMilestone } from '../api/milestones'
 import { buildTaskAssigneeMap } from '../api/relations'
-import { humanizeEnum, formatDate, formatLongDate, initialsFor, colorForId, taskDisplayTitle, blockedReason } from '../api/format'
+import { humanizeEnum, projectRoleLabel, formatDate, formatLongDate, initialsFor, colorForId, taskDisplayTitle, blockedReason } from '../api/format'
 import { computeTaskOverview } from '../api/stats'
 
 const PROJECT_STATUS_OPTIONS = ['PLANNING', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED']
@@ -58,7 +58,6 @@ const STATUS_ROW_BADGE_CLASS =
   'h-7 box-border inline-flex items-center rounded-full px-2.5 text-[12px] leading-none font-semibold'
 const TASK_PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 // Business names of the project roles (Owner = Project Manager of the project).
-const ROLE_LABELS = { OWNER: 'Owner', ADMIN: 'Team Leader', MEMBER: 'Team Member', VIEWER: 'Viewer' }
 // An Owner has to be able to own projects (Project Manager or Administrator).
 const CAN_OWN = new Set(['PROJECT_MANAGER', 'ADMINISTRATOR'])
 
@@ -168,7 +167,7 @@ export function ProjectDetail() {
       notify(
         role === 'OWNER'
           ? `${member.user.fullName} is now the Owner of ${project?.name ?? 'the project'}`
-          : `${member.user.fullName} is now a ${ROLE_LABELS[role]}`,
+          : `${member.user.fullName} is now ${projectRoleLabel(role)}`,
         { tone: 'success' }
       )
       refetchMembers()
@@ -708,7 +707,7 @@ export function ProjectDetail() {
                     const mine = m.user.id === profile?.id
                     const movable = ['MEMBER', 'VIEWER'].includes(m.projectRole)
                     const editable = canChangeRoles && !mine && m.projectRole !== 'OWNER' && (canTransferOwnership || movable)
-                    if (!editable) return <Badge>{ROLE_LABELS[m.projectRole] ?? humanizeEnum(m.projectRole)}</Badge>
+                    if (!editable) return <Badge>{projectRoleLabel(m.projectRole)}</Badge>
                     const options = canTransferOwnership ? ['ADMIN', 'MEMBER', 'VIEWER'] : ['MEMBER', 'VIEWER']
                     if (canTransferOwnership && CAN_OWN.has(m.user.role)) options.push('OWNER')
                     return (
@@ -717,11 +716,11 @@ export function ProjectDetail() {
                         value={m.projectRole}
                         disabled={roleBusyId === m.id}
                         onChange={(e) => (e.target.value === 'OWNER' ? setTransferTarget(m) : changeRole(m, e.target.value))}
-                        className="bg-subtle border-border h-8 rounded-full border px-2.5 text-[12px] font-semibold outline-none"
+                        className="bg-subtle border-border h-8 min-w-0 rounded-full border px-2.5 text-[12px] font-semibold outline-none max-sm:max-w-[9rem]"
                       >
                         {options.map((r) => (
                           <option key={r} value={r}>
-                            {r === 'OWNER' ? 'Owner (transfer ownership)' : ROLE_LABELS[r]}
+                            {r === 'OWNER' ? 'Owner (transfer ownership)' : projectRoleLabel(r)}
                           </option>
                         ))}
                       </select>

@@ -11,7 +11,7 @@ import { useToast } from '../../components/ui/Toast'
 import { useAuth } from '../../auth/AuthContext'
 import { useApi } from '../../api/useApi'
 import { getPermissionMatrix, updateRolePermissions, deleteRole } from '../../api/roles'
-import { humanizeEnum } from '../../api/format'
+import { humanizeEnum, projectRoleLabel } from '../../api/format'
 
 // Role & Permission management (Role_Requirment.md). Shows each role, the 7
 // permission types, and which role holds which permission on which resource.
@@ -60,13 +60,11 @@ const ROLE_LABELS = {
   ADMINISTRATOR: 'Administrator',
   PROJECT_MANAGER: 'Project Manager',
   USER: 'User',
-  OWNER: 'Owner',
-  ADMIN: 'Admin',
-  MEMBER: 'Member',
-  VIEWER: 'Viewer',
 }
+// The four project roles are named like everywhere else in the app (projectRoleLabel).
+const PROJECT_ROLES = new Set(['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'])
 const BUSINESS_NAMES = { OWNER: 'Project Manager of the project', ADMIN: 'Team Leader', MEMBER: 'Team Member' }
-const roleLabel = (name) => ROLE_LABELS[name] ?? humanizeEnum(name)
+const roleLabel = (name) => (PROJECT_ROLES.has(name) ? projectRoleLabel(name) : (ROLE_LABELS[name] ?? humanizeEnum(name)))
 
 const RESOURCE_HINTS = {
   PROJECT: { SYSTEM: 'Create applies to starting a new project. Other actions apply inside a project.', PROJECT: 'Assign = make someone a Project Manager of the project.' },

@@ -4,6 +4,9 @@ import { TopBar } from '../layout/TopBar'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import { TaskFormModal } from '../components/TaskFormModal'
+import { TaskDetailPanel } from '../components/TaskDetailPanel'
+import { CalendarDayPanel } from '../components/CalendarDayPanel'
+import { MilestoneDetailPanel } from '../components/MilestoneDetailPanel'
 import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
 import { getTasks } from '../api/tasks'
@@ -35,14 +38,20 @@ const eventClass = (tone) =>
   `truncate rounded-[2px] px-1.5 py-[3px] text-[12px] font-semibold ${eventTones[tone] ?? eventTones.info}`
 
 // One task or milestone on a day. Milestones carry a flag and a hidden "Milestone:"
-// label so they are told apart by more than colour.
-function EventChip({ ev }) {
+// label so they are told apart by more than colour. Choosing a chip opens the item's detail
+// (it does not also open the day behind it).
+function EventChip({ ev, onOpen }) {
   const isMilestone = ev.kind === 'milestone'
   return (
-    <span
+    <button
+      type="button"
       data-testid={isMilestone ? 'calendar-milestone' : 'calendar-task'}
       title={ev.hint}
-      className={`${eventClass(ev.tone)} ${ev.done ? 'line-through opacity-60' : ''}`}
+      onClick={(e) => {
+        e.stopPropagation()
+        onOpen(ev)
+      }}
+      className={`${eventClass(ev.tone)} cursor-pointer text-left hover:opacity-80 ${ev.done ? 'line-through opacity-60' : ''}`}
     >
       {isMilestone && (
         <>
@@ -51,7 +60,7 @@ function EventChip({ ev }) {
         </>
       )}
       {ev.title}
-    </span>
+    </button>
   )
 }
 
@@ -107,6 +116,10 @@ export function Calendar() {
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()))
   const [view, setView] = useState('Month')
   const [newTaskDate, setNewTaskDate] = useState(null)
+  // The day drawer: the day it shows, and the item chosen in it ({ kind: 'task' | 'milestone', id }) whose detail
+  // is the drawer's second part.
+  const [dayDate, setDayDate] = useState(null)
+  const [selected, setSelected] = useState(null)
 
   const days = useMemo(() => buildMonthGrid(cursor.getFullYear(), cursor.getMonth()), [cursor])
 
@@ -118,8 +131,15 @@ export function Calendar() {
       const list = map.get(key) ?? []
       list.push({
         kind: 'task',
+        id: t.id,
+        dueDate: t.dueDate,
         title: t.title,
         tone: PRIORITY_TONE[t.priority] ?? 'info',
+        dot: eventDots[PRIORITY_TONE[t.priority] ?? 'info'],
+        status: t.status,
+        priority: t.priority,
+        projectName: t.project?.name,
+        done: t.status === 'COMPLETED',
         hint: t.project?.name ? `${t.title} · ${t.project.name}` : t.title,
       })
       map.set(key, list)
@@ -130,8 +150,12 @@ export function Calendar() {
       const list = map.get(key) ?? []
       list.push({
         kind: 'milestone',
+        id: m.id,
+        dueDate: m.dueDate,
         title: m.title,
         tone: 'milestone',
+        status: m.status,
+        projectName: m.project?.name,
         done: m.status === 'COMPLETED',
         hint: `Milestone · ${m.title}${m.project?.name ? ` · ${m.project.name}` : ''}`,
       })
@@ -180,6 +204,31 @@ export function Calendar() {
   const openNewTask = (date) => {
     if (!canAdd) return
     setNewTaskDate(toISODate(date))
+  }
+
+  // Looked up in the lists on every render, so a task or milestone that is edited or deleted
+  // while its panel is open shows the new values (or closes the panel).
+  const activeTask = useMemo(
+    () => (selected?.kind === 'task' ? (tasks ?? []).find((t) => t.id === selected.id) ?? null : null),
+    [tasks, selected]
+  )
+  const activeMilestone = useMemo(
+    () => (selected?.kind === 'milestone' ? (milestones ?? []).find((m) => m.id === selected.id) ?? null : null),
+    [milestones, selected]
+  )
+  const linkedTasks = useMemo(
+    () => (activeMilestone ? (tasks ?? []).filter((t) => t.milestone?.id === activeMilestone.id) : []),
+    [tasks, activeMilestone]
+  )
+
+  // A chip opens the drawer on its own day with that item chosen; a row of the list only chooses it.
+  const openItem = (ev) => {
+    setDayDate(parseDay(ev.dueDate))
+    setSelected({ kind: ev.kind, id: ev.id })
+  }
+  const closeDrawer = () => {
+    setDayDate(null)
+    setSelected(null)
   }
 
   return (
@@ -256,25 +305,40 @@ export function Calendar() {
                 return (
                   <div
                     key={i}
-                    onClick={() => inMonth && openNewTask(d)}
+                    onClick={() => inMonth && setDayDate(d)}
                     className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex min-h-24 flex-col gap-1.5 rounded-sm border p-2 transition-colors max-[900px]:min-h-[68px] max-[900px]:p-1.5 ${
-                      inMonth ? `bg-card hover:bg-subtle${canAdd ? ' cursor-pointer' : ''}` : 'bg-subtle'
+                      inMonth ? 'bg-card hover:bg-subtle cursor-pointer' : 'bg-subtle'
                     } ${isToday ? 'border-charcoal' : 'border-divider'}`}
                   >
-                    <span
-                      className={`inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-xs font-[650] ${
-                        isToday ? 'bg-charcoal text-on-charcoal' : !inMonth ? 'text-faint' : ''
-                      }`}
-                    >
-                      {d.getDate()}
-                    </span>
+                    {inMonth ? (
+                      <button
+                        type="button"
+                        data-testid="calendar-day-button"
+                        aria-label={`${d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}${
+                          events?.length ? `, ${events.length} due` : ''
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDayDate(d)
+                        }}
+                        className={`hit-area relative inline-flex h-[22px] w-[22px] items-center justify-center self-start rounded-full text-xs font-[650] ${
+                          isToday ? 'bg-charcoal text-on-charcoal' : ''
+                        }`}
+                      >
+                        {d.getDate()}
+                      </button>
+                    ) : (
+                      <span className="text-faint inline-flex h-[22px] w-[22px] items-center justify-center text-xs font-[650]">
+                        {d.getDate()}
+                      </span>
+                    )}
                     <div className="flex flex-col gap-[3px] max-[640px]:hidden">
                       {events?.map((ev, idx) => (
-                        <EventChip key={idx} ev={ev} />
+                        <EventChip key={idx} ev={ev} onOpen={openItem} />
                       ))}
                     </div>
-                    {/* Phones: cells are ~40px wide, so a title cannot fit. One dot per
-                        task, in the task's status colour; the Week and Day views list them. */}
+                    {/* Phones: cells are ~40px wide, so a title cannot fit. One dot per task, in its
+                        priority colour; tapping the day opens its list. */}
                     {events?.length > 0 && (
                       <div
                         className="hidden flex-wrap gap-[3px] max-[640px]:flex"
@@ -300,8 +364,8 @@ export function Calendar() {
             {rangeEntries.map(({ date, events }) => (
               <div
                 key={date.toISOString()}
-                onClick={() => openNewTask(date)}
-                className={`border-divider flex items-center gap-5 border-b px-1 py-3.5 last:border-b-0 ${canAdd ? 'hover:bg-subtle cursor-pointer' : ''}`}
+                onClick={() => setDayDate(date)}
+                className="border-divider hover:bg-subtle flex cursor-pointer items-center gap-5 border-b px-1 py-3.5 last:border-b-0"
               >
                 <span
                   className={`w-[92px] shrink-0 text-[13px] font-[650] ${isSameDay(date, today) ? 'text-ink' : 'text-muted'}`}
@@ -313,7 +377,7 @@ export function Calendar() {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {events.map((ev, idx) => (
-                      <EventChip key={idx} ev={ev} />
+                      <EventChip key={idx} ev={ev} onOpen={openItem} />
                     ))}
                   </div>
                 )}
@@ -322,6 +386,40 @@ export function Calendar() {
           </div>
         )}
       </div>
+
+      {dayDate && (
+        <CalendarDayPanel
+          date={dayDate}
+          events={eventsByDay.get(dateKey(dayDate)) ?? []}
+          canAdd={canAdd}
+          selected={selected}
+          onSelect={(ev) => setSelected({ kind: ev.kind, id: ev.id })}
+          onAddTask={() => {
+            setNewTaskDate(toISODate(dayDate))
+            closeDrawer()
+          }}
+          onClose={closeDrawer}
+          detail={
+            activeTask ? (
+              <TaskDetailPanel
+                key={activeTask.id}
+                embedded
+                task={activeTask}
+                onClose={() => setSelected(null)}
+                onChange={refetch}
+              />
+            ) : activeMilestone ? (
+              <MilestoneDetailPanel
+                key={activeMilestone.id}
+                milestone={activeMilestone}
+                tasks={linkedTasks}
+                onOpenTask={(t) => setSelected({ kind: 'task', id: t.id })}
+                onClose={() => setSelected(null)}
+              />
+            ) : null
+          }
+        />
+      )}
 
       {newTaskDate && (
         <TaskFormModal

@@ -89,7 +89,7 @@ describe('the tables of each report', () => {
     expect(tables[0].rows).toContainEqual(['Priority', '—'])
     expect(tables[0].rows).toContainEqual(['Progress', '50%'])
     expect(tables[1].rows[0]).toEqual([7, 1, 2, 1, 2, 1, 1])
-    expect(tables[2].rows).toEqual([['Chen Wu', 'Member']])
+    expect(tables[2].rows).toEqual([['Chen Wu', 'Member (Team Member)']])
     expect(tables[3].empty).toBe('No milestones.')
   })
 

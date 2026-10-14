@@ -23,7 +23,7 @@ The application supports operations from User Registration, Login, Authenticatio
 |---|---|
 | Administrator | system role `ADMINISTRATOR` |
 | Project Manager | system role `PROJECT_MANAGER`, and normally project role `OWNER` on the projects they manage |
-| Team Leader | project role `ADMIN` |
+| Team Leader | project role `ADMIN` (shown on screen as *Admin (Team Leader)*) |
 | Team Member | project role `MEMBER` |
 | Viewer / stakeholder | project role `VIEWER` |
 
@@ -439,7 +439,7 @@ Calendar → Select Daily/Weekly/Monthly → Load Tasks/Milestones → Display b
 3. The system loads the user's tasks and milestones.
 4. Display them by date.
 5. Click an item.
-6. View its details; edit them if the user has the Edit permission.
+6. View its details; edit them if the user has the Edit permission. *Current implementation:* clicking a day opens a drawer in two parts: the list of what is due that day (with a button to add a task for it) and, beside it, the details of the item chosen in the list: the task panel (which also edits it) or a read-only milestone panel with its linked tasks. Clicking an item in the grid opens the drawer on its day with that item chosen.
 
 ---
 

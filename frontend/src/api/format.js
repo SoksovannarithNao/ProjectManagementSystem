@@ -20,6 +20,19 @@ export function blockedReason(task) {
   return `Blocked by: ${titles.join(', ')}`
 }
 
+// The name of a project role on every screen (the same as on Roles & Permissions), with the business name
+// of the assignment in brackets for the two roles that have one: Admin is the Team Leader, Member the Team
+// Member. Only the label: the stored values (OWNER, ADMIN, MEMBER, VIEWER) are not touched.
+const PROJECT_ROLE_LABELS = {
+  OWNER: 'Owner',
+  ADMIN: 'Admin (Team Leader)',
+  MEMBER: 'Member (Team Member)',
+  VIEWER: 'Viewer',
+}
+export function projectRoleLabel(role) {
+  return PROJECT_ROLE_LABELS[role] ?? humanizeEnum(role)
+}
+
 export function humanizeEnum(value) {
   if (!value) return ''
   // Stored as one word, labelled as two.

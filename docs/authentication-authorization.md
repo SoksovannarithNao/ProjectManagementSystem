@@ -192,7 +192,7 @@ A **`PENDING`** or **`DECLINED`** membership grants nothing: every visibility ch
 
 These are the `role_permissions` rows with `scope = PROJECT` seeded by `V10` and `V13` (the whole matrix is 198 rows; the Administrator holds 98 of them, "—" = not granted). `PermissionServiceTest` checks every role × resource × action × scope.
 
-| Resource | Owner (`OWNER`) | Team Leader (`ADMIN`) | Team Member (`MEMBER`) | Viewer |
+| Resource | Owner (`OWNER`) | Admin / Team Leader (`ADMIN`) | Member / Team Member (`MEMBER`) | Viewer |
 |---|---|---|---|---|
 | `PROJECT` | View, Edit, Delete, Assign (transfer ownership, name the project lead) | View, Edit | View | View |
 | `MILESTONE` | View, Create, Edit, Delete | View, Create, Edit, Delete | View | View |

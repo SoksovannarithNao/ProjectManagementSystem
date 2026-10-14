@@ -34,11 +34,11 @@ const SECTIONS = [
       },
       {
         q: 'How do I add someone to my project?',
-        a: 'Use "Add member" on the project page, or select the person on the Team page and use "Invite to team". They get a notification to accept or decline, and nothing changes until they respond.',
+        a: 'Use "Add member" on the project page or "Add Member" on the Team page, and pick the person from the list (only people who already have an account and are not in the project yet are listed). They get a notification to accept or decline, and nothing changes until they respond.',
       },
       {
         q: 'How do I add a brand-new person?',
-        a: '"Invite Member" on the Team page creates their account directly (Administrators only). Share the temporary password so they can sign in and change it on their Profile page.',
+        a: '"Add User" on the Team page creates their account directly (Administrators only). Share the temporary password so they can sign in and change it on their Profile page.',
       },
       {
         q: "How do I change someone's role in a project?",

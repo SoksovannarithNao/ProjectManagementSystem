@@ -40,6 +40,50 @@ test.describe('dashboard polish', () => {
     expect(scrolls).toBe(false)
   })
 
+  test('on a desktop project health and team workload share the right column, and the chart spans both', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await login(page, 'pm.olivia')
+    const card = (name) => page.locator('section', { has: page.getByRole('heading', { name, exact: true }) })
+    const [tasks, delayed, projects, workload, chart] = await Promise.all(
+      ['Task Overview', 'Delayed projects', 'Projects', 'Team workload', 'Task activity'].map(async (n) => {
+        await expect(card(n)).toBeVisible()
+        return card(n).boundingBox()
+      }),
+    )
+    // right column, in this order: project health first, then the team workload
+    expect(Math.abs(delayed.x - projects.x)).toBeLessThan(2)
+    expect(Math.abs(projects.x - workload.x)).toBeLessThan(2)
+    expect(delayed.y).toBeLessThan(projects.y)
+    expect(projects.y).toBeLessThan(workload.y)
+    // the task cards are the wider column, to its left
+    expect(tasks.x).toBeLessThan(delayed.x)
+    expect(tasks.width).toBeGreaterThan(delayed.width)
+    // the chart starts below both columns and spans them
+    expect(chart.y).toBeGreaterThan(workload.y + workload.height - 2)
+    expect(chart.width).toBeGreaterThan(tasks.width + delayed.width)
+    // a project preview in the narrow column is one card wide, and nothing scrolls inside it
+    const previews = await page.locator('a[href^="/projects/"].card').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)))
+    expect(new Set(previews).size).toBe(1)
+  })
+
+  test('a long team list scrolls inside the workload card instead of lengthening the page', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await login(page, 'pm.olivia')
+    const list = page.getByTestId('dashboard-workload').getByRole('list', { name: 'Workload by person' })
+    await expect(list.getByTestId('workload-row').first()).toBeVisible()
+    const box = await list.boundingBox()
+    expect(box.height).toBeLessThanOrEqual(401)
+    // the seeded team has more people than fit, so the list itself scrolls (and a keyboard can reach it)
+    expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+    await list.focus()
+    await expect(list).toBeFocused()
+    const last = list.getByTestId('workload-row').last()
+    await last.scrollIntoViewIfNeeded()
+    await expect(last).toBeInViewport()
+    // the footnote stays below the scrolling area
+    await expect(page.getByTestId('dashboard-workload').getByText(/Team average/)).toBeVisible()
+  })
+
   test('on a desktop the two columns do not leave a hole: the right column starts level with the left', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await login(page, 'pm.olivia')

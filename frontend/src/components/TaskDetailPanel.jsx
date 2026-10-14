@@ -20,6 +20,7 @@ import { Avatar } from './ui/Avatar'
 import { Badge } from './ui/Badge'
 import { useToast } from './ui/Toast'
 import { ConfirmDialog } from './ui/ConfirmDialog'
+import { createPortal } from 'react-dom'
 import { TaskFormModal } from './TaskFormModal'
 import { MentionInput } from './MentionInput'
 import { CommentText } from './CommentText'
@@ -43,7 +44,10 @@ import { DueSoonBadge } from './DueSoonBadge'
 
 const STATUS_OPTIONS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
 
-export function TaskDetailPanel({ task, onClose, onChange }) {
+// `embedded` draws only the panel itself, as one pane of a larger drawer (the calendar's day drawer): no scrim and
+// no slide-in of its own, and the edit form and the delete confirmation are rendered at the end of <body> so a
+// transform on the drawer cannot pin their overlay to it. Everything else is the same.
+export function TaskDetailPanel({ task, onClose, onChange, embedded = false }) {
   const { getMember } = useMembers()
   const { profile, can, permissions } = useAuth()
   const notify = useToast()
@@ -541,13 +545,44 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
     }
   }
 
+  const overlays = (
+    <>
+      {editing && (
+        <TaskFormModal
+          task={task}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false)
+            onChange?.()
+            onClose()
+          }}
+        />
+      )}
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete task"
+          message={`Delete "${task.title}"? This can't be undone.`}
+          confirmLabel="Delete"
+          loading={deleting}
+          onConfirm={handleDelete}
+          onClose={() => setConfirmingDelete(false)}
+        />
+      )}
+    </>
+  )
+
   return (
     <div
-      className="animate-fade-in fixed inset-0 z-[60] flex justify-end bg-scrim"
-      onClick={onClose}
+      className={embedded ? 'h-full w-full' : 'animate-fade-in fixed inset-0 z-[60] flex justify-end bg-scrim'}
+      onClick={embedded ? undefined : onClose}
     >
       <aside
-        className="animate-slide-in bg-card shadow-pop flex h-full w-[440px] max-w-[100vw] flex-col max-sm:w-[100vw]"
+        className={
+          embedded
+            ? 'bg-card flex h-full w-full flex-col'
+            : 'animate-slide-in bg-card shadow-pop flex h-full w-[440px] max-w-[100vw] flex-col max-sm:w-[100vw]'
+        }
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-divider flex items-center justify-between border-b px-[22px] py-[18px]">
@@ -1051,28 +1086,7 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
         )}
       </aside>
 
-      {editing && (
-        <TaskFormModal
-          task={task}
-          onClose={() => setEditing(false)}
-          onSaved={() => {
-            setEditing(false)
-            onChange?.()
-            onClose()
-          }}
-        />
-      )}
-
-      {confirmingDelete && (
-        <ConfirmDialog
-          title="Delete task"
-          message={`Delete "${task.title}"? This can't be undone.`}
-          confirmLabel="Delete"
-          loading={deleting}
-          onConfirm={handleDelete}
-          onClose={() => setConfirmingDelete(false)}
-        />
-      )}
+      {embedded ? createPortal(overlays, globalThis.document.body) : overlays}
     </div>
   )
 }

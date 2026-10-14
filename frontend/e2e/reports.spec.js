@@ -208,6 +208,44 @@ test.describe('reports: UI', () => {
     }
   })
 
+  test('the layout follows the other pages: Filter in the top bar, the tabs in one row, charts in two aligned columns', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await login(page, 'pm.olivia')
+    await page.goto('/reports')
+    const tablist = page.getByRole('tablist', { name: 'Reports' })
+    await expect(tablist).toBeVisible()
+    // Filter and the period belong to the page header (above the tabs), as on Tasks and Kanban
+    const filter = await page.getByRole('button', { name: /Filter/ }).boundingBox()
+    const tabs = await tablist.boundingBox()
+    expect(filter.y + filter.height).toBeLessThan(tabs.y + 1)
+    // the period dropdown is the same size as the other controls of the header (Filter, the bell), not a small chip
+    const period = await page.getByRole('button', { name: /This Week/ }).first().boundingBox()
+    const bell = await page.locator('main header').getByRole('button', { name: /notification/i }).first().boundingBox()
+    expect(Math.abs(period.height - filter.height)).toBeLessThan(1.5)
+    expect(Math.abs(period.height - bell.height)).toBeLessThan(1.5)
+    // the two top charts start level; the cards under them are 24 px below (the page's section gap)
+    const card = (name) => page.locator('section', { has: page.getByRole('heading', { name, exact: true }) })
+    await expect(card('Project Progress')).toBeVisible()
+    const [completion, progress, productivity] = await Promise.all([
+      card('Task Completion — This Week').boundingBox(),
+      card('Project Progress').boundingBox(),
+      card('Team Productivity').boundingBox(),
+    ])
+    expect(Math.abs(completion.y - progress.y)).toBeLessThan(2)
+    expect(Math.abs(productivity.y - (completion.y + completion.height) - 24)).toBeLessThan(2)
+  })
+
+  test('on a phone the tabs are one scrolling row, not four rows of pills', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await login(page, 'pm.olivia')
+    await page.goto('/reports')
+    const tablist = page.getByRole('tablist', { name: 'Reports' })
+    await expect(tablist).toBeVisible()
+    expect((await tablist.boundingBox()).height).toBeLessThan(50)
+    expect(await tablist.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+    expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth > globalThis.document.documentElement.clientWidth)).toBe(false)
+  })
+
   test('the Overview workload chart shows the server figures of a project for a manager, and is hidden from a member', async ({ page, request }) => {
     const pm = await apiLogin(request, 'pm.olivia')
     const { project } = await seed(request, pm, `e2e reports workload ${Date.now()}-${Math.floor(Math.random() * 1e6)}`)

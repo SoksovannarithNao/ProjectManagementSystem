@@ -239,7 +239,7 @@ test.describe('roles and permissions: UI', () => {
     await page.getByRole('link', { name: 'Roles & Permissions' }).click()
     await expect(page.getByRole('heading', { name: 'Roles & Permissions' })).toBeVisible()
     const roles = page.getByRole('navigation', { name: 'Roles' })
-    for (const name of [/^Administrator/, /^Project Manager System role/, /^User System role/, /^Owner Project role/, /^Admin Project role/, /^Member Project role/, /^Viewer Project role/]) {
+    for (const name of [/^Administrator/, /^Project Manager System role/, /^User System role/, /^Owner Project role/, /^Admin \(Team Leader\) Project role/, /^Member \(Team Member\) Project role/, /^Viewer Project role/]) {
       await expect(roles.getByRole('button', { name })).toBeVisible()
     }
     // the Administrator role is read-only
@@ -247,7 +247,7 @@ test.describe('roles and permissions: UI', () => {
     await expect(page.getByRole('checkbox')).toHaveCount(0)
 
     // an editable role shows checkboxes; ticking one marks it unsaved, Discard drops it
-    await roles.getByRole('button', { name: /^Member Project role/ }).click()
+    await roles.getByRole('button', { name: /^Member \(Team Member\) Project role/ }).click()
     const save = page.getByRole('button', { name: 'Save changes' })
     await expect(save).toBeDisabled()
     await page.getByRole('checkbox', { name: /may approve task/i }).click()
