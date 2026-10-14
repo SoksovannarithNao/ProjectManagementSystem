@@ -15,11 +15,18 @@ public interface TaskDependencyRepository
 
     List<TaskDependency> findByDependsOnTaskId(Long taskId);
 
-    // Used by SubtaskService's TO_DO -> IN_PROGRESS auto-promotion to check
+    // Used by SubtaskService's TODO -> IN_PROGRESS auto-promotion to check
     // first whether that move is even allowed — trg_tasks_dependencies_status_gate
     // (01-init.sql) would otherwise reject it, taking the whole subtask
     // update down with it in the same transaction.
     boolean existsByTaskIdAndDependsOnTaskStatusNot(Long taskId, String status);
+
+    // The titles of the tasks that depend on this one and have already started (or finished):
+    // taking this task back out of COMPLETED would leave them running on an unfinished
+    // prerequisite (trg_tasks_prerequisite_not_reopened is the database backstop).
+    @Query("select td.task.title from TaskDependency td where td.dependsOnTask.id = :taskId "
+            + "and td.task.status in ('IN_PROGRESS', 'IN_REVIEW', 'COMPLETED')")
+    List<String> findStartedDependentTitles(@Param("taskId") Long taskId);
 
     // For every task in a candidate list that's "Blocked", one row per
     // not-yet-COMPLETED dependency naming what it's blocked by — both

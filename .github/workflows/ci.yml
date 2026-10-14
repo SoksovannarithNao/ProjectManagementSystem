@@ -26,8 +26,7 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
-      # TODO: enable once a frontend test suite exists (no "test" script defined yet).
-      # - run: npm test -- --run
+      - run: npm test
       - run: npm run build
 
   backend:
@@ -58,7 +57,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "25"
           cache: maven
 
       # Service containers start before checkout, so the schema can't be mounted into
@@ -89,29 +88,33 @@ jobs:
           fi
           echo "All database invariants hold."
 
-      # Mirrors database/init/03-app-role.sh's GRANT list — duplicated (not
-      # sourced) because this job talks to a bare `postgres` service
-      # container directly via psql, not through the postgres Docker image's
-      # own docker-entrypoint-initdb.d mechanism that runs that script
-      # locally/in docker-compose. Keep both in sync if either changes.
+      # Runs the very script the Compose stack runs (database/init/03-app-role.sh), so the role
+      # this job tests with is the role the application uses and its grants live in one place.
+      # The script takes its connection from the postgres image's variables; psql reads the
+      # host and password from PGHOST / PGPASSWORD.
       - name: Create least-privilege app role
+        env:
+          PGHOST: localhost
+          PGPASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: taskmanager_test
+          TASKMANAGER_APP_PASSWORD: taskmanager_app_password
+        run: bash "${{ github.workspace }}/database/init/03-app-role.sh"
+
+      # database/verify_grants.sql lists every table the app role cannot read, apart from the few
+      # that deliberately have no entity. Any output means a new table was added without a GRANT
+      # in 03-app-role.sh, which would otherwise surface as a 500 at run time.
+      - name: Verify the app role can read every table
         env:
           PGPASSWORD: postgres
         run: |
-          psql -h localhost -U postgres -d taskmanager_test -v ON_ERROR_STOP=1 <<-EOSQL
-              CREATE ROLE taskmanager_app LOGIN PASSWORD 'taskmanager_app_password';
-              GRANT CONNECT ON DATABASE taskmanager_test TO taskmanager_app;
-              GRANT USAGE ON SCHEMA public TO taskmanager_app;
-              GRANT SELECT, INSERT, UPDATE, DELETE ON
-                  roles, users, projects, project_members, milestones,
-                  tasks, task_assignees, task_dependencies, notifications,
-                  otp_verifications
-                  TO taskmanager_app;
-              GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO taskmanager_app;
-              GRANT EXECUTE ON FUNCTION fn_compute_project_progress(BIGINT) TO taskmanager_app;
-              GRANT EXECUTE ON FUNCTION fn_compute_milestone_progress(BIGINT) TO taskmanager_app;
-              GRANT EXECUTE ON FUNCTION fn_generate_overdue_notifications() TO taskmanager_app;
-          EOSQL
+          output=$(psql -h localhost -U postgres -d taskmanager_test -t -A -f "${{ github.workspace }}/database/verify_grants.sql")
+          if [ -n "$output" ]; then
+            echo "::error::These tables have no GRANT for taskmanager_app - add one to database/init/03-app-role.sh (or list the table in database/verify_grants.sql if the backend must not touch it):"
+            echo "$output"
+            exit 1
+          fi
+          echo "The app role can read every table."
 
       - name: Build & test
         env:
@@ -119,6 +122,58 @@ jobs:
           SPRING_DATASOURCE_USERNAME: taskmanager_app
           SPRING_DATASOURCE_PASSWORD: taskmanager_app_password
         run: mvn -B verify
+
+  # Browser tests against the real, whole application: the compose stack is built
+  # from this checkout (database + Flyway + backend + frontend + Mailpit) and
+  # Playwright drives it like a user would. A fresh runner means an empty database,
+  # so database/init/*.sql seeds it exactly as a first local `docker compose up` does.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [frontend, backend] # no point booting the stack if lint/unit tests failed
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # docker-compose.yml bind-mounts ./backend/logs, and the backend runs as an
+      # unprivileged user inside the container. On a Linux runner the folder belongs
+      # to the runner's user, so without this the backend cannot open its log file
+      # and never becomes healthy.
+      - name: Let the backend container write its logs
+        run: chmod a+rwx backend/logs
+
+      - name: Start the stack
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run end-to-end tests
+        working-directory: frontend
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
+
+      - name: Show service logs
+        if: failure()
+        run: docker compose logs --no-color --tail=200
 
   docker-build-check:
     runs-on: ubuntu-latest

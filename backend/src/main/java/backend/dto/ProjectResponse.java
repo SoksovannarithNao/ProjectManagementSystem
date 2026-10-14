@@ -1,6 +1,7 @@
 package backend.dto;
 
 import backend.entity.Project;
+import backend.util.Derived;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -15,11 +16,19 @@ public class ProjectResponse {
     private LocalDate startDate;
     private LocalDate endDate;
     private UserResponse manager;
+    // The Team Leader named as the project's lead; null when there is none.
+    private UserResponse lead;
     private String priority;
     private String status;
     private BigDecimal progress;
+    // When the project became Completed; null while it is not (set by the database).
+    private OffsetDateTime completedAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+    // Calculated, never stored (assignment-brief.md B1.3): the end date has
+    // passed and the project is neither Completed nor Cancelled.
+    private boolean delayed;
+    private long daysDelayed;
 
     public ProjectResponse(Project project) {
         this.id = project.getId();
@@ -29,11 +38,24 @@ public class ProjectResponse {
         this.startDate = project.getStartDate();
         this.endDate = project.getEndDate();
         this.manager = new UserResponse(project.getManager());
+        this.lead = project.getLead() != null ? new UserResponse(project.getLead()) : null;
         this.priority = project.getPriority();
         this.status = project.getStatus();
         this.progress = project.getProgress();
+        this.completedAt = project.getCompletedAt();
         this.createdAt = project.getCreatedAt();
         this.updatedAt = project.getUpdatedAt();
+        LocalDate today = LocalDate.now();
+        this.delayed = Derived.isProjectDelayed(project.getStatus(), project.getEndDate(), today);
+        this.daysDelayed = delayed ? Derived.daysLate(project.getEndDate(), today) : 0;
+    }
+
+    public boolean isDelayed() {
+        return delayed;
+    }
+
+    public long getDaysDelayed() {
+        return daysDelayed;
     }
 
     public Long getId() {
@@ -60,6 +82,10 @@ public class ProjectResponse {
         return endDate;
     }
 
+    public UserResponse getLead() {
+        return lead;
+    }
+
     public UserResponse getManager() {
         return manager;
     }
@@ -74,6 +100,10 @@ public class ProjectResponse {
 
     public BigDecimal getProgress() {
         return progress;
+    }
+
+    public OffsetDateTime getCompletedAt() {
+        return completedAt;
     }
 
     public OffsetDateTime getCreatedAt() {

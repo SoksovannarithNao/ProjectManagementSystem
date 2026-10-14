@@ -3,6 +3,8 @@ package backend.controller;
 import backend.dto.TaskRequest;
 import backend.dto.TaskResponse;
 import backend.service.TaskService;
+import backend.util.PageParams;
+import backend.util.TaskListQuery;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -17,7 +19,7 @@ public class TaskController {
 
     // Mirrors the @Pattern on TaskRequest.status — kept in sync with it.
     private static final Set<String> VALID_STATUSES =
-            Set.of("TO_DO", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "CANCELLED");
+            Set.of("TODO", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "CANCELLED");
 
     private final TaskService taskService;
 
@@ -25,9 +27,28 @@ public class TaskController {
         this.taskService = taskService;
     }
 
+    // Every parameter is optional (B1.9, B7.2); filters combine with AND, several values of
+    // status or priority with OR. They only narrow what the caller may already see.
+    // With ?page and/or ?size the answer is a page ({ items, total, page, size }) instead of the
+    // whole list; without them it is the whole list, as before.
     @GetMapping
-    public List<TaskResponse> getAllTasks(Authentication authentication) {
-        return taskService.getAllTasks(authentication.getName());
+    public Object getAllTasks(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) List<String> priority,
+            @RequestParam(required = false) Long assigneeId,
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String due,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            Authentication authentication
+    ) {
+        TaskListQuery query = new TaskListQuery(search, status, priority, assigneeId, projectId, due, sort);
+        PageParams paging = PageParams.of(page, size);
+        return paging == null
+                ? taskService.getAllTasks(authentication.getName(), query)
+                : taskService.getTasksPage(authentication.getName(), query, paging);
     }
 
     @GetMapping("/{id}")
@@ -66,7 +87,7 @@ public class TaskController {
     // OWNER/ADMIN (or system ADMINISTRATOR) may still edit every field on
     // any task in that project; anyone else may only act on a task they're
     // assigned to, and only its status/progress take effect — see
-    // TaskService.updateTask and the README's Security section.
+    // TaskService.updateTask and docs/backend.md's Security section.
     @PutMapping("/{id}")
     public TaskResponse updateTask(
             @PathVariable Long id,

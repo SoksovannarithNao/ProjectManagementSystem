@@ -3,7 +3,7 @@
 -- Standalone sanity-check script: every query below is expected to return
 -- ZERO ROWS on a healthy database. Re-run this after any schema or seed
 -- change (`psql -f database/verify_invariants.sql`) — a non-empty result
--- means one of the business rules documented in database/README.md is
+-- means one of the business rules documented in docs/database.md is
 -- being violated by the current data.
 
 -- 1. Tasks missing required dates (Role_Requirment.md: every task needs a
@@ -63,3 +63,69 @@ WHERE progress IS DISTINCT FROM fn_compute_project_progress(id);
 SELECT id, progress, fn_compute_milestone_progress(id) AS computed
 FROM milestones
 WHERE progress IS DISTINCT FROM fn_compute_milestone_progress(id);
+
+-- 8. A project must have exactly ONE active owner (ADR-0015; enforced by the
+--    deferred trigger trg_project_members_single_owner).
+SELECT p.id, p.project_code,
+       (SELECT COUNT(*) FROM project_members m
+        WHERE m.project_id = p.id AND m.project_role = 'OWNER' AND m.status = 'ACTIVE') AS owners
+FROM projects p
+WHERE (SELECT COUNT(*) FROM project_members m
+       WHERE m.project_id = p.id AND m.project_role = 'OWNER' AND m.status = 'ACTIVE') <> 1;
+
+-- 9. Whoever owns a project must be able to own projects (Project Manager or
+--    Administrator) - D-04.
+SELECT p.id, p.project_code, u.username, r.name AS system_role
+FROM project_members m
+JOIN projects p ON p.id = m.project_id
+JOIN users u ON u.id = m.user_id
+LEFT JOIN roles r ON r.id = u.role_id
+WHERE m.project_role = 'OWNER' AND m.status = 'ACTIVE'
+  AND r.name IS DISTINCT FROM 'PROJECT_MANAGER' AND r.name IS DISTINCT FROM 'ADMINISTRATOR';
+
+-- 10. A pending approval request belongs to a task that is waiting in review
+--     (the application opens it when a task enters IN_REVIEW and closes it when the
+--     task leaves; V12).
+SELECT a.id AS approval_id, a.task_id, t.status
+FROM task_approvals a
+JOIN tasks t ON t.id = a.task_id
+WHERE a.decision = 'PENDING' AND t.status <> 'IN_REVIEW';
+
+-- 11. Every task in review has an open request, so an approver has something to decide.
+SELECT t.id, t.title
+FROM tasks t
+WHERE t.status = 'IN_REVIEW'
+  AND NOT EXISTS (SELECT 1 FROM task_approvals a WHERE a.task_id = t.id AND a.decision = 'PENDING');
+
+-- 12. A COMPLETED project has a completion date and any other project has none
+--     (trg_projects_completed_at; V14).
+SELECT id, project_code, status, completed_at
+FROM projects
+WHERE (status = 'COMPLETED') <> (completed_at IS NOT NULL);
+
+-- 13. A project lead is an active Team Leader of that project
+--     (trg_projects_lead_is_team_leader and trg_project_members_clear_lead; V15).
+SELECT p.id, p.project_code, p.lead_id
+FROM projects p
+WHERE p.lead_id IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM project_members m
+      WHERE m.project_id = p.id AND m.user_id = p.lead_id
+        AND m.project_role = 'ADMIN' AND m.status = 'ACTIVE'
+  );
+
+-- 14. A COMPLETED task with no subtasks or checklist items to derive its progress from is 100
+--     (trg_tasks_progress_derived_from_subtasks; V17). The other V17 rule, that a prerequisite
+--     is not reopened under a started dependant, leaves the state that check no. 2 catches.
+SELECT t.id, t.title, t.status, t.progress
+FROM tasks t
+WHERE t.status = 'COMPLETED' AND t.progress <> 100
+  AND NOT EXISTS (SELECT 1 FROM subtasks s WHERE s.task_id = t.id)
+  AND NOT EXISTS (SELECT 1 FROM checklist_items c WHERE c.task_id = t.id);
+
+-- 15. A dependency joins two tasks of the same project (trg_task_dependencies_same_project; V21).
+SELECT td.task_id, td.depends_on_task_id
+FROM task_dependencies td
+JOIN tasks a ON a.id = td.task_id
+JOIN tasks b ON b.id = td.depends_on_task_id
+WHERE a.project_id <> b.project_id;

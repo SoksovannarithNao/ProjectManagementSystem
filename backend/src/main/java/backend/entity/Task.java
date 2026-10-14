@@ -31,7 +31,7 @@ public class Task {
     private String priority = "MEDIUM";
 
     @Column(nullable = false, length = 20)
-    private String status = "TO_DO";
+    private String status = "TODO";
 
     @Column(name = "start_date", nullable = false)
     private LocalDate startDate;
@@ -51,6 +51,12 @@ public class Task {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;
+
+    // The approver named for this task (optional). With none, anyone who may
+    // approve in the project can decide - see TaskApprovalService.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "approver_id")
+    private User approver;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -156,6 +162,14 @@ public class Task {
 
     public void setCreatedBy(User createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public User getApprover() {
+        return approver;
+    }
+
+    public void setApprover(User approver) {
+        this.approver = approver;
     }
 
     public OffsetDateTime getCreatedAt() {

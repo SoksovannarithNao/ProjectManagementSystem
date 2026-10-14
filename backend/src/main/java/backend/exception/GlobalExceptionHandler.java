@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -24,11 +26,25 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    public static final String PROJECT_CODE_EXISTS_MESSAGE = "Project code already exists.";
+    private static final String PROJECT_CODE_UNIQUE_CONSTRAINT = "projects_project_code_key";
+
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NotFoundException ex) {
         log.warn("Not found: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "Not Found", ex.getMessage()));
+    }
+
+    // A request for a path no controller maps (e.g. a mistyped /api/... URL):
+    // Spring reports it as "no static resource" - without this it fell
+    // through to the generic 500 handler below and logged a stack trace for
+    // every typo.
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException ex) {
+        log.debug("No resource: {}", ex.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "Not Found", "Resource not found"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -48,6 +64,13 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+        log.warn("Conflict: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(HttpStatus.CONFLICT.value(), "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         // Covers Postgres CHECK/UNIQUE/FK violations and the trigger-raised
@@ -55,6 +78,15 @@ public class GlobalExceptionHandler {
         // due-date-within-project, etc.) — all surface here as a 400 instead
         // of an unhandled 500 with a raw stack trace.
         String rootMessage = ex.getMostSpecificCause().getMessage();
+        // Safety net for the unique constraint on projects.project_code when
+        // two requests race past ProjectService's own friendly pre-check —
+        // same 409 and message, never the raw "duplicate key value violates
+        // unique constraint ..." text.
+        if (rootMessage != null && rootMessage.contains(PROJECT_CODE_UNIQUE_CONSTRAINT)) {
+            log.warn("Duplicate project code rejected by {}", PROJECT_CODE_UNIQUE_CONSTRAINT);
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new ErrorResponse(HttpStatus.CONFLICT.value(), "Conflict", PROJECT_CODE_EXISTS_MESSAGE));
+        }
         String cleanMessage = cleanPostgresMessage(rootMessage);
         log.warn("Data integrity violation: {}", cleanMessage);
 
@@ -80,8 +112,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
         log.warn("Access denied: {}", ex.getMessage());
+        // The permission layer (ProjectAccessGuard, PermissionChecker) throws with a
+        // specific, fixed sentence such as "Only a Project Manager or an Administrator
+        // can create a project" - safe to show, and far more useful than a generic
+        // refusal. Spring's own default text ("Access Denied") is not, so it still
+        // falls back to the generic message.
+        String message = ex.getMessage();
+        boolean useful = message != null && !message.isBlank() && !"Access Denied".equalsIgnoreCase(message);
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "Forbidden", "You do not have permission to perform this action"));
+                .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "Forbidden",
+                        useful ? message : "You do not have permission to perform this action"));
     }
 
     // Bad username/password (or a disabled/non-ACTIVE account) from
@@ -93,6 +133,14 @@ public class GlobalExceptionHandler {
         log.warn("Authentication failed: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized", "Invalid username or password"));
+    }
+
+    // The refresh cookie did not lead to a live session: the person signs in again.
+    @ExceptionHandler(SessionExpiredException.class)
+    public ResponseEntity<ErrorResponse> handleSessionExpired(SessionExpiredException ex) {
+        log.debug("Session not refreshed: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized", ex.getMessage()));
     }
 
     @ExceptionHandler(TooManyRequestsException.class)
@@ -130,14 +178,23 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Bad Request", "Malformed request body"));
     }
 
-    // A profile photo upload (see UserController./me/photo) over the
-    // spring.servlet.multipart.max-file-size limit — without this it fell
-    // through to the generic 500 handler below instead of a 400.
+    // An upload (a profile photo, an attachment) over the
+    // spring.servlet.multipart limit — without this it fell through to the
+    // generic 500 handler below instead of a 400. The per-feature limits
+    // (5 MB photos, 10 MB attachments) are checked in their own services.
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException ex) {
         log.warn("Upload too large: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Bad Request", "File is too large (max 5MB)"));
+                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Bad Request", "File is too large"));
+    }
+
+    // A multipart request without the expected `file` part.
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ErrorResponse> handleMissingPart(MissingServletRequestPartException ex) {
+        log.warn("Missing request part: {}", ex.getRequestPartName());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Bad Request", "No file was uploaded"));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

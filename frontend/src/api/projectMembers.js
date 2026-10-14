@@ -26,10 +26,31 @@ export function getPendingInvitations(projectId) {
   return apiFetch(`/project-members/project/${projectId}/invitations`)
 }
 
+// Team-Admin-only: how many invitations for this project are still PENDING.
+export function getPendingInvitationCount(projectId) {
+  return apiFetch(`/project-members/project/${projectId}/invitations/count`)
+}
+
+// Team-Admin-only type-ahead: ACTIVE users anywhere in the org who can still
+// be invited to this project (not you, not already a member/pending).
+export function searchInvitableUsers(projectId, query, limit = 10) {
+  const params = new URLSearchParams({ q: query, limit: String(limit) })
+  return apiFetch(`/project-members/project/${projectId}/invitable-users?${params}`)
+}
+
 export function acceptInvitation(projectId) {
   return apiFetch(`/project-members/project/${projectId}/accept`, { method: 'POST' })
 }
 
 export function declineInvitation(projectId) {
   return apiFetch(`/project-members/project/${projectId}/decline`, { method: 'POST' })
+}
+
+// Changes a member's project role (OWNER makes it an ownership transfer: the
+// current owner becomes a Team Leader in the same step).
+export function updateProjectMemberRole(member, projectRole) {
+  return apiFetch(`/project-members/${member.id}`, {
+    method: 'PUT',
+    body: { projectId: member.project.id, userId: member.user.id, projectRole },
+  })
 }

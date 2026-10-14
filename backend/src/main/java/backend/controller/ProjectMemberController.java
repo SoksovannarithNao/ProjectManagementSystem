@@ -1,5 +1,7 @@
 package backend.controller;
 
+import backend.dto.InvitableUserResponse;
+import backend.dto.PendingInvitationCountResponse;
 import backend.dto.ProjectMemberRequest;
 import backend.dto.ProjectMemberResponse;
 import backend.dto.TeamInviteRequest;
@@ -37,8 +39,8 @@ public class ProjectMemberController {
     }
 
     @GetMapping("/user/{userId}")
-    public List<ProjectMemberResponse> getProjectsByUserId(@PathVariable Long userId) {
-        return projectMemberService.getProjectsByUserId(userId);
+    public List<ProjectMemberResponse> getProjectsByUserId(@PathVariable Long userId, Authentication authentication) {
+        return projectMemberService.getProjectsByUserId(userId, authentication.getName());
     }
 
     // Team-Admin-only (enforced in the service, scoped to the specific
@@ -46,6 +48,25 @@ public class ProjectMemberController {
     @GetMapping("/project/{projectId}/invitations")
     public List<ProjectMemberResponse> getPendingInvitations(@PathVariable Long projectId, Authentication authentication) {
         return projectMemberService.getPendingInvitations(projectId, authentication.getName());
+    }
+
+    // Team-Admin-only — how many invitations are still awaiting a response.
+    @GetMapping("/project/{projectId}/invitations/count")
+    public PendingInvitationCountResponse countPendingInvitations(@PathVariable Long projectId, Authentication authentication) {
+        return projectMemberService.countPendingInvitations(projectId, authentication.getName());
+    }
+
+    // Team-Admin-only type-ahead of org users that can still be invited to
+    // this project (ACTIVE accounts that aren't the caller or already
+    // ACTIVE/PENDING on it), matched on username or full name.
+    @GetMapping("/project/{projectId}/invitable-users")
+    public List<InvitableUserResponse> searchInvitableUsers(
+            @PathVariable Long projectId,
+            @RequestParam(name = "q", defaultValue = "") String query,
+            @RequestParam(name = "limit", defaultValue = "10") int limit,
+            Authentication authentication
+    ) {
+        return projectMemberService.searchInvitableUsers(projectId, query, limit, authentication.getName());
     }
 
     // Requires OWNER/ADMIN of this specific project (or system

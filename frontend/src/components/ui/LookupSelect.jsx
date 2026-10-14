@@ -1,23 +1,25 @@
 // Reusable "pick from a managed list, or add a new one" combo box — used for
 // both Position and Department (Team-Admin-managed lookup lists, not
-// per-user free text). See AddLookupModal for the "+ Add New" form.
+// per-user free text). See AddLookupModal for the "+ Add New" form. Without
+// onAddNew the "+ Add New" choice is not offered (hidden, not disabled): the
+// caller lacks LOOKUP:CREATE, so the server would refuse it.
 const ADD_NEW_VALUE = '__add_new__'
 
 export function LookupSelect({ label, items, value, onChange, onAddNew, loading, disabled }) {
   return (
-    <label className="flex flex-1 flex-col gap-1.5">
-      <span className="text-muted text-[12.5px] font-semibold">{label}</span>
+    <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+      <span className="text-muted text-[12px] font-semibold">{label}</span>
       <select
         value={value ?? ''}
         disabled={disabled}
         onChange={(e) => {
-          if (e.target.value === ADD_NEW_VALUE) {
+          if (e.target.value === ADD_NEW_VALUE && onAddNew) {
             onAddNew()
             return
           }
           onChange(e.target.value ? Number(e.target.value) : null)
         }}
-        className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+        className="field w-full"
       >
         <option value="">{loading ? 'Loading…' : `Select ${label.toLowerCase()}`}</option>
         {items?.map((item) => (
@@ -25,7 +27,7 @@ export function LookupSelect({ label, items, value, onChange, onAddNew, loading,
             {item.name}
           </option>
         ))}
-        <option value={ADD_NEW_VALUE}>+ Add New {label}</option>
+        {onAddNew && <option value={ADD_NEW_VALUE}>+ Add New {label}</option>}
       </select>
     </label>
   )

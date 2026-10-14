@@ -1,30 +1,68 @@
 import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus, CalendarX2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, CalendarX2, Flag } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import { TaskFormModal } from '../components/TaskFormModal'
+import { TaskDetailPanel } from '../components/TaskDetailPanel'
+import { CalendarDayPanel } from '../components/CalendarDayPanel'
+import { MilestoneDetailPanel } from '../components/MilestoneDetailPanel'
 import { useAuth } from '../auth/AuthContext'
-import { canEditProjectContent } from '../api/permissions'
 import { useApi } from '../api/useApi'
 import { getTasks } from '../api/tasks'
-import { getProjectMembers } from '../api/projectMembers'
-import { buildMyProjectRoleMap } from '../api/relations'
+import { getMilestones } from '../api/milestones'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const VIEWS = ['Month', 'Week', 'Day']
 
 const eventTones = {
-  success: 'bg-success-soft text-success',
-  warning: 'bg-warning-soft text-warning',
-  danger: 'bg-danger-soft text-danger',
-  info: 'bg-info-soft text-info',
+  success: 'bg-success-soft text-success-ink',
+  warning: 'bg-warning-soft text-warning-ink',
+  danger: 'bg-danger-soft text-danger-ink',
+  info: 'bg-info-soft text-info-ink',
+  // Milestones are not coloured by priority: a neutral chip with a flag marks them.
+  milestone: 'bg-blue-gray text-ink',
+}
+
+const eventDots = {
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-danger',
+  info: 'bg-info',
+  milestone: 'bg-charcoal',
 }
 
 const PRIORITY_TONE = { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', URGENT: 'danger' }
 
 const eventClass = (tone) =>
-  `truncate rounded-[2px] px-1.5 py-[3px] text-[10.5px] font-semibold max-[900px]:text-[9.5px] ${eventTones[tone] ?? eventTones.info}`
+  `truncate rounded-[2px] px-1.5 py-[3px] text-[12px] font-semibold ${eventTones[tone] ?? eventTones.info}`
+
+// One task or milestone on a day. Milestones carry a flag and a hidden "Milestone:"
+// label so they are told apart by more than colour. Choosing a chip opens the item's detail
+// (it does not also open the day behind it).
+function EventChip({ ev, onOpen }) {
+  const isMilestone = ev.kind === 'milestone'
+  return (
+    <button
+      type="button"
+      data-testid={isMilestone ? 'calendar-milestone' : 'calendar-task'}
+      title={ev.hint}
+      onClick={(e) => {
+        e.stopPropagation()
+        onOpen(ev)
+      }}
+      className={`${eventClass(ev.tone)} cursor-pointer text-left hover:opacity-80 ${ev.done ? 'line-through opacity-60' : ''}`}
+    >
+      {isMilestone && (
+        <>
+          <Flag size={10} className="mr-1 inline-block align-[-1px]" aria-hidden="true" />
+          <span className="sr-only">Milestone: </span>
+        </>
+      )}
+      {ev.title}
+    </button>
+  )
+}
 
 function buildMonthGrid(year, month) {
   const firstOfMonth = new Date(year, month, 1)
@@ -47,6 +85,12 @@ function startOfWeek(date) {
   return d
 }
 
+// A due date is a calendar date ("2026-10-12"): read it as that day in local time.
+// new Date("2026-10-12") is midnight UTC, which lands on the previous day west of UTC.
+function parseDay(isoDate) {
+  return new Date(`${isoDate}T00:00:00`)
+}
+
 function dateKey(d) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
@@ -59,23 +103,23 @@ function toISODate(d) {
 }
 
 export function Calendar() {
-  const { role, profile } = useAuth()
-  const { data: projectMembers } = useApi(getProjectMembers)
-  const myProjectRoleMap = useMemo(
-    () => buildMyProjectRoleMap(projectMembers, profile?.id),
-    [projectMembers, profile]
-  )
+  const { canAny } = useAuth()
   // Whether there's at least one project the caller can add tasks to —
   // TaskFormModal itself only offers projects the caller can actually
   // create tasks in.
-  const canAdd =
-    role === 'ADMINISTRATOR' ||
-    Array.from(myProjectRoleMap.values()).some((r) => canEditProjectContent(r, false))
+  const canAdd = canAny('TASK', 'CREATE')
   const { data: tasks, loading, refetch } = useApi(getTasks)
+  // Milestones of every project the caller can see; if they fail to load the calendar
+  // still shows the tasks.
+  const { data: milestones } = useApi(getMilestones)
   const today = useMemo(() => new Date(), [])
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()))
   const [view, setView] = useState('Month')
   const [newTaskDate, setNewTaskDate] = useState(null)
+  // The day drawer: the day it shows, and the item chosen in it ({ kind: 'task' | 'milestone', id }) whose detail
+  // is the drawer's second part.
+  const [dayDate, setDayDate] = useState(null)
+  const [selected, setSelected] = useState(null)
 
   const days = useMemo(() => buildMonthGrid(cursor.getFullYear(), cursor.getMonth()), [cursor])
 
@@ -83,14 +127,42 @@ export function Calendar() {
     const map = new Map()
     for (const t of tasks ?? []) {
       if (!t.dueDate) continue
-      const due = new Date(t.dueDate)
-      const key = dateKey(due)
+      const key = dateKey(parseDay(t.dueDate))
       const list = map.get(key) ?? []
-      list.push({ title: t.title, tone: PRIORITY_TONE[t.priority] ?? 'info' })
+      list.push({
+        kind: 'task',
+        id: t.id,
+        dueDate: t.dueDate,
+        title: t.title,
+        tone: PRIORITY_TONE[t.priority] ?? 'info',
+        dot: eventDots[PRIORITY_TONE[t.priority] ?? 'info'],
+        status: t.status,
+        priority: t.priority,
+        projectName: t.project?.name,
+        done: t.status === 'COMPLETED',
+        hint: t.project?.name ? `${t.title} · ${t.project.name}` : t.title,
+      })
+      map.set(key, list)
+    }
+    for (const m of milestones ?? []) {
+      if (!m.dueDate) continue
+      const key = dateKey(parseDay(m.dueDate))
+      const list = map.get(key) ?? []
+      list.push({
+        kind: 'milestone',
+        id: m.id,
+        dueDate: m.dueDate,
+        title: m.title,
+        tone: 'milestone',
+        status: m.status,
+        projectName: m.project?.name,
+        done: m.status === 'COMPLETED',
+        hint: `Milestone · ${m.title}${m.project?.name ? ` · ${m.project.name}` : ''}`,
+      })
       map.set(key, list)
     }
     return map
-  }, [tasks])
+  }, [tasks, milestones])
 
   const shiftPeriod = (delta) => {
     setCursor((prev) => {
@@ -134,11 +206,36 @@ export function Calendar() {
     setNewTaskDate(toISODate(date))
   }
 
+  // Looked up in the lists on every render, so a task or milestone that is edited or deleted
+  // while its panel is open shows the new values (or closes the panel).
+  const activeTask = useMemo(
+    () => (selected?.kind === 'task' ? (tasks ?? []).find((t) => t.id === selected.id) ?? null : null),
+    [tasks, selected]
+  )
+  const activeMilestone = useMemo(
+    () => (selected?.kind === 'milestone' ? (milestones ?? []).find((m) => m.id === selected.id) ?? null : null),
+    [milestones, selected]
+  )
+  const linkedTasks = useMemo(
+    () => (activeMilestone ? (tasks ?? []).filter((t) => t.milestone?.id === activeMilestone.id) : []),
+    [tasks, activeMilestone]
+  )
+
+  // A chip opens the drawer on its own day with that item chosen; a row of the list only chooses it.
+  const openItem = (ev) => {
+    setDayDate(parseDay(ev.dueDate))
+    setSelected({ kind: ev.kind, id: ev.id })
+  }
+  const closeDrawer = () => {
+    setDayDate(null)
+    setSelected(null)
+  }
+
   return (
     <div>
       <TopBar
         title="Calendar"
-        subtitle="Plan and track deadlines across your projects"
+        subtitle="Task due dates and milestones across your projects"
         actions={
           canAdd && (
             <button className="btn btn-primary" onClick={() => openNewTask(cursor)}>
@@ -150,11 +247,11 @@ export function Calendar() {
 
       <div className="card px-[22px] pt-5 pb-6">
         <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3.5">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 max-[640px]:w-full">
             <button className="icon-btn" onClick={() => shiftPeriod(-1)} aria-label={`Previous ${view.toLowerCase()}`}>
               <ChevronLeft size={16} />
             </button>
-            <span className="min-w-[190px] text-center text-[15px] font-[650]">{periodLabel}</span>
+            <span className="min-w-[190px] text-center text-[15px] font-[650] max-[640px]:min-w-0 max-[640px]:flex-1">{periodLabel}</span>
             <button className="icon-btn" onClick={() => shiftPeriod(1)} aria-label={`Next ${view.toLowerCase()}`}>
               <ChevronRight size={16} />
             </button>
@@ -169,8 +266,8 @@ export function Calendar() {
             {VIEWS.map((v) => (
               <button
                 key={v}
-                className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] rounded-sm border-none px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
-                  view === v ? 'bg-charcoal text-white' : 'bg-transparent text-muted'
+                className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] rounded-sm border-none px-3.5 py-[7px] text-[12px] font-semibold transition-colors ${
+                  view === v ? 'bg-charcoal text-on-charcoal' : 'bg-transparent text-muted'
                 }`}
                 onClick={() => setView(v)}
               >
@@ -194,7 +291,7 @@ export function Calendar() {
               {WEEKDAYS.map((w) => (
                 <span
                   key={w}
-                  className="text-faint text-center text-[11.5px] font-[650] tracking-[0.03em] uppercase max-[900px]:text-[10px]"
+                  className="text-faint text-center text-[12px] font-[650] tracking-[0.03em] uppercase"
                 >
                   {w}
                 </span>
@@ -208,25 +305,50 @@ export function Calendar() {
                 return (
                   <div
                     key={i}
-                    onClick={() => inMonth && openNewTask(d)}
+                    onClick={() => inMonth && setDayDate(d)}
                     className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] flex min-h-24 flex-col gap-1.5 rounded-sm border p-2 transition-colors max-[900px]:min-h-[68px] max-[900px]:p-1.5 ${
-                      inMonth ? `bg-card hover:bg-subtle${canAdd ? ' cursor-pointer' : ''}` : 'bg-subtle'
+                      inMonth ? 'bg-card hover:bg-subtle cursor-pointer' : 'bg-subtle'
                     } ${isToday ? 'border-charcoal' : 'border-divider'}`}
                   >
-                    <span
-                      className={`inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-xs font-[650] ${
-                        isToday ? 'bg-charcoal text-white' : !inMonth ? 'text-faint' : ''
-                      }`}
-                    >
-                      {d.getDate()}
-                    </span>
-                    <div className={`flex flex-col gap-[3px] ${isToday ? '' : 'max-[640px]:hidden'}`}>
+                    {inMonth ? (
+                      <button
+                        type="button"
+                        data-testid="calendar-day-button"
+                        aria-label={`${d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}${
+                          events?.length ? `, ${events.length} due` : ''
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDayDate(d)
+                        }}
+                        className={`hit-area relative inline-flex h-[22px] w-[22px] items-center justify-center self-start rounded-full text-xs font-[650] ${
+                          isToday ? 'bg-charcoal text-on-charcoal' : ''
+                        }`}
+                      >
+                        {d.getDate()}
+                      </button>
+                    ) : (
+                      <span className="text-faint inline-flex h-[22px] w-[22px] items-center justify-center text-xs font-[650]">
+                        {d.getDate()}
+                      </span>
+                    )}
+                    <div className="flex flex-col gap-[3px] max-[640px]:hidden">
                       {events?.map((ev, idx) => (
-                        <span key={idx} className={eventClass(ev.tone)}>
-                          {ev.title}
-                        </span>
+                        <EventChip key={idx} ev={ev} onOpen={openItem} />
                       ))}
                     </div>
+                    {/* Phones: cells are ~40px wide, so a title cannot fit. One dot per task, in its
+                        priority colour; tapping the day opens its list. */}
+                    {events?.length > 0 && (
+                      <div
+                        className="hidden flex-wrap gap-[3px] max-[640px]:flex"
+                        aria-label={`${events.length} ${events.length === 1 ? 'item' : 'items'} due`}
+                      >
+                        {events.slice(0, 4).map((ev, idx) => (
+                          <span key={idx} className={`h-1.5 w-1.5 rounded-full ${eventDots[ev.tone] ?? eventDots.info}`} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -242,8 +364,8 @@ export function Calendar() {
             {rangeEntries.map(({ date, events }) => (
               <div
                 key={date.toISOString()}
-                onClick={() => openNewTask(date)}
-                className={`border-divider flex items-center gap-5 border-b px-1 py-3.5 last:border-b-0 ${canAdd ? 'hover:bg-subtle cursor-pointer' : ''}`}
+                onClick={() => setDayDate(date)}
+                className="border-divider hover:bg-subtle flex cursor-pointer items-center gap-5 border-b px-1 py-3.5 last:border-b-0"
               >
                 <span
                   className={`w-[92px] shrink-0 text-[13px] font-[650] ${isSameDay(date, today) ? 'text-ink' : 'text-muted'}`}
@@ -251,13 +373,11 @@ export function Calendar() {
                   {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
                 {events.length === 0 ? (
-                  <span className="text-faint text-[12px]">No tasks due</span>
+                  <span className="text-faint text-[12px]">Nothing due</span>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {events.map((ev, idx) => (
-                      <span key={idx} className={eventClass(ev.tone)}>
-                        {ev.title}
-                      </span>
+                      <EventChip key={idx} ev={ev} onOpen={openItem} />
                     ))}
                   </div>
                 )}
@@ -266,6 +386,40 @@ export function Calendar() {
           </div>
         )}
       </div>
+
+      {dayDate && (
+        <CalendarDayPanel
+          date={dayDate}
+          events={eventsByDay.get(dateKey(dayDate)) ?? []}
+          canAdd={canAdd}
+          selected={selected}
+          onSelect={(ev) => setSelected({ kind: ev.kind, id: ev.id })}
+          onAddTask={() => {
+            setNewTaskDate(toISODate(dayDate))
+            closeDrawer()
+          }}
+          onClose={closeDrawer}
+          detail={
+            activeTask ? (
+              <TaskDetailPanel
+                key={activeTask.id}
+                embedded
+                task={activeTask}
+                onClose={() => setSelected(null)}
+                onChange={refetch}
+              />
+            ) : activeMilestone ? (
+              <MilestoneDetailPanel
+                key={activeMilestone.id}
+                milestone={activeMilestone}
+                tasks={linkedTasks}
+                onOpenTask={(t) => setSelected({ kind: 'task', id: t.id })}
+                onClose={() => setSelected(null)}
+              />
+            ) : null
+          }
+        />
+      )}
 
       {newTaskDate && (
         <TaskFormModal

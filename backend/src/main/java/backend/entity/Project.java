@@ -1,6 +1,8 @@
 package backend.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.Generated;
+import org.hibernate.generator.EventType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -32,6 +34,12 @@ public class Project {
     @JoinColumn(name = "manager_id", nullable = false)
     private User manager;
 
+    // A Team Leader listed beside the Owner as the project's lead (D-09); null when none.
+    // Must be an active Team Leader of the project - the database keeps that true.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "lead_id")
+    private User lead;
+
     @Column(nullable = false, length = 20)
     private String priority = "MEDIUM";
 
@@ -40,6 +48,13 @@ public class Project {
 
     @Column(nullable = false, precision = 5, scale = 2)
     private BigDecimal progress = BigDecimal.ZERO;
+
+    // Set and cleared by the database (trg_projects_completed_at) when the status
+    // becomes / stops being COMPLETED, so the two can never disagree. Read-only
+    // here; @Generated makes Hibernate re-read it after an insert or update.
+    @Generated(event = {EventType.INSERT, EventType.UPDATE})
+    @Column(name = "completed_at", insertable = false, updatable = false)
+    private OffsetDateTime completedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -95,6 +110,14 @@ public class Project {
         return manager;
     }
 
+    public User getLead() {
+        return lead;
+    }
+
+    public void setLead(User lead) {
+        this.lead = lead;
+    }
+
     public void setManager(User manager) {
         this.manager = manager;
     }
@@ -121,6 +144,10 @@ public class Project {
 
     public void setProgress(BigDecimal progress) {
         this.progress = progress;
+    }
+
+    public OffsetDateTime getCompletedAt() {
+        return completedAt;
     }
 
     public OffsetDateTime getCreatedAt() {

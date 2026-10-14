@@ -52,7 +52,7 @@ public class User {
     private UUID profilePhotoToken;
 
     // Set only by a Team Admin (enforced in UserService.updateMemberPositionDepartment),
-    // never by the user themselves via updateOwnProfile — see backend/README.md.
+    // never by the user themselves via updateOwnProfile — see docs/backend.md.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "position_id")
     private Position position;

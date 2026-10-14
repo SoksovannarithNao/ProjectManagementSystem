@@ -7,9 +7,13 @@ import backend.entity.Task;
 import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.SubtaskRepository;
+import backend.repository.TaskAssigneeRepository;
 import backend.repository.TaskDependencyRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +29,7 @@ public class SubtaskService {
     private final UserRepository userRepository;
     private final ActivityLogService activityLogService;
     private final ProjectAccessGuard projectAccessGuard;
+    private final TaskAssigneeRepository taskAssigneeRepository;
 
     public SubtaskService(
             SubtaskRepository subtaskRepository,
@@ -32,13 +37,30 @@ public class SubtaskService {
             TaskDependencyRepository taskDependencyRepository,
             UserRepository userRepository,
             ActivityLogService activityLogService,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            TaskAssigneeRepository taskAssigneeRepository) {
         this.subtaskRepository = subtaskRepository;
         this.taskRepository = taskRepository;
         this.taskDependencyRepository = taskDependencyRepository;
         this.userRepository = userRepository;
         this.activityLogService = activityLogService;
         this.projectAccessGuard = projectAccessGuard;
+        this.taskAssigneeRepository = taskAssigneeRepository;
+    }
+
+    // Someone who can edit tasks (Owner, Team Leader) edits any subtask. A Team
+    // Member is limited: only subtasks of tasks assigned to them, or subtasks
+    // assigned to them (specification B3.5).
+    private void assertMayWorkOn(User caller, Subtask subtask) {
+        Long projectId = subtask.getTask().getProject().getId();
+        if (projectAccessGuard.can(caller, projectId, Resource.TASK, Action.EDIT)) {
+            return;
+        }
+        boolean onTask = taskAssigneeRepository.existsByTaskIdAndUserId(subtask.getTask().getId(), caller.getId());
+        boolean onSubtask = subtask.getAssignee() != null && subtask.getAssignee().getId().equals(caller.getId());
+        if (!onTask && !onSubtask) {
+            throw new AccessDeniedException("You can only change subtasks of tasks assigned to you");
+        }
     }
 
     @Transactional(readOnly = true)
@@ -52,7 +74,8 @@ public class SubtaskService {
     public SubtaskResponse createSubtask(SubtaskRequest request, String username) {
         User caller = requireUser(username);
         Task task = requireTask(request.getTaskId());
-        projectAccessGuard.assertAccess(caller, task.getProject().getId());
+        // Writing subtasks is a content write — a VIEWER stays read-only.
+        projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.SUBTASK, Action.CREATE);
 
         Subtask subtask = new Subtask();
         subtask.setTask(task);
@@ -70,7 +93,8 @@ public class SubtaskService {
     public SubtaskResponse updateSubtask(Long id, SubtaskRequest request, String username) {
         User caller = requireUser(username);
         Subtask subtask = requireSubtask(id);
-        projectAccessGuard.assertAccess(caller, subtask.getTask().getProject().getId());
+        projectAccessGuard.assertCan(caller, subtask.getTask().getProject().getId(), Resource.SUBTASK, Action.EDIT);
+        assertMayWorkOn(caller, subtask);
 
         String previousStatus = subtask.getStatus();
         applyRequest(subtask, request);
@@ -88,20 +112,20 @@ public class SubtaskService {
     // completion consistency section, and the Done-side gate that's the only
     // other exception): touching a subtask on a task that hasn't been
     // started yet is a clear "work has begun" signal, so it's auto-promoted
-    // TO_DO -> IN_PROGRESS the first time that happens. It never does
-    // anything else — a task already past TO_DO, or one a caller explicitly
-    // set back to TO_DO, is left alone.
+    // TODO -> IN_PROGRESS the first time that happens. It never does
+    // anything else — a task already past TODO, or one a caller explicitly
+    // set back to TODO, is left alone.
     //
     // Skipped entirely for a task "Blocked" by an incomplete dependency:
     // trg_tasks_dependencies_status_gate (01-init.sql) refuses to let a task
     // move to IN_PROGRESS while it depends on something unfinished, and
     // since this all runs in the same transaction as the subtask save,
     // attempting it anyway would throw and roll back that subtask update
-    // too — silently leaving the task at TO_DO here is far less surprising
+    // too — silently leaving the task at TODO here is far less surprising
     // than a routine subtask toggle failing for a reason that has nothing to
     // do with the subtask itself.
     private void startTaskIfStillToDo(User actor, Task task) {
-        if (!"TO_DO".equals(task.getStatus())) {
+        if (!"TODO".equals(task.getStatus())) {
             return;
         }
         if (taskDependencyRepository.existsByTaskIdAndDependsOnTaskStatusNot(task.getId(), "COMPLETED")) {
@@ -115,7 +139,7 @@ public class SubtaskService {
     public void deleteSubtask(Long id, String username) {
         User caller = requireUser(username);
         Subtask subtask = requireSubtask(id);
-        projectAccessGuard.assertAccess(caller, subtask.getTask().getProject().getId());
+        projectAccessGuard.assertCan(caller, subtask.getTask().getProject().getId(), Resource.SUBTASK, Action.DELETE);
 
         activityLogService.record(caller, subtask.getTask(), "SUBTASK_DELETED",
                 "Subtask \"" + subtask.getTitle() + "\" deleted");

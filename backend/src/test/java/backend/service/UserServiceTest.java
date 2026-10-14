@@ -1,8 +1,11 @@
 package backend.service;
 
+import backend.dto.SelfProfileUpdateRequest;
 import backend.dto.UserCreateRequest;
 import backend.dto.UserResponse;
 import backend.dto.UserUpdateRequest;
+import backend.entity.Department;
+import backend.entity.Position;
 import backend.entity.Role;
 import backend.entity.User;
 import backend.exception.NotFoundException;
@@ -25,6 +28,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -45,15 +50,27 @@ class UserServiceTest {
     @Mock
     private ProjectMemberRepository projectMemberRepository;
 
+    @Mock
+    private ProjectAccessGuard projectAccessGuard;
+
+    @Mock
+    private PermissionService permissionService;
+
     // A real encoder (not mocked) so the hashing behavior itself is verified,
     // not just that some method got called.
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+
+    @Mock
+    private AuditLogService auditLogService;
+
+    @Mock
+    private RefreshTokenService refreshTokenService;
 
     private UserService userService;
 
     // An arbitrary role fixture for generic "assign a role by id" tests
     // below — not exercising any role-specific authorization behavior, so
-    // any valid role name would do. USER is one of the two system roles
+    // any valid role name would do. USER is one of the system roles
     // that actually exist (see database/init/01-init.sql).
     private Role assignedRole;
 
@@ -61,7 +78,7 @@ class UserServiceTest {
     void setUp() {
         userService = new UserService(
                 userRepository, roleRepository, positionRepository, departmentRepository,
-                projectMemberRepository, passwordEncoder);
+                projectMemberRepository, passwordEncoder, projectAccessGuard, permissionService, auditLogService, refreshTokenService);
 
         assignedRole = new Role();
         assignedRole.setName("USER");
@@ -132,11 +149,256 @@ class UserServiceTest {
         assertThat(existing.getPasswordHash()).isEqualTo("$2a$10$existingHashValueUnchanged");
     }
 
+    // ---- a changed or reset password ends every session -----------------
+
+    @Test
+    void updateUser_withANewPasswordEndsEveryRefreshSessionOfTheAccount() {
+        User existing = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(existing, "id", 5L);
+        existing.setUsername("test.user");
+        existing.setPasswordHash("$2a$10$existingHashValueUnchanged");
+        existing.setRole(assignedRole);
+        when(userRepository.findById(5L)).thenReturn(Optional.of(existing));
+        when(roleRepository.findById(4L)).thenReturn(Optional.of(assignedRole));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserUpdateRequest request = new UserUpdateRequest();
+        request.setFullName("Test User");
+        request.setUsername("test.user");
+        request.setEmail("test.user@example.com");
+        request.setRoleId(4L);
+        request.setPassword("NewPassw0rd!");
+
+        userService.updateUser(5L, request);
+
+        verify(refreshTokenService).revokeAll(5L);
+    }
+
+    @Test
+    void updateUser_withoutANewPasswordLeavesTheSessionsAlone() {
+        User existing = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(existing, "id", 5L);
+        existing.setUsername("test.user");
+        existing.setRole(assignedRole);
+        when(userRepository.findById(5L)).thenReturn(Optional.of(existing));
+        when(roleRepository.findById(4L)).thenReturn(Optional.of(assignedRole));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserUpdateRequest request = new UserUpdateRequest();
+        request.setFullName("Renamed");
+        request.setUsername("test.user");
+        request.setEmail("test.user@example.com");
+        request.setRoleId(4L);
+
+        userService.updateUser(5L, request);
+
+        verifyNoInteractions(refreshTokenService);
+    }
+
+    @Test
+    void changeOwnPassword_endsEveryRefreshSessionOfTheAccount() {
+        User me = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(me, "id", 8L);
+        me.setUsername("test.user");
+        me.setPasswordHash(passwordEncoder.encode("OldPassw0rd!"));
+        when(userRepository.findByUsername("test.user")).thenReturn(Optional.of(me));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        backend.dto.ChangePasswordRequest request = new backend.dto.ChangePasswordRequest();
+        request.setCurrentPassword("OldPassw0rd!");
+        request.setNewPassword("NewPassw0rd!");
+        request.setConfirmNewPassword("NewPassw0rd!");
+
+        userService.changeOwnPassword("test.user", request);
+
+        verify(refreshTokenService).revokeAll(8L);
+    }
+
+    @Test
+    void changeOwnPassword_withAWrongCurrentPasswordLeavesTheSessionsAlone() {
+        User me = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(me, "id", 8L);
+        me.setUsername("test.user");
+        me.setPasswordHash(passwordEncoder.encode("OldPassw0rd!"));
+        when(userRepository.findByUsername("test.user")).thenReturn(Optional.of(me));
+
+        backend.dto.ChangePasswordRequest request = new backend.dto.ChangePasswordRequest();
+        request.setCurrentPassword("not-the-password");
+        request.setNewPassword("NewPassw0rd!");
+        request.setConfirmNewPassword("NewPassw0rd!");
+
+        assertThatThrownBy(() -> userService.changeOwnPassword("test.user", request))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(refreshTokenService);
+    }
+
+    // ---- single-user lookups are scoped like the directory --------------
+
+    private User person(Long id, String username, String roleName) {
+        User u = new User();
+        org.springframework.test.util.ReflectionTestUtils.setField(u, "id", id);
+        u.setUsername(username);
+        u.setFullName(username);
+        if (roleName != null) {
+            Role r = new Role();
+            r.setName(roleName);
+            u.setRole(r);
+        }
+        return u;
+    }
+
     @Test
     void getUserById_throwsNotFoundExceptionForAMissingUser() {
+        User caller = person(1L, "caller", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
         when(userRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> userService.getUserById(999L))
+        assertThatThrownBy(() -> userService.getUserById(999L, "caller"))
                 .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void getUserById_allowsTheCallerToReadThemself() {
+        User caller = person(1L, "caller", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(caller));
+
+        assertThat(userService.getUserById(1L, "caller").getUsername()).isEqualTo("caller");
+    }
+
+    @Test
+    void getUserById_allowsAnAdministratorToReadAnyone() {
+        User admin = person(1L, "admin", "ADMINISTRATOR");
+        User other = person(2L, "other", null);
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(admin));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(other));
+
+        assertThat(userService.getUserById(2L, "admin").getUsername()).isEqualTo("other");
+    }
+
+    @Test
+    void getUserById_allowsSomeoneWhoSharesAnActiveProject() {
+        User caller = person(1L, "caller", null);
+        User teammate = person(2L, "teammate", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(teammate));
+        when(projectMemberRepository.findActiveCoMemberUserIds(1L)).thenReturn(java.util.List.of(1L, 2L));
+
+        assertThat(userService.getUserById(2L, "caller").getUsername()).isEqualTo("teammate");
+    }
+
+    @Test
+    void getUserById_hidesAStrangerWithTheSame404AsAMissingUser() {
+        User caller = person(1L, "caller", null);
+        User stranger = person(3L, "stranger", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
+        when(userRepository.findById(3L)).thenReturn(Optional.of(stranger));
+        when(projectMemberRepository.findActiveCoMemberUserIds(1L)).thenReturn(java.util.List.of(1L));
+
+        assertThatThrownBy(() -> userService.getUserById(3L, "caller"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("User not found");
+    }
+
+    @Test
+    void resolveLoginIdentifier_mapsAnEmailAddressToTheAccountsUsername() {
+        User user = person(5L, "mara.k", null);
+        when(userRepository.findByEmailIgnoreCase("Mara@Example.com")).thenReturn(Optional.of(user));
+
+        assertThat(userService.resolveLoginIdentifier("  Mara@Example.com ")).isEqualTo("mara.k");
+    }
+
+    @Test
+    void resolveLoginIdentifier_leavesAUsernameAlone() {
+        assertThat(userService.resolveLoginIdentifier("mara.k")).isEqualTo("mara.k");
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void resolveLoginIdentifier_keepsAnUnknownEmailSoTheNormalBadCredentialsPathRuns() {
+        when(userRepository.findByEmailIgnoreCase("nobody@example.com")).thenReturn(Optional.empty());
+
+        assertThat(userService.resolveLoginIdentifier("nobody@example.com")).isEqualTo("nobody@example.com");
+    }
+
+    @Test
+    void updateOwnProfile_letsAUserPickTheirOwnPositionAndDepartment() {
+        User me = person(7L, "me", null);
+        Position position = new Position();
+        position.setName("Engineer");
+        Department department = new Department();
+        department.setName("Platform");
+        when(userRepository.findByUsername("me")).thenReturn(Optional.of(me));
+        when(positionRepository.findById(3L)).thenReturn(Optional.of(position));
+        when(departmentRepository.findById(4L)).thenReturn(Optional.of(department));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SelfProfileUpdateRequest request = new SelfProfileUpdateRequest();
+        request.setFullName("Me Myself");
+        request.setEmail("me@example.com");
+        request.setPositionId(3L);
+        request.setDepartmentId(4L);
+
+        UserResponse response = userService.updateOwnProfile("me", request);
+
+        assertThat(response.getPositionName()).isEqualTo("Engineer");
+        assertThat(response.getDepartmentName()).isEqualTo("Platform");
+    }
+
+    @Test
+    void updateOwnProfile_clearsPositionAndDepartmentWhenNoneIsChosen() {
+        User me = person(7L, "me", null);
+        Position position = new Position();
+        position.setName("Engineer");
+        me.setPosition(position);
+        when(userRepository.findByUsername("me")).thenReturn(Optional.of(me));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SelfProfileUpdateRequest request = new SelfProfileUpdateRequest();
+        request.setFullName("Me Myself");
+        request.setEmail("me@example.com");
+
+        assertThat(userService.updateOwnProfile("me", request).getPositionName()).isNull();
+    }
+
+    @Test
+    void updateOwnProfile_rejectsAPositionThatIsNotInTheManagedList() {
+        User me = person(7L, "me", null);
+        when(userRepository.findByUsername("me")).thenReturn(Optional.of(me));
+        when(positionRepository.findById(99L)).thenReturn(Optional.empty());
+
+        SelfProfileUpdateRequest request = new SelfProfileUpdateRequest();
+        request.setFullName("Me Myself");
+        request.setEmail("me@example.com");
+        request.setPositionId(99L);
+
+        assertThatThrownBy(() -> userService.updateOwnProfile("me", request))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("Position not found");
+    }
+
+    @Test
+    void getUserByUsername_isScopedTheSameWay() {
+        User caller = person(1L, "caller", null);
+        User stranger = person(3L, "stranger", null);
+        User teammate = person(2L, "teammate", null);
+        when(userRepository.findByUsername("caller")).thenReturn(Optional.of(caller));
+        when(userRepository.findByUsername("stranger")).thenReturn(Optional.of(stranger));
+        when(userRepository.findByUsername("teammate")).thenReturn(Optional.of(teammate));
+        when(projectMemberRepository.findActiveCoMemberUserIds(1L)).thenReturn(java.util.List.of(1L, 2L));
+
+        assertThat(userService.getUserByUsername("teammate", "caller").getUsername()).isEqualTo("teammate");
+        assertThatThrownBy(() -> userService.getUserByUsername("stranger", "caller"))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void aProfilePhotoOverFiveMegabytes_isRefused_eventhoughUploadsMayBeLarger() {
+        org.springframework.mock.web.MockMultipartFile big = new org.springframework.mock.web.MockMultipartFile(
+                "file", "me.png", "image/png", new byte[5 * 1024 * 1024 + 1]);
+
+        assertThatThrownBy(() -> userService.uploadOwnProfilePhoto("anyone", big))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("max 5MB");
     }
 }

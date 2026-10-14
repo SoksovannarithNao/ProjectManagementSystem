@@ -13,43 +13,53 @@ import {
   Lock,
   Plus,
   X,
-  FolderKanban,
   SlidersHorizontal,
   ChevronRight,
+  Gauge,
+  ChartGantt,
+  ChartNoAxesGantt,
+  CheckCircle2,
 } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar, AvatarGroup } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { Skeleton } from '../components/ui/Skeleton'
-import { EmptyState } from '../components/ui/EmptyState'
+import { ErrorPage } from './ErrorPage'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { Dropdown } from '../components/ui/Dropdown'
 import { useToast } from '../components/ui/Toast'
 import { NewProjectModal } from '../components/NewProjectModal'
 import { TaskFormModal } from '../components/TaskFormModal'
+import { AddProjectMemberModal } from '../components/AddProjectMemberModal'
+import { MilestoneFormModal } from '../components/MilestoneFormModal'
 import { TaskDetailPanel } from '../components/TaskDetailPanel'
+import { DelayedBadge } from '../components/DelayedBadge'
+import { AttachmentsSection } from '../components/AttachmentsSection'
+import { ProjectActivity } from '../components/ProjectActivity'
 import { useApi } from '../api/useApi'
 import { useAuth } from '../auth/AuthContext'
-import { getProjectById, updateProject, deleteProject, projectResponseToRequest } from '../api/projects'
-import { getMembersByProjectId } from '../api/projectMembers'
+import { getProjectById, updateProject, deleteProject, projectResponseToRequest, setProjectLead } from '../api/projects'
+import { getMembersByProjectId, getPendingInvitationCount, updateProjectMemberRole } from '../api/projectMembers'
 import { getTasksByProjectId } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getMilestonesByProjectId, createMilestone, deleteMilestone } from '../api/milestones'
 import { buildTaskAssigneeMap } from '../api/relations'
-import { canManageProject, canEditProjectContent, isProjectOwner } from '../api/permissions'
-import { humanizeEnum, formatDate, initialsFor, colorForId, taskDisplayTitle, blockedReason } from '../api/format'
+import { humanizeEnum, projectRoleLabel, formatDate, formatLongDate, initialsFor, colorForId, taskDisplayTitle, blockedReason } from '../api/format'
 import { computeTaskOverview } from '../api/stats'
 
 const PROJECT_STATUS_OPTIONS = ['PLANNING', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED']
-const TASK_STATUS_OPTIONS = ['TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
+const TASK_STATUS_OPTIONS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
 
 // Shared sizing so every pill in the status/priority/overdue row lines up:
 // same height, padding, line-height, font-size, and radius regardless of
 // whether the element is a <select>, the Badge component, or a plain <span>.
 const STATUS_ROW_BADGE_CLASS =
-  'h-7 box-border inline-flex items-center rounded-full px-2.5 text-[11.5px] leading-none font-semibold'
+  'h-7 box-border inline-flex items-center rounded-full px-2.5 text-[12px] leading-none font-semibold'
 const TASK_PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
+// Business names of the project roles (Owner = Project Manager of the project).
+// An Owner has to be able to own projects (Project Manager or Administrator).
+const CAN_OWN = new Set(['PROJECT_MANAGER', 'ADMINISTRATOR'])
 
 // A section's own fetch failing (members/tasks/milestones each load
 // independently) must not be displayed the same way as that section
@@ -57,7 +67,7 @@ const TASK_PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 // "failed to load" indistinguishable from "there's nothing here".
 function SectionError({ message, onRetry }) {
   return (
-    <div className="bg-danger-soft text-danger mb-4 flex items-center justify-between gap-3 rounded-md px-3 py-2.5 text-[12.5px] font-semibold">
+    <div className="bg-danger-soft text-danger-ink mb-4 flex items-center justify-between gap-3 rounded-md px-3 py-2.5 text-[12px] font-semibold">
       <span>{message}</span>
       <button type="button" className="shrink-0 underline underline-offset-2" onClick={onRetry}>
         Try again
@@ -71,8 +81,7 @@ export function ProjectDetail() {
   const projectId = Number(id)
   const navigate = useNavigate()
   const notify = useToast()
-  const { profile, role } = useAuth()
-  const isSystemAdmin = role === 'ADMINISTRATOR'
+  const { can, profile, refreshProfile } = useAuth()
 
   const projectFetcher = useCallback(() => getProjectById(projectId), [projectId])
   const { data: project, loading, error: projectError, refetch } = useApi(projectFetcher)
@@ -92,19 +101,32 @@ export function ProjectDetail() {
   const { data: taskAssignees, error: assigneesError, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
 
-  // The caller's own ACTIVE membership row for THIS project — same source
-  // ProjectAccessGuard uses on the backend, just read from the member list
-  // already fetched above instead of a separate lookup.
-  const myRole = useMemo(
-    () => members.find((m) => m.user?.id === profile?.id && m.status === 'ACTIVE')?.projectRole,
-    [members, profile]
+  // What the caller may do in THIS project (role_permissions, read through
+  // /api/users/me/permissions). Controls they cannot use are not rendered.
+  const canEditProject = can('PROJECT', 'EDIT', projectId)
+  const canDelete = can('PROJECT', 'DELETE', projectId)
+  const canAddContent = can('TASK', 'CREATE', projectId)
+  const canManageTeam = can('MEMBER', 'CREATE', projectId)
+  const canCreateMilestone = can('MILESTONE', 'CREATE', projectId)
+  const canEditMilestone = can('MILESTONE', 'EDIT', projectId)
+  const canDeleteMilestone = can('MILESTONE', 'DELETE', projectId)
+  // Team Tasks and Workload are for people who manage the work; the Timeline is for every member.
+  const canSeeTeamViews = can('TASK', 'ASSIGN', projectId)
+  // Setting a member's project role needs MEMBER:EDIT. Only the Owner and an
+  // Administrator (PROJECT:ASSIGN) may pick any role or transfer ownership; a
+  // Team Leader can only move a Team Member / Viewer between those two.
+  const canChangeRoles = can('MEMBER', 'EDIT', projectId)
+  const canTransferOwnership = can('PROJECT', 'ASSIGN', projectId)
+
+  // The members list above only carries ACTIVE rows, so pending invitations
+  // are counted server-side by their own PENDING status (Team-Admin-only, so
+  // only fetched once the caller is known to manage this project).
+  const pendingFetcher = useCallback(
+    () => (canManageTeam ? getPendingInvitationCount(projectId) : Promise.resolve(null)),
+    [projectId, canManageTeam]
   )
-  const canManage = canManageProject(myRole, isSystemAdmin)
-  const canDelete = isProjectOwner(myRole, isSystemAdmin)
-  // Content creation (tasks/milestones) only needs OWNER/ADMIN/MEMBER, not
-  // canManage's OWNER/ADMIN-only bar — a plain MEMBER can add tasks to a
-  // project they don't manage, same as Tasks.jsx's own "+ New Task" gate.
-  const canAddContent = canEditProjectContent(myRole, isSystemAdmin)
+  const { data: pendingData, refetch: refetchPending } = useApi(pendingFetcher)
+  const pendingCount = canManageTeam ? (pendingData?.count ?? 0) : 0
 
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -112,11 +134,56 @@ export function ProjectDetail() {
   const [savingStatus, setSavingStatus] = useState(false)
   const [activeTaskId, setActiveTaskId] = useState(null)
   const [showNewTask, setShowNewTask] = useState(false)
+  const [showAddMember, setShowAddMember] = useState(false)
   const [taskStatusFilter, setTaskStatusFilter] = useState(() => new Set())
   const [taskPriorityFilter, setTaskPriorityFilter] = useState(() => new Set())
   const [milestoneTitle, setMilestoneTitle] = useState('')
   const [milestoneDue, setMilestoneDue] = useState('')
   const [addingMilestone, setAddingMilestone] = useState(false)
+  const [editingMilestone, setEditingMilestone] = useState(null)
+  const [roleBusyId, setRoleBusyId] = useState(null)
+  const [transferTarget, setTransferTarget] = useState(null)
+
+  // The project's lead is a Team Leader listed beside the Owner (D-09); userId null clears it.
+  const changeLead = async (member, userId) => {
+    setRoleBusyId(member.id)
+    try {
+      await setProjectLead(projectId, userId)
+      notify(userId ? `${member.user.fullName} is now the project lead` : 'The project lead was cleared', { tone: 'success' })
+      refetch()
+    } catch (err) {
+      notify(err.message || 'Failed to change the project lead', { tone: 'error' })
+    } finally {
+      setRoleBusyId(null)
+    }
+  }
+
+  // One role change. OWNER is the ownership transfer: the current Owner becomes
+  // a Team Leader in the same step, so this person's own permissions change too.
+  const changeRole = async (member, role) => {
+    setRoleBusyId(member.id)
+    try {
+      await updateProjectMemberRole(member, role)
+      notify(
+        role === 'OWNER'
+          ? `${member.user.fullName} is now the Owner of ${project?.name ?? 'the project'}`
+          : `${member.user.fullName} is now ${projectRoleLabel(role)}`,
+        { tone: 'success' }
+      )
+      refetchMembers()
+      // The lead is cleared when a Team Leader is demoted or becomes the Owner.
+      refetch()
+      if (role === 'OWNER') {
+        await refreshProfile()
+      }
+    } catch (err) {
+      notify(err.message || 'Failed to change the role', { tone: 'error' })
+      refetchMembers()
+    } finally {
+      setRoleBusyId(null)
+      setTransferTarget(null)
+    }
+  }
 
   const activeTask = useMemo(() => {
     if (activeTaskId == null) return null
@@ -127,7 +194,6 @@ export function ProjectDetail() {
   const taskOverview = useMemo(() => computeTaskOverview(tasks), [tasks])
   const overdueCount = useMemo(() => tasks.filter((t) => t.overdue).length, [tasks])
   const activeMembers = useMemo(() => members.filter((m) => m.status === 'ACTIVE'), [members])
-  const pendingCount = useMemo(() => members.filter((m) => m.status === 'PENDING').length, [members])
   const sortedTasks = useMemo(
     () => [...tasks].sort((a, b) => new Date(a.dueDate ?? 0) - new Date(b.dueDate ?? 0)),
     [tasks]
@@ -239,29 +305,13 @@ export function ProjectDetail() {
     // The backend deliberately returns 404 for both "doesn't exist" and "you
     // don't have access" (see ProjectAccessGuard.assertAccess) so a caller
     // can't use this page to probe which projects exist — that case, and the
-    // no-error-yet case, get the same generic message. Anything else (a
-    // real 5xx/network failure) gets its own state with a retry action
-    // instead of being misreported as "not found".
-    const isRealError = projectError && projectError.status !== 404
+    // no-error-yet case, are shown as a 404. Anything else (a real 5xx/network
+    // failure) shows its own status with a retry action instead of being
+    // misreported as "not found".
     return (
       <div>
         <TopBar title="Project" />
-        <EmptyState
-          icon={isRealError ? AlertTriangle : FolderKanban}
-          title={isRealError ? 'Something went wrong' : 'Project not found'}
-          subtitle={
-            isRealError
-              ? projectError.message || 'Failed to load this project. Please try again.'
-              : "It may have been deleted, or you don't have access to it."
-          }
-          action={
-            isRealError && (
-              <button type="button" className="btn btn-secondary" onClick={refetch}>
-                Try again
-              </button>
-            )
-          }
-        />
+        <ErrorPage status={projectError?.status ?? 404} onRetry={refetch} />
       </div>
     )
   }
@@ -282,23 +332,41 @@ export function ProjectDetail() {
             <span className="truncate">{project.name}</span>
           </span>
         }
-        subtitle={`${project.projectCode} · Managed by ${project.manager?.fullName ?? '—'}`}
+        subtitle={`${project.projectCode} · Managed by ${project.manager?.fullName ?? '—'}${project.lead ? ` · Lead ${project.lead.fullName}` : ''}`}
         actions={
-          canManage && (
-            <>
-              <button className="btn btn-secondary" onClick={() => setEditing(true)}>
-                <Pencil size={15} /> Edit
-              </button>
-              {canDelete && (
-                <button
-                  className="btn bg-[#db7070] text-white hover:bg-danger"
-                  onClick={() => setConfirmingDelete(true)}
-                >
-                  <Trash2 size={15} /> Delete
+          <>
+            {canSeeTeamViews && (
+              <>
+                <Link to={`/projects/${projectId}/team`} className="btn btn-secondary">
+                  <Users size={15} /> Team tasks
+                </Link>
+                <Link to={`/projects/${projectId}/workload`} className="btn btn-secondary">
+                  <Gauge size={15} /> Workload
+                </Link>
+              </>
+            )}
+            <Link to={`/projects/${projectId}/timeline`} className="btn btn-secondary">
+              <ChartGantt size={15} /> Timeline
+            </Link>
+            <Link to={`/projects/${projectId}/gantt`} className="btn btn-secondary">
+              <ChartNoAxesGantt size={15} /> Gantt
+            </Link>
+            {canEditProject && (
+              <>
+                <button className="btn btn-secondary" onClick={() => setEditing(true)}>
+                  <Pencil size={15} /> Edit
                 </button>
-              )}
-            </>
-          )
+                {canDelete && (
+                  <button
+                    className="btn bg-danger text-on-danger hover:opacity-90"
+                    onClick={() => setConfirmingDelete(true)}
+                  >
+                    <Trash2 size={15} /> Delete
+                  </button>
+                )}
+              </>
+            )}
+          </>
         }
       />
 
@@ -306,47 +374,63 @@ export function ProjectDetail() {
         {/* Overview */}
         <div className="card px-6 py-5">
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <select
-              value={project.status}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              disabled={!canManage || savingStatus}
-              className={`bg-subtle border-border border outline-none disabled:opacity-70 ${STATUS_ROW_BADGE_CLASS}`}
-            >
-              {PROJECT_STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {humanizeEnum(s)}
-                </option>
-              ))}
-            </select>
+            {canEditProject ? (
+              <select
+                value={project.status}
+                aria-label="Project status"
+                onChange={(e) => handleStatusChange(e.target.value)}
+                disabled={savingStatus}
+                className={`bg-subtle border-border border outline-none disabled:opacity-70 max-sm:h-10 ${STATUS_ROW_BADGE_CLASS}`}
+              >
+                {PROJECT_STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {humanizeEnum(s)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Badge tone={project.status} className={STATUS_ROW_BADGE_CLASS}>
+                {humanizeEnum(project.status)}
+              </Badge>
+            )}
             {project.priority && (
               <Badge tone={project.priority} className={`${STATUS_ROW_BADGE_CLASS} gap-1.25`}>
                 {humanizeEnum(project.priority)}
               </Badge>
             )}
+            <DelayedBadge project={project} />
+            {project.completedAt && (
+              <span
+                data-testid="completed-on"
+                className={`bg-success-soft text-success-ink gap-1 ${STATUS_ROW_BADGE_CLASS}`}
+              >
+                <CheckCircle2 size={12} /> Completed on {formatLongDate(project.completedAt)}
+              </span>
+            )}
             {overdueCount > 0 && (
-              <span className={`bg-danger-soft text-danger gap-1 ${STATUS_ROW_BADGE_CLASS}`}>
+              <span className={`bg-danger-soft text-danger-ink gap-1 ${STATUS_ROW_BADGE_CLASS}`}>
                 <AlertTriangle size={12} /> {overdueCount} overdue task{overdueCount === 1 ? '' : 's'}
               </span>
             )}
           </div>
 
-          {project.description && <p className="text-muted mb-5 text-[13.5px] leading-relaxed">{project.description}</p>}
+          {project.description && <p className="text-muted mb-5 text-[13px] leading-relaxed">{project.description}</p>}
 
           <div className="bg-subtle border-border mb-5 grid grid-cols-3 gap-4 rounded-md border p-4 max-sm:grid-cols-1">
             <div className="flex flex-col gap-1.5">
-              <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                 <CalendarDays size={14} /> Start date
               </span>
               <span className="text-ink text-[13px] font-semibold">{formatDate(project.startDate)}</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                 <CalendarDays size={14} /> End date
               </span>
               <span className="text-ink text-[13px] font-semibold">{formatDate(project.endDate)}</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                 <Flag size={14} /> Manager
               </span>
               {project.manager ? (
@@ -362,6 +446,32 @@ export function ProjectDetail() {
               ) : (
                 <span className="text-ink text-[13px] font-semibold">—</span>
               )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
+                <Flag size={14} /> Lead
+              </span>
+              {project.lead ? (
+                <span data-testid="project-lead" className="text-ink inline-flex items-center gap-1.5 text-[13px] font-semibold">
+                  <Avatar
+                    initials={initialsFor(project.lead.fullName)}
+                    color={colorForId(project.lead.id)}
+                    photoUrl={project.lead.profilePhotoUrl}
+                    size={20}
+                  />
+                  {project.lead.fullName}
+                </span>
+              ) : (
+                <span className="text-faint text-[13px] font-semibold">None</span>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
+                <CalendarDays size={14} /> Created
+              </span>
+              <span data-testid="project-created" className="text-ink text-[13px] font-semibold">
+                {formatLongDate(project.createdAt)}
+              </span>
             </div>
           </div>
 
@@ -384,7 +494,7 @@ export function ProjectDetail() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <ListChecks size={15} className="text-faint" />
-              <h4 className="text-[13.5px] font-[650]">Tasks</h4>
+              <h4 className="text-[13px] font-[650]">Tasks</h4>
               <span className="text-faint text-[12px]">({tasksError ? '—' : tasks.length})</span>
             </div>
             <div className="flex items-center gap-2">
@@ -399,7 +509,7 @@ export function ProjectDetail() {
                 {({ close }) => (
                   <div className="flex w-[200px] flex-col gap-3 p-1">
                     <div>
-                      <span className="text-faint mb-1.5 block text-[11px] font-[650] tracking-[0.04em] uppercase">
+                      <span className="text-faint mb-1.5 block text-[12px] font-[650] tracking-[0.04em] uppercase">
                         Status
                       </span>
                       <div className="flex flex-col gap-0.5">
@@ -419,7 +529,7 @@ export function ProjectDetail() {
                       </div>
                     </div>
                     <div>
-                      <span className="text-faint mb-1.5 block text-[11px] font-[650] tracking-[0.04em] uppercase">
+                      <span className="text-faint mb-1.5 block text-[12px] font-[650] tracking-[0.04em] uppercase">
                         Priority
                       </span>
                       <div className="flex flex-col gap-0.5">
@@ -472,21 +582,21 @@ export function ProjectDetail() {
             />
           )}
 
-          {!tasksError && tasks.length === 0 && <p className="text-faint text-[12.5px]">No tasks in this project yet.</p>}
+          {!tasksError && tasks.length === 0 && <p className="text-faint text-[12px]">No tasks in this project yet.</p>}
 
           {tasks.length > 0 && (
             <div className="mb-4 grid grid-cols-4 gap-3 max-sm:grid-cols-2">
               {taskOverview.map((t) => (
                 <div key={t.key} className="bg-subtle rounded-md px-3 py-2.5">
                   <p className="text-ink text-[17px] font-bold">{t.count}</p>
-                  <p className="text-muted text-[11px] font-semibold">{t.label}</p>
+                  <p className="text-muted text-[12px] font-semibold">{t.label}</p>
                 </div>
               ))}
             </div>
           )}
 
           {tasks.length > 0 && filteredTasks.length === 0 && (
-            <p className="text-faint text-[12.5px]">No tasks match the selected filters.</p>
+            <p className="text-faint text-[12px]">No tasks match the selected filters.</p>
           )}
 
           <div className="flex flex-col gap-1.5">
@@ -508,17 +618,17 @@ export function ProjectDetail() {
                       <Badge tone={t.status}>{humanizeEnum(t.status)}</Badge>
                       <Badge tone={t.priority}>{humanizeEnum(t.priority)}</Badge>
                       {t.blocked && (
-                        <span title={blockedReason(t)} className="text-muted inline-flex items-center gap-1 text-[11px]">
+                        <span title={blockedReason(t)} className="text-muted inline-flex items-center gap-1 text-[12px]">
                           <Lock size={11} /> Blocked
                         </span>
                       )}
                       {t.totalSubtasks > 0 && (
-                        <span className="text-muted text-[11px]">
+                        <span className="text-muted text-[12px]">
                           {t.completedSubtasks}/{t.totalSubtasks} subtasks
                         </span>
                       )}
                       {t.dueDate && (
-                        <span className={`inline-flex items-center gap-1 text-[11px] ${t.overdue ? 'text-danger font-semibold' : 'text-muted'}`}>
+                        <span className={`inline-flex items-center gap-1 text-[12px] ${t.overdue ? 'text-danger-ink font-semibold' : 'text-muted'}`}>
                           <CalendarDays size={11} /> {formatDate(t.dueDate)}
                         </span>
                       )}
@@ -545,17 +655,28 @@ export function ProjectDetail() {
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Users size={15} className="text-faint" />
-                <h4 className="text-[13.5px] font-[650]">Members</h4>
+                <h4 className="text-[13px] font-[650]">Members</h4>
                 <span className="text-faint text-[12px]">({membersError ? '—' : activeMembers.length})</span>
               </div>
-              <Link to="/team" className="text-muted hover:text-ink text-[12px] font-semibold">
-                Manage team →
-              </Link>
+              <div className="flex items-center gap-3">
+                {canManageTeam && (
+                  <button
+                    type="button"
+                    className="hit-area text-muted hover:text-ink inline-flex items-center gap-1 text-[12px] font-semibold"
+                    onClick={() => setShowAddMember(true)}
+                  >
+                    <Plus size={13} /> Add member
+                  </button>
+                )}
+                <Link to="/team" className="hit-area text-muted hover:text-ink text-[12px] font-semibold">
+                  Manage team →
+                </Link>
+              </div>
             </div>
 
             {membersError && <SectionError message="Failed to load members." onRetry={refetchMembers} />}
 
-            {!membersError && activeMembers.length === 0 && <p className="text-faint text-[12.5px]">No members yet.</p>}
+            {!membersError && activeMembers.length === 0 && <p className="text-faint text-[12px]">No members yet.</p>}
 
             <div className="flex flex-col gap-0.5">
               {activeMembers.map((m) => (
@@ -568,15 +689,49 @@ export function ProjectDetail() {
                   />
                   <div className="min-w-0 flex-1">
                     <p className="text-ink truncate text-[13px] font-semibold">{m.user.fullName}</p>
-                    {m.user.positionName && <p className="text-faint truncate text-[11px]">{m.user.positionName}</p>}
+                    {m.user.positionName && <p className="text-faint truncate text-[12px]">{m.user.positionName}</p>}
                   </div>
-                  <Badge>{humanizeEnum(m.projectRole)}</Badge>
+                  {project.lead?.id === m.user.id && <Badge tone="completed">Lead</Badge>}
+                  {canTransferOwnership && m.projectRole === 'ADMIN' && (
+                    <button
+                      type="button"
+                      className="hit-area text-muted hover:text-ink text-[12px] font-semibold"
+                      disabled={roleBusyId === m.id}
+                      onClick={() => changeLead(m, project.lead?.id === m.user.id ? null : m.user.id)}
+                    >
+                      {project.lead?.id === m.user.id ? 'Remove as lead' : 'Make lead'}
+                    </button>
+                  )}
+                  {(() => {
+                    // A role the viewer may change shows as a picker; everything else as a badge.
+                    const mine = m.user.id === profile?.id
+                    const movable = ['MEMBER', 'VIEWER'].includes(m.projectRole)
+                    const editable = canChangeRoles && !mine && m.projectRole !== 'OWNER' && (canTransferOwnership || movable)
+                    if (!editable) return <Badge>{projectRoleLabel(m.projectRole)}</Badge>
+                    const options = canTransferOwnership ? ['ADMIN', 'MEMBER', 'VIEWER'] : ['MEMBER', 'VIEWER']
+                    if (canTransferOwnership && CAN_OWN.has(m.user.role)) options.push('OWNER')
+                    return (
+                      <select
+                        aria-label={`Project role of ${m.user.fullName}`}
+                        value={m.projectRole}
+                        disabled={roleBusyId === m.id}
+                        onChange={(e) => (e.target.value === 'OWNER' ? setTransferTarget(m) : changeRole(m, e.target.value))}
+                        className="bg-subtle border-border h-8 min-w-0 rounded-full border px-2.5 text-[12px] font-semibold outline-none max-sm:max-w-[9rem]"
+                      >
+                        {options.map((r) => (
+                          <option key={r} value={r}>
+                            {r === 'OWNER' ? 'Owner (transfer ownership)' : projectRoleLabel(r)}
+                          </option>
+                        ))}
+                      </select>
+                    )
+                  })()}
                 </div>
               ))}
             </div>
 
             {pendingCount > 0 && (
-              <p className="text-faint mt-3 text-[11.5px]">
+              <p className="text-faint mt-3 text-[12px]">
                 {pendingCount} pending invitation{pendingCount === 1 ? '' : 's'}
               </p>
             )}
@@ -586,14 +741,14 @@ export function ProjectDetail() {
           <div className="card px-6 py-5">
             <div className="mb-4 flex items-center gap-2">
               <MilestoneIcon size={15} className="text-faint" />
-              <h4 className="text-[13.5px] font-[650]">Milestones</h4>
+              <h4 className="text-[13px] font-[650]">Milestones</h4>
               <span className="text-faint text-[12px]">({milestonesError ? '—' : milestones.length})</span>
             </div>
 
             {milestonesError && <SectionError message="Failed to load milestones." onRetry={refetchMilestones} />}
 
             {!milestonesError && milestones.length === 0 && (
-              <div className="bg-subtle text-faint mb-3 flex items-center gap-2 rounded-md px-3 py-2.5 text-[12.5px]">
+              <div className="bg-subtle text-faint mb-3 flex items-center gap-2 rounded-md px-3 py-2.5 text-[12px]">
                 <MilestoneIcon size={14} />
                 No milestones yet.
               </div>
@@ -601,23 +756,38 @@ export function ProjectDetail() {
 
             <div className="mb-3 flex flex-col gap-2">
               {milestones.map((ms) => (
-                <div key={ms.id} className="border-border group flex items-center gap-3 rounded-md border px-3 py-2.5">
+                <div
+                  key={ms.id}
+                  data-testid="milestone-row"
+                  className="border-border group flex items-center gap-3 rounded-md border px-3 py-2.5"
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="text-ink truncate text-[13px] font-semibold">{ms.title}</p>
                       <Badge tone={ms.status}>{humanizeEnum(ms.status)}</Badge>
                     </div>
+                    {ms.description && <p className="text-muted mt-0.5 truncate text-[12px]">{ms.description}</p>}
                     <div className="mt-1.5 flex items-center gap-2">
                       <div className="max-w-[140px] flex-1">
                         <ProgressBar percent={Number(ms.progress ?? 0)} height={5} />
                       </div>
-                      <span className="text-faint text-[11px]">{formatDate(ms.dueDate)}</span>
+                      <span className="text-faint text-[12px]">{formatDate(ms.dueDate)}</span>
                     </div>
                   </div>
-                  {canManage && (
+                  {canEditMilestone && (
                     <button
                       type="button"
-                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger"
+                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Edit milestone ${ms.title}`}
+                      onClick={() => setEditingMilestone(ms)}
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  )}
+                  {canDeleteMilestone && (
+                    <button
+                      type="button"
+                      className="icon-btn h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 hover:text-danger-ink"
                       aria-label="Delete milestone"
                       onClick={() => handleDeleteMilestone(ms.id)}
                     >
@@ -628,7 +798,7 @@ export function ProjectDetail() {
               ))}
             </div>
 
-            {canManage && (
+            {canCreateMilestone && (
               // flex-wrap (not a flex-col/flex-row breakpoint switch) because
               // this form's actual available width depends on the
               // Members/Milestones grid above going 1 or 2 columns, which is
@@ -645,15 +815,16 @@ export function ProjectDetail() {
                   value={milestoneTitle}
                   onChange={(e) => setMilestoneTitle(e.target.value)}
                   placeholder="Milestone title…"
-                  className="bg-subtle border-border focus:border-lavender h-9 min-w-0 flex-1 basis-[140px] rounded-md border px-3 text-[12.5px] outline-none"
+                  className="field field-sm min-w-0 flex-1 basis-[140px]"
                 />
                 <input
                   type="date"
+                  aria-label="Milestone due date"
                   value={milestoneDue}
                   onChange={(e) => setMilestoneDue(e.target.value)}
                   min={project.startDate}
                   max={project.endDate}
-                  className="bg-subtle border-border h-9 rounded-md border px-3 text-[12.5px] outline-none"
+                  className="field field-sm"
                 />
                 <button
                   type="submit"
@@ -665,8 +836,32 @@ export function ProjectDetail() {
               </form>
             )}
           </div>
+
+          {/* Files attached to the project itself (task files live in the task panel) */}
+          <div className="card px-6 py-5">
+            <AttachmentsSection
+              projectId={projectId}
+              canUpload={can('ATTACHMENT', 'CREATE', projectId)}
+              canDelete={can('ATTACHMENT', 'DELETE', projectId)}
+              currentUserId={profile?.id}
+            />
+          </div>
+
+          <ProjectActivity projectId={projectId} />
         </div>
       </div>
+
+      {transferTarget && (
+        <ConfirmDialog
+          title="Transfer ownership"
+          message={`Make ${transferTarget.user.fullName} the Owner of "${project.name}"? You become a Team Leader of this project, and ${transferTarget.user.fullName} becomes its manager. A project has exactly one Owner.`}
+          confirmLabel="Transfer ownership"
+          tone="primary"
+          loading={roleBusyId === transferTarget.id}
+          onConfirm={() => changeRole(transferTarget, 'OWNER')}
+          onClose={() => setTransferTarget(null)}
+        />
+      )}
 
       {activeTask && (
         <TaskDetailPanel task={activeTask} onClose={() => setActiveTaskId(null)} onChange={refetchAfterTaskChange} />
@@ -677,6 +872,32 @@ export function ProjectDetail() {
           defaultProjectId={projectId}
           onClose={() => setShowNewTask(false)}
           onSaved={refetchAfterTaskChange}
+        />
+      )}
+
+      {editingMilestone && (
+        <MilestoneFormModal
+          milestone={editingMilestone}
+          project={project}
+          openTaskCount={
+            tasks.filter(
+              (t) =>
+                t.milestone?.id === editingMilestone.id && t.status !== 'COMPLETED' && t.status !== 'CANCELLED'
+            ).length
+          }
+          onClose={() => setEditingMilestone(null)}
+          onSaved={refetchMilestones}
+        />
+      )}
+
+      {showAddMember && (
+        <AddProjectMemberModal
+          projectId={projectId}
+          onClose={() => setShowAddMember(false)}
+          onInvited={() => {
+            refetchMembers()
+            refetchPending()
+          }}
         />
       )}
 

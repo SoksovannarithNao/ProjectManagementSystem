@@ -40,3 +40,24 @@ export function updateOwnPreferences(request) {
 export function updateMemberPositionDepartment(userId, request) {
   return apiFetch(`/users/${userId}/position-department`, { method: 'PUT', body: request })
 }
+
+// What the signed-in user may do, system-wide and per project. Read by
+// AuthContext; see api/permissions.js.
+export function getMyPermissions() {
+  return apiFetch('/users/me/permissions')
+}
+
+// Administrator-only: gives an account its system role.
+export function assignUserRole(userId, roleId) {
+  return apiFetch(`/users/${userId}/role`, { method: 'PUT', body: { roleId } })
+}
+
+export function updateUserAccount(userId, request) {
+  return apiFetch(`/users/${userId}`, { method: 'PUT', body: request })
+}
+
+// Administrator-only; the server refuses the last Administrator, your own
+// account and the sole owner of a project.
+export function deleteUser(userId) {
+  return apiFetch(`/users/${userId}`, { method: 'DELETE' })
+}

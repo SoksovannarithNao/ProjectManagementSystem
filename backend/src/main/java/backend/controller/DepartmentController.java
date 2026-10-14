@@ -27,10 +27,8 @@ public class DepartmentController {
 
     // Global lookup-table management — genuinely system-wide, unrelated to
     // any one project, so gated by the system role rather than any
-    // project_role. PROJECT_MANAGER/TEAM_LEADER used to also qualify before
-    // those global roles were replaced by project-scoped roles (see V5
-    // migration) — removed here since neither can exist anymore.
-    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    // project_role: only holders of LOOKUP:CREATE (the Administrator).
+    @PreAuthorize("@permissions.require(authentication, 'LOOKUP', 'CREATE')")
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public DepartmentResponse createDepartment(@Valid @RequestBody DepartmentRequest request) {

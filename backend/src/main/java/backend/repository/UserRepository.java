@@ -1,8 +1,10 @@
 package backend.repository;
 
 import backend.entity.User;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -29,7 +31,41 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.role")
     List<User> findAllWithRoles();
 
+    // Who can be invited to :projectId — searched across the WHOLE org (not
+    // just co-members of the caller) but filtered and paged in the database:
+    // ACTIVE accounts only, never the caller, and nobody who already has an
+    // ACTIVE or PENDING membership on this project (a DECLINED one can be
+    // re-invited, matching ProjectMemberService.inviteMember). :pattern is a
+    // pre-built, lower-cased LIKE pattern using '!' as its escape character.
+    @Query("""
+            SELECT u FROM User u
+            WHERE u.accountStatus = 'ACTIVE'
+              AND u.id <> :callerId
+              AND (LOWER(u.username) LIKE :pattern ESCAPE '!' OR LOWER(u.fullName) LIKE :pattern ESCAPE '!')
+              AND NOT EXISTS (
+                  SELECT 1 FROM ProjectMember pm
+                  WHERE pm.project.id = :projectId AND pm.user.id = u.id
+                    AND pm.status IN ('ACTIVE', 'PENDING'))
+            ORDER BY u.fullName, u.id
+            """)
+    List<User> findInvitableUsers(
+            @Param("projectId") Long projectId,
+            @Param("callerId") Long callerId,
+            @Param("pattern") String pattern,
+            Pageable pageable);
+
+    // Status only, no entity — runs on EVERY authenticated request (see
+    // config/ActiveAccountJwtValidator), so it must stay cheap: loading the
+    // User entity would also read the stored profile photo bytes.
+    @Query("SELECT u.accountStatus FROM User u WHERE u.username = :username")
+    Optional<String> findAccountStatusByUsername(@Param("username") String username);
+
     Optional<User> findByEmail(String email);
+
+    // Sign-in by e-mail address (the login form accepts either). Email is
+    // unique case-insensitively (idx_users_email_lower), so at most one row.
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.role WHERE LOWER(u.email) = LOWER(:email)")
+    Optional<User> findByEmailIgnoreCase(@Param("email") String email);
 
     // Case-insensitive, matching idx_users_username_lower/idx_users_email_lower
     // — used for friendly pre-checks during registration (the DB unique
@@ -42,4 +78,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // Public photo lookup (see PhotoController) — keyed by the random token
     // rather than user id, so photos aren't enumerable by walking ids.
     Optional<User> findByProfilePhotoToken(UUID profilePhotoToken);
+
+    // How many accounts currently hold a system role, e.g. ADMINISTRATOR: used to refuse
+    // removing the last administrator.
+    long countByRoleName(String roleName);
 }

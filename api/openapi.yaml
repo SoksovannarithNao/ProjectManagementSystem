@@ -2,13 +2,26 @@ openapi: 3.0.3
 info:
   title: Task & Project Management System API
   description: >
-    Documents the REST API exactly as implemented in `backend/` today — not an
-    idealized target contract. This is the hardened, post-review version of
+    **Partly out of date and no longer maintained — read
+    `docs/api-reference.md` for the complete, current API (119 endpoints).**
+    This file documents 57 of the 119 endpoints
+    and still describes authorization with the removed global roles
+    `TEAM_LEADER` / `TEAM_MEMBER` and the old per-endpoint rules; the real
+    model is the system roles `ADMINISTRATOR` / `PROJECT_MANAGER` / `USER`
+    plus the project roles `OWNER` / `ADMIN` / `MEMBER` / `VIEWER`, with the
+    grants read from the `role_permissions` table (see
+    `docs/authentication-authorization.md`).
+    `managerId` on `ProjectRequest` is optional in the backend. Known gaps are
+    listed in `docs/issues.md` (section 4).
+
+
+    Originally written to document the REST API exactly as implemented in
+    `backend/` — not an idealized target contract. This is the hardened, post-review version of
     the backend: every controller now validates its input, returns clean
     JSON errors, uses response DTOs (never raw JPA entities), sets correct
     HTTP status codes, and enforces role-based access control. Remaining
     gaps/quirks are called out inline via `description` fields; see
-    `api/README.md` for the summary list.
+    `docs/api-reference.md` (known quirks) for the summary list.
   version: "0.2.0"
 servers:
   - url: http://localhost:8080
@@ -135,7 +148,10 @@ paths:
     get:
       tags: [Users]
       summary: Get a user by ID
-      description: Any authenticated user — not role-gated.
+      description: >
+        Any authenticated user, **scoped**: an administrator, the user themself,
+        or someone who shares an active project with them; anyone else gets
+        `404` (the same as for a missing user).
       parameters:
         - $ref: "#/components/parameters/IdPath"
       responses:
@@ -225,7 +241,10 @@ paths:
     get:
       tags: [Users]
       summary: Get a user by username
-      description: Any authenticated user — not role-gated.
+      description: >
+        Any authenticated user, **scoped** exactly like `GET /api/users/{id}`
+        (administrator, yourself, or someone sharing an active project);
+        otherwise `404`.
       parameters:
         - name: username
           in: path
@@ -381,6 +400,9 @@ paths:
         "404":
           description: "`managerId` does not match any user."
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`projectCode` is already used by another project (`Project code already exists.`)."
+          $ref: "#/components/responses/Conflict"
 
   /api/projects/{id}:
     get:
@@ -567,12 +589,100 @@ paths:
                 items:
                   $ref: "#/components/schemas/ProjectMemberResponse"
 
+  /api/project-members/project/{projectId}/invitations/count:
+    get:
+      tags: [Project Members]
+      summary: Count a project's pending invitations
+      description: >
+        Requires OWNER/ADMIN of the project (or a system ADMINISTRATOR);
+        otherwise `403`. Counts the project's rows whose status is `PENDING`
+        (the members list above only returns `ACTIVE` ones).
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count:
+                    type: integer
+                    format: int64
+
+  /api/project-members/project/{projectId}/invitable-users:
+    get:
+      tags: [Project Members]
+      summary: Search users who can still be invited to a project
+      description: >
+        Requires OWNER/ADMIN of the project (or a system ADMINISTRATOR);
+        otherwise `403`. Searches every `ACTIVE` account in the organisation
+        (not only people who share a project with the caller) by username or
+        full name, case-insensitively. Never returns the caller, anyone
+        already `ACTIVE` or `PENDING` on this project, or `INACTIVE`/`SUSPENDED`
+        accounts. Filtered and limited in the database.
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: q
+          in: query
+          required: false
+          description: Text to match against username or full name. Empty returns the first page alphabetically.
+          schema:
+            type: string
+            default: ""
+        - name: limit
+          in: query
+          required: false
+          description: Maximum results; clamped to 1-20.
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      format: int64
+                    fullName:
+                      type: string
+                    username:
+                      type: string
+                    positionName:
+                      type: string
+                      nullable: true
+                    profilePhotoUrl:
+                      type: string
+                      nullable: true
+
   /api/project-members/user/{userId}:
     get:
       tags: [Project Members]
       summary: List the projects a user belongs to
       description: >
-        Any authenticated user — not role-gated. An unknown `userId` returns
+        Any authenticated user, **scoped**: an administrator gets every row;
+        anyone else gets only the user's `ACTIVE` memberships in projects the
+        caller is an active member of. An unknown or unrelated `userId` returns
         an empty list rather than a `404`.
       parameters:
         - name: userId
@@ -1250,7 +1360,7 @@ components:
         a `ROLE_<name>` granted authority by a custom
         `JwtAuthenticationConverter`. Policy is coarse role gates per
         resource (see each operation's description and
-        `backend/README.md#security`), with one ownership-scoped exception:
+        `docs/backend.md#security`), with one ownership-scoped exception:
         `PUT /api/tasks/{id}` for a `TEAM_MEMBER` caller. Every `GET`
         endpoint, `PUT /api/users/me`, and every `/api/notifications`
         endpoint have no role gate at all beyond a valid JWT.
@@ -1265,6 +1375,22 @@ components:
         format: int64
 
   responses:
+    Conflict:
+      description: >
+        The request collides with existing data, e.g. a duplicate project
+        code. `GlobalExceptionHandler` maps `ConflictException` (and a unique
+        violation on `projects.project_code`) to a clean `409` JSON body —
+        never the raw database error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            timestamp: "2026-10-06T10:15:30Z"
+            status: 409
+            error: Conflict
+            message: Project code already exists.
+            fieldErrors: null
     NotFound:
       description: >
         No row matches the given id (or a referenced foreign id in the
@@ -1424,8 +1550,9 @@ components:
       description: "`projects.status`. Defaults to `PLANNING` if omitted on create."
     ProjectRole:
       type: string
-      enum: [PROJECT_MANAGER, TEAM_LEADER, TEAM_MEMBER]
-      description: "`project_members.project_role`. Defaults to `TEAM_MEMBER` if omitted on create."
+      enum: [OWNER, ADMIN, MEMBER, VIEWER]
+      description: "`project_members.project_role`. Defaults to `MEMBER` if omitted on create. `OWNER` is granted automatically to a project's creator; granting it requires being an `OWNER` (or system `ADMINISTRATOR`)."
+
     MilestoneStatus:
       type: string
       enum: [PENDING, IN_PROGRESS, COMPLETED]
@@ -1436,8 +1563,8 @@ components:
       description: "`tasks.priority`. Defaults to `MEDIUM` if omitted on create."
     TaskStatus:
       type: string
-      enum: [TO_DO, IN_PROGRESS, IN_REVIEW, COMPLETED, CANCELLED]
-      description: "`tasks.status`. Defaults to `TO_DO` if omitted on create."
+      enum: [TODO, IN_PROGRESS, IN_REVIEW, COMPLETED, CANCELLED]
+      description: "`tasks.status`. Defaults to `TODO` if omitted on create."
     NotificationType:
       type: string
       enum:
@@ -1753,11 +1880,12 @@ components:
 
     ProjectRequest:
       type: object
-      required: [projectCode, name, startDate, endDate, managerId]
+      required: [name, startDate, endDate, managerId]
       properties:
         projectCode:
           type: string
           maxLength: 30
+          description: Optional. Omitted/blank on create generates the next PRJ-#### code; blank on update keeps the existing code.
         name:
           type: string
           maxLength: 200

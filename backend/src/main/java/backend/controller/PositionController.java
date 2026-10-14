@@ -28,13 +28,9 @@ public class PositionController {
     }
 
     // Global lookup-table management — genuinely system-wide, unrelated to
-    // any one project, so gated by the system role rather than any
-    // project_role (project-member management elsewhere is instead gated
-    // per-project via ProjectAccessGuard.canManage). PROJECT_MANAGER/
-    // TEAM_LEADER used to also qualify before those global roles were
-    // replaced by project-scoped roles (see V5 migration) — removed here
-    // since neither can exist anymore.
-    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    // any one project, so gated by the system-level
+    // permission LOOKUP:CREATE (Administrator) rather than by any project role.
+    @PreAuthorize("@permissions.require(authentication, 'LOOKUP', 'CREATE')")
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public PositionResponse createPosition(@Valid @RequestBody PositionRequest request) {

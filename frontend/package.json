@@ -8,15 +8,19 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.38.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.3",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -30,6 +34,7 @@
     "eslint-plugin-react-refresh": "^0.5.4",
     "globals": "^17.11.0",
     "tailwindcss": "^4.3.3",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
   }
 }

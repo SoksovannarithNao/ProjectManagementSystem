@@ -1,6 +1,7 @@
 package backend.repository;
 
 import backend.entity.ProjectMember;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,12 +12,26 @@ import java.util.Optional;
 
 public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Long> {
 
+    // The member LISTS load the project (with its manager and lead), the user (with role,
+    // position and department) and the inviter in the same statement, because each row nests a
+    // whole ProjectResponse and UserResponse. As lazy loads one by one, a project deleted by
+    // someone else while the response was being built failed the whole list with a 500.
+    @Override
+    @EntityGraph(attributePaths = {"project", "project.manager", "project.lead", "user", "user.role", "user.position", "user.department", "invitedBy"})
+    List<ProjectMember> findAll();
+
+    @EntityGraph(attributePaths = {"project", "project.manager", "project.lead", "user", "user.role", "user.position", "user.department", "invitedBy"})
     List<ProjectMember> findByProjectId(Long projectId);
 
+    @EntityGraph(attributePaths = {"project", "project.manager", "project.lead", "user", "user.role", "user.position", "user.department", "invitedBy"})
     List<ProjectMember> findByProjectIdAndStatus(Long projectId, String status);
 
+    long countByProjectIdAndStatus(Long projectId, String status);
+
+    @EntityGraph(attributePaths = {"project", "project.manager", "project.lead", "user", "user.role", "user.position", "user.department", "invitedBy"})
     List<ProjectMember> findByUserId(Long userId);
 
+    @EntityGraph(attributePaths = {"project", "project.manager", "project.lead", "user", "user.role", "user.position", "user.department", "invitedBy"})
     List<ProjectMember> findByProjectIdIn(Collection<Long> projectIds);
 
     Optional<ProjectMember> findByProjectIdAndUserId(Long projectId, Long userId);
@@ -47,6 +62,8 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Lo
     // owner (a project must never end up with zero owners; see
     // ProjectMemberService.assertNotRemovingLastOwner).
     long countByProjectIdAndProjectRoleAndStatus(Long projectId, String projectRole, String status);
+
+    Optional<ProjectMember> findFirstByProjectIdAndProjectRoleAndStatus(Long projectId, String projectRole, String status);
 
     // Projects where the given user is the ONLY ACTIVE OWNER — used by
     // UserService to refuse deactivating (or deleting) an account that

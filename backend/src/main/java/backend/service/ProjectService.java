@@ -1,18 +1,26 @@
 package backend.service;
 
+import backend.dto.PageResponse;
 import backend.dto.ProjectRequest;
 import backend.dto.ProjectResponse;
 import backend.entity.Project;
 import backend.entity.ProjectMember;
 import backend.entity.User;
+import backend.exception.ConflictException;
+import backend.exception.GlobalExceptionHandler;
 import backend.exception.NotFoundException;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
+import backend.util.PageParams;
+import backend.util.ProjectListQuery;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -23,16 +31,28 @@ public class ProjectService {
     private final ProjectMemberRepository projectMemberRepository;
     private final UserRepository userRepository;
     private final ProjectAccessGuard projectAccessGuard;
+    private final ProjectOwnership projectOwnership;
+    private final ActivityLogService activityLogService;
+    private final UpdateNotificationService updateNotificationService;
+    private final AuditLogService auditLogService;
 
     public ProjectService(
             ProjectRepository projectRepository,
             ProjectMemberRepository projectMemberRepository,
             UserRepository userRepository,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            ProjectOwnership projectOwnership,
+            ActivityLogService activityLogService,
+            UpdateNotificationService updateNotificationService,
+            AuditLogService auditLogService) {
+        this.auditLogService = auditLogService;
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
+        this.projectOwnership = projectOwnership;
+        this.activityLogService = activityLogService;
+        this.updateNotificationService = updateNotificationService;
     }
 
     // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
@@ -41,7 +61,21 @@ public class ProjectService {
     // add the designated manager as a project_member, so a Project Manager
     // still sees the projects they manage.
     @Transactional(readOnly = true)
-    public List<ProjectResponse> getAllProjects(String username) {
+    public List<ProjectResponse> getAllProjects(String username, ProjectListQuery query) {
+        return matching(username, query, false).stream().map(ProjectResponse::new).toList();
+    }
+
+    // The same list one page at a time (?page / ?size): the filter and sort run first, so the
+    // page and the total both describe what matches. Without a sort the order is by id, so that
+    // a page is the same page every time.
+    @Transactional(readOnly = true)
+    public PageResponse<ProjectResponse> getProjectsPage(String username, ProjectListQuery query, PageParams paging) {
+        List<Project> matched = matching(username, query, true);
+        return new PageResponse<>(paging.slice(matched).stream().map(ProjectResponse::new).toList(),
+                matched.size(), paging.getPage(), paging.getSize());
+    }
+
+    private List<Project> matching(String username, ProjectListQuery query, boolean orderedById) {
         User caller = userRepository.findByUsername(username)
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
@@ -52,8 +86,12 @@ public class ProjectService {
             List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
             projects = projectRepository.findByIdIn(visibleProjectIds);
         }
+        if (orderedById) {
+            projects = projects.stream().sorted(Comparator.comparing(Project::getId)).toList();
+        }
 
-        return projects.stream().map(ProjectResponse::new).toList();
+        // Search, filter and sort come last, over the projects the caller may already see.
+        return query.apply(projects);
     }
 
     @Transactional(readOnly = true)
@@ -71,58 +109,132 @@ public class ProjectService {
                 .orElseThrow(() -> new NotFoundException("Project not found"));
     }
 
-    // Any authenticated user may create a project — that's the whole point
-    // of project-scoped authorization: you don't need a global role to own
-    // your own project. The caller always becomes the manager/OWNER unless
-    // they're a system ADMINISTRATOR explicitly assigning someone else (the
-    // one pre-existing capability this preserves — e.g. an admin setting up
-    // a project on another user's behalf).
+    // Creating a project needs the project-creation capability (PROJECT:CREATE:
+    // Project Manager and Administrator). The caller becomes the project's single
+    // OWNER and manager, unless an ADMINISTRATOR names someone else who is able to
+    // own projects (D-03) - e.g. setting up a project on another person's behalf.
     public ProjectResponse createProject(ProjectRequest request, String callerUsername) {
         User caller = requireUser(callerUsername);
+        // Creating a project is not about any one project yet, so it is a SYSTEM
+        // permission (PROJECT:CREATE): Project Manager and Administrator.
+        projectAccessGuard.assertSystemCan(caller, Resource.PROJECT, Action.CREATE);
         Project project = new Project();
         applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
-        ensureManagerIsMember(saved);
+        // Flushed so the database-set completed_at is read back into the response.
+        projectRepository.flush();
+        projectOwnership.assignOwner(saved, saved.getManager());
+        activityLogService.recordProjectEvent(caller, saved, "PROJECT_CREATED",
+                "Project \"" + saved.getName() + "\" created");
         return new ProjectResponse(saved);
     }
 
     public ProjectResponse updateProject(Long id, ProjectRequest request, String callerUsername) {
         User caller = requireUser(callerUsername);
-        projectAccessGuard.assertCanManage(caller, id);
+        projectAccessGuard.assertCan(caller, id, Resource.PROJECT, Action.EDIT);
         Project project = getProjectEntityById(id);
+        String[] before = snapshot(project);
         applyRequest(project, request, caller);
         Project saved = projectRepository.save(project);
-        ensureManagerIsMember(saved);
+        // Flushed so the database-set completed_at is read back into the response.
+        projectRepository.flush();
+        // Only an administrator can change the manager; that is an ownership transfer.
+        projectOwnership.assignOwner(saved, saved.getManager());
+        logProjectChanges(caller, saved, before);
         return new ProjectResponse(saved);
     }
 
-    // getAllProjects/getAllTasks scope non-admins to projects they're a
-    // project_member of, so the manager must always be one — otherwise
-    // whoever's responsible for a project couldn't see it. Matches how
-    // database/init/02-seed.sql seeds every project's manager as a
-    // project_member with that same role. Only used for a brand-new
-    // membership row (createProject) or when an ADMINISTRATOR reassigns the
-    // manager on updateProject — never downgrades an existing OWNER/ADMIN's
-    // role.
-    private void ensureManagerIsMember(Project project) {
-        Long managerId = project.getManager().getId();
-        if (projectMemberRepository.existsByProjectIdAndUserId(project.getId(), managerId)) {
-            return;
+    // name, status, priority, start, end, description - what an edit can change.
+    private static String[] snapshot(Project p) {
+        return new String[] {p.getName(), p.getStatus(), p.getPriority(),
+                String.valueOf(p.getStartDate()), String.valueOf(p.getEndDate()), String.valueOf(p.getDescription())};
+    }
+
+    // One "updated" entry naming what changed (nothing is logged for a save that
+    // changed nothing), and a separate "completed" entry when the status
+    // became Completed.
+    private void logProjectChanges(User actor, Project saved, String[] before) {
+        String[] after = snapshot(saved);
+        String[] labels = {"name", "status", "priority", "start date", "end date", "description"};
+        List<String> changed = new java.util.ArrayList<>();
+        for (int i = 0; i < labels.length; i++) {
+            if (!java.util.Objects.equals(before[i], after[i])) {
+                changed.add(labels[i]);
+            }
         }
-        ProjectMember member = new ProjectMember();
-        member.setProject(project);
-        member.setUser(project.getManager());
-        member.setProjectRole("OWNER");
-        projectMemberRepository.save(member);
+        if (!changed.isEmpty()) {
+            activityLogService.recordProjectEvent(actor, saved, "PROJECT_UPDATED",
+                    "Project updated (" + String.join(", ", changed) + ")");
+        }
+        boolean completed = "COMPLETED".equals(saved.getStatus()) && !"COMPLETED".equals(before[1]);
+        if (completed) {
+            activityLogService.recordProjectEvent(actor, saved, "PROJECT_COMPLETED",
+                    "Project \"" + saved.getName() + "\" completed");
+        }
+        // The people around the project hear about it too (nothing is sent for a save
+        // that changed nothing).
+        if (!changed.isEmpty()) {
+            updateNotificationService.notifyProjectUpdated(saved, actor, completed, changed);
+        }
+    }
+
+    // The project keeps one responsible person, the Owner (D-09); a Team Leader can be
+    // listed beside them as the lead. Only an active Team Leader of this project can be
+    // named, and a null userId clears it. Needs PROJECT:ASSIGN, like an ownership transfer.
+    public ProjectResponse setLead(Long projectId, Long userId, String callerUsername) {
+        User caller = requireUser(callerUsername);
+        projectAccessGuard.assertCan(caller, projectId, Resource.PROJECT, Action.ASSIGN);
+        Project project = getProjectEntityById(projectId);
+        User lead = null;
+        if (userId != null) {
+            lead = userRepository.findById(userId).orElseThrow(() -> new NotFoundException("User not found"));
+            boolean isTeamLeader = projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
+                    .filter(pm -> "ACTIVE".equals(pm.getStatus()) && "ADMIN".equals(pm.getProjectRole()))
+                    .isPresent();
+            if (!isTeamLeader) {
+                throw new IllegalArgumentException(lead.getFullName() + " is not a Team Leader of this project. Only a Team Leader can be its lead");
+            }
+        }
+        if (java.util.Objects.equals(idOf(project.getLead()), idOf(lead))) {
+            return new ProjectResponse(project);
+        }
+        project.setLead(lead);
+        Project saved = projectRepository.save(project);
+        activityLogService.recordProjectEvent(caller, saved, "PROJECT_LEAD_CHANGED",
+                lead != null ? lead.getFullName() + " was named the project lead" : "The project lead was cleared");
+        return new ProjectResponse(saved);
+    }
+
+    private static Long idOf(User user) {
+        return user == null ? null : user.getId();
     }
 
     // OWNER-only (or system ADMINISTRATOR) — matches ADMIN's project-level
     // permissions excluding delete/transfer-ownership.
     public void deleteProject(Long id, String callerUsername) {
         User caller = requireUser(callerUsername);
-        projectAccessGuard.assertIsOwner(caller, id);
+        projectAccessGuard.assertCan(caller, id, Resource.PROJECT, Action.DELETE);
         Project project = getProjectEntityById(id);
+        auditLogService.record(AuditLogService.PROJECT_DELETED, AuditLogService.PROJECT, project.getId(),
+                project.getProjectCode() + " " + project.getName(), null,
+                project.getStatus() + ", managed by " + project.getManager().getFullName(), null);
         projectRepository.delete(project);
+    }
+
+    // Next PRJ-#### after the highest one in use (seed data starts at
+    // PRJ-2001, so the first generated code is PRJ-2004). Simultaneous creates
+    // queue on a database lock until the earlier one commits; the unique
+    // constraint on project_code remains the final backstop.
+    private String generateProjectCode() {
+        projectRepository.lockProjectCodeGeneration();
+        int max = 0;
+        for (String code : projectRepository.findAutoProjectCodes()) {
+            String digits = code.substring("PRJ-".length());
+            if (digits.matches("\\d{1,9}")) {
+                max = Math.max(max, Integer.parseInt(digits));
+            }
+        }
+        return String.format("PRJ-%04d", max + 1);
     }
 
     private User requireUser(String username) {
@@ -146,7 +258,20 @@ public class ProjectService {
                     .orElseThrow(() -> new NotFoundException("Manager (user) not found"));
         }
 
-        project.setProjectCode(request.getProjectCode());
+        if (request.getProjectCode() != null && !request.getProjectCode().isBlank()) {
+            String code = request.getProjectCode().trim();
+            // Friendly 409 up front; the DB unique constraint stays as the
+            // backstop (see GlobalExceptionHandler for the racing case).
+            boolean taken = project.getId() == null
+                    ? projectRepository.existsByProjectCode(code)
+                    : projectRepository.existsByProjectCodeAndIdNot(code, project.getId());
+            if (taken) {
+                throw new ConflictException(GlobalExceptionHandler.PROJECT_CODE_EXISTS_MESSAGE);
+            }
+            project.setProjectCode(code);
+        } else if (project.getProjectCode() == null) {
+            project.setProjectCode(generateProjectCode());
+        }
         project.setName(request.getName());
         project.setDescription(request.getDescription());
         project.setStartDate(request.getStartDate());

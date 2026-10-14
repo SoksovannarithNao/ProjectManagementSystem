@@ -1,6 +1,7 @@
 package backend.service;
 
 import backend.dto.ChangePasswordRequest;
+import backend.dto.EffectivePermissionsResponse;
 import backend.dto.MemberAttributesRequest;
 import backend.dto.PasswordPolicy;
 import backend.dto.RegisterRequest;
@@ -19,6 +20,8 @@ import backend.repository.PositionRepository;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.RoleRepository;
 import backend.repository.UserRepository;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -40,6 +43,8 @@ public class UserService {
     // narrow (real image formats only), checked server-side since a
     // client-side accept="image/*" is only a UI hint, not a security
     // boundary.
+    private static final long MAX_PHOTO_BYTES = 5L * 1024 * 1024;
+
     private static final Set<String> ALLOWED_PHOTO_TYPES =
             Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
 
@@ -49,6 +54,10 @@ public class UserService {
     private final DepartmentRepository departmentRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ProjectAccessGuard projectAccessGuard;
+    private final PermissionService permissionService;
+    private final AuditLogService auditLogService;
+    private final RefreshTokenService refreshTokenService;
 
     public UserService(
             UserRepository userRepository,
@@ -56,13 +65,21 @@ public class UserService {
             PositionRepository positionRepository,
             DepartmentRepository departmentRepository,
             ProjectMemberRepository projectMemberRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            ProjectAccessGuard projectAccessGuard,
+            PermissionService permissionService,
+            AuditLogService auditLogService,
+            RefreshTokenService refreshTokenService) {
+        this.auditLogService = auditLogService;
+        this.refreshTokenService = refreshTokenService;
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.positionRepository = positionRepository;
         this.departmentRepository = departmentRepository;
         this.projectMemberRepository = projectMemberRepository;
         this.passwordEncoder = passwordEncoder;
+        this.projectAccessGuard = projectAccessGuard;
+        this.permissionService = permissionService;
     }
 
     // Scoped like every other directory in the app: a system ADMINISTRATOR
@@ -91,14 +108,34 @@ public class UserService {
         return user.getRole() != null && "ADMINISTRATOR".equals(user.getRole().getName());
     }
 
+    // Single-user lookups follow the same visibility rule as the directory
+    // above: a system administrator, the user themself, or someone who
+    // shares an ACTIVE project with them. Anyone else gets the same 404 as
+    // for a user that doesn't exist, so the lookup can't be used to confirm
+    // an account exists or to read its profile (email, phone, birth date).
     @Transactional(readOnly = true)
-    public UserResponse getUserById(Long id) {
-        return new UserResponse(getUserEntityById(id));
+    public UserResponse getUserById(Long id, String callerUsername) {
+        User caller = getUserEntityByUsername(callerUsername);
+        User target = getUserEntityById(id);
+        assertCanView(caller, target);
+        return new UserResponse(target);
     }
 
     @Transactional(readOnly = true)
-    public UserResponse getUserByUsername(String username) {
-        return new UserResponse(getUserEntityByUsername(username));
+    public UserResponse getUserByUsername(String username, String callerUsername) {
+        User caller = getUserEntityByUsername(callerUsername);
+        User target = getUserEntityByUsername(username);
+        assertCanView(caller, target);
+        return new UserResponse(target);
+    }
+
+    private void assertCanView(User caller, User target) {
+        if (isSystemAdministrator(caller) || caller.getId().equals(target.getId())) {
+            return;
+        }
+        if (!projectMemberRepository.findActiveCoMemberUserIds(caller.getId()).contains(target.getId())) {
+            throw new NotFoundException("User not found");
+        }
     }
 
     /** For internal callers (e.g. CustomUserDetailsService) that need the entity itself. */
@@ -115,6 +152,27 @@ public class UserService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
+    /**
+     * Resolves what a person typed into the sign-in form: a username, or the
+     * e-mail address of an account. A username can never contain '@' (see
+     * RegisterRequest), so the two cannot be confused. Returns the account's
+     * username, or the input unchanged when nothing matches so that the
+     * normal "invalid username or password" path runs.
+     */
+    @Transactional(readOnly = true)
+    public String resolveLoginIdentifier(String identifier) {
+        if (identifier == null) {
+            return null;
+        }
+        String trimmed = identifier.trim();
+        if (trimmed.contains("@")) {
+            return userRepository.findByEmailIgnoreCase(trimmed)
+                    .map(User::getUsername)
+                    .orElse(trimmed);
+        }
+        return trimmed;
+    }
+
     public UserResponse createUser(UserCreateRequest request) {
         User user = new User();
         user.setFullName(request.getFullName());
@@ -126,16 +184,21 @@ public class UserService {
         user.setPhoneNumber(request.getPhoneNumber());
         user.setPosition(resolvePosition(request.getPositionId()));
         user.setDepartment(resolveDepartment(request.getDepartmentId()));
-        user.setRole(resolveRole(request.getRoleId()));
+        user.setRole(resolveRoleForNewAccount(request.getRoleId()));
         if (request.getAccountStatus() != null) {
             user.setAccountStatus(request.getAccountStatus());
         }
 
-        return new UserResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        auditLogService.record(AuditLogService.ACCOUNT_CREATED, AuditLogService.USER, saved.getId(), auditLabel(saved), null,
+                null, describe(saved));
+        return new UserResponse(saved);
     }
 
     public UserResponse updateUser(Long id, UserUpdateRequest request) {
         User user = getUserEntityById(id);
+        String roleBefore = roleName(user);
+        String statusBefore = user.getAccountStatus();
 
         user.setFullName(request.getFullName());
         user.setUsername(request.getUsername());
@@ -145,10 +208,11 @@ public class UserService {
         user.setPhoneNumber(request.getPhoneNumber());
         user.setPosition(resolvePosition(request.getPositionId()));
         user.setDepartment(resolveDepartment(request.getDepartmentId()));
-        user.setRole(resolveRole(request.getRoleId()));
+        user.setRole(resolveRoleForUpdate(user, request.getRoleId()));
         if (request.getAccountStatus() != null) {
             if (!"ACTIVE".equals(request.getAccountStatus()) && "ACTIVE".equals(user.getAccountStatus())) {
                 assertNotSoleOwnerOfAnyProject(user.getId());
+                assertNotLastAdministrator(user, "deactivated");
             }
             user.setAccountStatus(request.getAccountStatus());
         }
@@ -157,9 +221,37 @@ public class UserService {
                 throw new IllegalArgumentException(PasswordPolicy.MESSAGE);
             }
             user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+            // A reset password ends every session the account had.
+            refreshTokenService.revokeAll(user.getId());
         }
 
-        return new UserResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        auditRoleAndStatusChange(saved, roleBefore, statusBefore);
+        return new UserResponse(saved);
+    }
+
+    // The two changes an Administrator makes to an account that the audit log keeps.
+    private void auditRoleAndStatusChange(User user, String roleBefore, String statusBefore) {
+        if (!roleBefore.equals(roleName(user))) {
+            auditLogService.record(AuditLogService.USER_ROLE_CHANGED, AuditLogService.USER, user.getId(), auditLabel(user),
+                    null, roleBefore, roleName(user));
+        }
+        if (!java.util.Objects.equals(statusBefore, user.getAccountStatus())) {
+            auditLogService.record(AuditLogService.ACCOUNT_STATUS_CHANGED, AuditLogService.USER, user.getId(), auditLabel(user),
+                    null, statusBefore, user.getAccountStatus());
+        }
+    }
+
+    private static String roleName(User user) {
+        return user.getRole() != null ? user.getRole().getName() : "none";
+    }
+
+    private static String auditLabel(User user) {
+        return user.getFullName() + " (@" + user.getUsername() + ")";
+    }
+
+    private static String describe(User user) {
+        return "role " + roleName(user) + ", status " + user.getAccountStatus();
     }
 
     // Self-service variant of updateUser: no roleId/accountStatus (a user
@@ -172,9 +264,12 @@ public class UserService {
         user.setGender(request.getGender());
         user.setDateOfBirth(request.getDateOfBirth());
         user.setPhoneNumber(request.getPhoneNumber());
-        // Deliberately does NOT touch position/department (Team-Admin-managed
-        // only, via updateMemberPositionDepartment below) or profilePhotoUrl
-        // (managed only via uploadOwnProfilePhoto/deleteOwnProfilePhoto below).
+        // Position/department come from the managed lists (an unknown id is a
+        // 404); creating a new list entry stays administrator-only. The
+        // profile photo is managed only via uploadOwnProfilePhoto/
+        // deleteOwnProfilePhoto below.
+        user.setPosition(resolvePosition(request.getPositionId()));
+        user.setDepartment(resolveDepartment(request.getDepartmentId()));
 
         return new UserResponse(userRepository.save(user));
     }
@@ -193,6 +288,11 @@ public class UserService {
         }
         if (!ALLOWED_PHOTO_TYPES.contains(file.getContentType())) {
             throw new IllegalArgumentException("Photo must be a JPEG, PNG, WEBP, or GIF image");
+        }
+        // The multipart ceiling is higher now (attachments), so a photo's own
+        // limit is checked here.
+        if (file.getSize() > MAX_PHOTO_BYTES) {
+            throw new IllegalArgumentException("Photo is too large (max 5MB)");
         }
 
         byte[] bytes;
@@ -255,13 +355,14 @@ public class UserService {
         User target = getUserEntityById(targetUserId);
 
         if (caller.getId().equals(target.getId())) {
-            throw new AccessDeniedException("You cannot change your own position/department");
+            throw new AccessDeniedException("Change your own position/department from your Profile page");
         }
 
         if (!isSystemAdministrator(caller)) {
-            List<Long> callerAdminProjectIds = projectMemberRepository.findActiveAdminProjectIds(caller.getId());
-            List<Long> targetProjectIds = projectMemberRepository.findProjectIdsByUserId(target.getId());
-            boolean sharesAdministeredTeam = callerAdminProjectIds.stream().anyMatch(targetProjectIds::contains);
+            // "Team Admin" = may edit team members (MEMBER:EDIT) in at least one project
+            // the target is also an active member of.
+            boolean sharesAdministeredTeam = projectMemberRepository.findProjectIdsByUserId(target.getId()).stream()
+                    .anyMatch(projectId -> projectAccessGuard.can(caller, projectId, Resource.MEMBER, Action.EDIT));
             if (!sharesAdministeredTeam) {
                 throw new AccessDeniedException("You are not a Team Admin for this member");
             }
@@ -272,15 +373,74 @@ public class UserService {
         return new UserResponse(userRepository.save(target));
     }
 
-    // Optional — an admin-created/edited account may have no system-level
-    // role at all (the common case; see User.role), or be explicitly
-    // granted one (currently only ADMINISTRATOR exists).
-    private Role resolveRole(Long roleId) {
+    // Every account holds a system role (the user "is assigned an appropriate
+    // role"). An administrator creating an account without choosing one gets the
+    // same default as self-registration: USER.
+    private Role resolveRoleForNewAccount(Long roleId) {
+        return roleId == null ? defaultUserRole() : assignableRole(roleId);
+    }
+
+    // On update, a missing roleId leaves the account's role as it is.
+    private Role resolveRoleForUpdate(User user, Long roleId) {
         if (roleId == null) {
-            return null;
+            return user.getRole();
         }
-        return roleRepository.findById(roleId)
+        Role next = assignableRole(roleId);
+        assertNotRemovingLastAdministrator(user, next);
+        assertStillCanOwnProjects(user, next);
+        return next;
+    }
+
+    private Role assignableRole(Long roleId) {
+        Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new NotFoundException("Role not found"));
+        if (!role.isAssignableToUsers()) {
+            throw new IllegalArgumentException(
+                    role.getName() + " is a project-only role and cannot be given to an account");
+        }
+        return role;
+    }
+
+    // The system must always keep at least one Administrator, or nobody could
+    // manage users or roles again.
+    private void assertNotRemovingLastAdministrator(User user, Role next) {
+        boolean wasAdministrator = user.getRole() != null && Role.ADMINISTRATOR.equals(user.getRole().getName());
+        if (wasAdministrator && !Role.ADMINISTRATOR.equals(next.getName())
+                && userRepository.countByRoleName(Role.ADMINISTRATOR) <= 1) {
+            throw new IllegalArgumentException(
+                    "At least one Administrator is required. Make someone else an Administrator first");
+        }
+    }
+
+    // Only a Project Manager or an Administrator can own a project, so a person who
+    // owns one cannot be moved to USER until ownership is transferred (D-04).
+    private void assertStillCanOwnProjects(User user, Role next) {
+        if (Role.ADMINISTRATOR.equals(next.getName()) || Role.PROJECT_MANAGER.equals(next.getName())) {
+            return;
+        }
+        List<Long> owned = projectMemberRepository.findProjectIdsWhereSoleActiveOwner(user.getId());
+        if (!owned.isEmpty()) {
+            throw new IllegalArgumentException(
+                    user.getFullName() + " owns " + owned.size() + " project(s). Transfer ownership first: only a Project Manager or an Administrator can own a project");
+        }
+    }
+
+    // PUT /api/users/{id}/role (USER:ASSIGN, enforced on the controller).
+    public UserResponse assignRole(Long userId, Long roleId) {
+        User user = getUserEntityById(userId);
+        Role next = assignableRole(roleId);
+        assertNotRemovingLastAdministrator(user, next);
+        assertStillCanOwnProjects(user, next);
+        String roleBefore = roleName(user);
+        user.setRole(next);
+        User saved = userRepository.save(user);
+        auditRoleAndStatusChange(saved, roleBefore, saved.getAccountStatus());
+        return new UserResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public EffectivePermissionsResponse getOwnPermissions(String username) {
+        return permissionService.effectiveFor(getUserEntityByUsername(username));
     }
 
     private Position resolvePosition(Long positionId) {
@@ -318,6 +478,8 @@ public class UserService {
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
+        // Changing the password ends every session, this browser included: it signs in again.
+        refreshTokenService.revokeAll(user.getId());
     }
 
     // Appearance/notification preferences — separate from updateOwnProfile
@@ -330,10 +492,26 @@ public class UserService {
         return new UserResponse(userRepository.save(user));
     }
 
-    public void deleteUser(Long id) {
-        assertNotSoleOwnerOfAnyProject(id);
+    public void deleteUser(Long id, String actingUsername) {
         User user = getUserEntityById(id);
+        if (user.getUsername().equalsIgnoreCase(actingUsername)) {
+            throw new IllegalArgumentException("You cannot delete your own account");
+        }
+        assertNotSoleOwnerOfAnyProject(id);
+        assertNotLastAdministrator(user, "deleted");
+        auditLogService.record(AuditLogService.ACCOUNT_DELETED, AuditLogService.USER, user.getId(), auditLabel(user), null,
+                describe(user), null);
         userRepository.delete(user);
+    }
+
+    // Deactivating or deleting the only Administrator would leave nobody able
+    // to manage users or roles, same rule as assertNotRemovingLastAdministrator.
+    private void assertNotLastAdministrator(User user, String action) {
+        boolean isAdministrator = user.getRole() != null && Role.ADMINISTRATOR.equals(user.getRole().getName());
+        if (isAdministrator && userRepository.countByRoleName(Role.ADMINISTRATOR) <= 1) {
+            throw new IllegalArgumentException(
+                    "The last Administrator cannot be " + action + ". Make someone else an Administrator first");
+        }
     }
 
     // Refuses to deactivate/delete an account that is the sole ACTIVE OWNER
@@ -354,12 +532,10 @@ public class UserService {
     // Self-registration: unlike createUser (admin-only, full field set),
     // this only collects username/email/password. fullName defaults to the
     // username — the user fills in the rest later via Profile. Every
-    // self-registered account gets the global USER role (see User.role) —
-    // that role carries no permission bypass of any kind, it's purely an
-    // account-level label; a self-registered account is still just a plain
-    // user and gains project-level authority only by creating or being
-    // added to a project (see ProjectService/ProjectMemberService), never
-    // from a global role. ADMINISTRATOR is never assigned here — only by an
+    // self-registered account gets the system role USER: it can work on the
+    // projects it is added to but cannot create a project (PROJECT:CREATE
+    // belongs to Project Manager and Administrator). An administrator promotes
+    // it later with PUT /api/users/{id}/role. ADMINISTRATOR is never assigned here — only by an
     // existing admin promoting an account later. PENDING_VERIFICATION
     // (CustomUserDetailsService already treats anything but ACTIVE as
     // disabled, so this account can't log in until OtpService.verify flips
@@ -383,22 +559,28 @@ public class UserService {
         user.setAccountStatus("PENDING_VERIFICATION");
         user.setRole(defaultUserRole());
 
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        auditLogService.record(saved, AuditLogService.ACCOUNT_CREATED, AuditLogService.USER, saved.getId(), auditLabel(saved),
+                null, null, describe(saved));
+        return saved;
     }
 
-    // The USER role seeded in database/init/01-init.sql (see V7 migration
-    // for the delta on existing databases). Failing loudly here rather than
-    // leaving role_id NULL if it's somehow missing, since a missing seed row
-    // means the database wasn't migrated correctly.
+    // The USER role seeded in database/init/01-init.sql (migration V10 for
+    // existing databases). Failing loudly here rather than leaving role_id NULL
+    // if it's somehow missing, since a missing seed row means the database
+    // wasn't migrated correctly.
     private Role defaultUserRole() {
-        return roleRepository.findByName("USER")
+        return roleRepository.findByName(Role.USER)
                 .orElseThrow(() -> new IllegalStateException(
-                        "Default USER role is missing — check database seed data / run pending migrations"));
+                        "Default USER role is missing — check database seed data / run pending migrations (V10)"));
     }
 
     public void activateUser(String username) {
         User user = getUserEntityByUsername(username);
+        String statusBefore = user.getAccountStatus();
         user.setAccountStatus("ACTIVE");
         userRepository.save(user);
+        auditLogService.record(user, AuditLogService.ACCOUNT_STATUS_CHANGED, AuditLogService.USER, user.getId(),
+                auditLabel(user), null, statusBefore, "ACTIVE");
     }
 }

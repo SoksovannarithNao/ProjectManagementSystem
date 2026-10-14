@@ -1,12 +1,17 @@
 package backend.service;
 
 import backend.dto.NotificationResponse;
+import backend.dto.PageResponse;
 import backend.entity.Notification;
 import backend.entity.ProjectMember;
 import backend.entity.Task;
 import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.NotificationRepository;
+import backend.util.PageParams;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +36,17 @@ public class NotificationService {
                 .stream()
                 .map(NotificationResponse::new)
                 .toList();
+    }
+
+    // The bell lists the newest first and asks for more a page at a time (?page / ?size). The id
+    // breaks ties between notifications created in the same instant, so no page repeats or skips one.
+    @Transactional(readOnly = true)
+    public PageResponse<NotificationResponse> getMyNotificationsPage(String username, PageParams paging) {
+        User user = userService.getUserEntityByUsername(username);
+        Page<Notification> found = notificationRepository.findByUserId(user.getId(),
+                PageRequest.of(paging.getPage(), paging.getSize(), Sort.by(Sort.Direction.DESC, "createdAt", "id")));
+        return new PageResponse<>(found.getContent().stream().map(NotificationResponse::new).toList(),
+                found.getTotalElements(), paging.getPage(), paging.getSize());
     }
 
     @Transactional(readOnly = true)
@@ -70,7 +86,9 @@ public class NotificationService {
     }
 
     // Called by TaskAssigneeService right after a new assignment is saved.
-    public void notifyTaskAssigned(Task task, User assignee) {
+    // The text names the task, its project, the due date and who assigned it,
+    // so the assignee can act without opening the task first.
+    public void notifyTaskAssigned(Task task, User assignee, User assignedBy) {
         if (!assignee.isTaskNotificationsEnabled()) {
             return;
         }
@@ -78,34 +96,63 @@ public class NotificationService {
         notification.setUser(assignee);
         notification.setType("TASK_ASSIGNED");
         notification.setTitle("New task assigned");
-        notification.setMessage("You were assigned to \"" + task.getTitle() + "\"");
+        notification.setMessage(assignedBy.getFullName() + " assigned you to \"" + task.getTitle()
+                + "\" in \"" + task.getProject().getName() + "\" — due "
+                + (task.getDueDate() != null ? task.getDueDate() : "no due date set"));
         notification.setProject(task.getProject());
         notification.setTask(task);
         notificationRepository.save(notification);
     }
 
-    // Called by TaskService after a task's status actually changes.
-    public void notifyTaskStatusChanged(Task task, List<User> assignees) {
-        String humanizedStatus = humanizeStatus(task.getStatus());
-        for (User assignee : assignees) {
-            if (!assignee.isTaskNotificationsEnabled()) {
+    // Called by TaskApprovalService when a task enters In Review (or an approver
+    // is named for a task that is already waiting): tells whoever may decide.
+    public void notifyApprovalRequested(Task task, User requester, List<User> approvers) {
+        String who = requester != null ? requester.getFullName() : "Someone";
+        for (User approver : approvers) {
+            if (!approver.isTaskNotificationsEnabled()) {
                 continue;
             }
             Notification notification = new Notification();
-            notification.setUser(assignee);
-            notification.setType("TASK_STATUS_CHANGED");
-            notification.setTitle("Task status updated");
-            notification.setMessage("\"" + task.getTitle() + "\" is now " + humanizedStatus);
+            notification.setUser(approver);
+            notification.setType("APPROVAL_REQUESTED");
+            notification.setTitle("Approval requested");
+            notification.setMessage(who + " asked you to review \"" + task.getTitle()
+                    + "\" in \"" + task.getProject().getName() + "\"");
             notification.setProject(task.getProject());
             notification.setTask(task);
             notificationRepository.save(notification);
         }
     }
 
+    // Called by TaskApprovalService when an approver decides: tells the person
+    // who asked for the review (not the approver themself).
+    public void notifyApprovalDecided(Task task, User requester, User decider, String decision, String comment) {
+        if (requester == null || requester.getId() == null || requester.getId().equals(decider.getId())
+                || !requester.isTaskNotificationsEnabled()) {
+            return;
+        }
+        String what = switch (decision) {
+            case "APPROVED" -> "approved";
+            case "CHANGES_REQUESTED" -> "asked for changes on";
+            default -> "rejected";
+        };
+        String message = decider.getFullName() + " " + what + " \"" + task.getTitle() + "\""
+                + (comment != null ? ": " + comment : "");
+        Notification notification = new Notification();
+        notification.setUser(requester);
+        notification.setType("APPROVAL_DECIDED");
+        notification.setTitle("APPROVED".equals(decision) ? "Task approved"
+                : "CHANGES_REQUESTED".equals(decision) ? "Changes requested" : "Task rejected");
+        notification.setMessage(message.length() <= 500 ? message : message.substring(0, 499) + "\u2026");
+        notification.setProject(task.getProject());
+        notification.setTask(task);
+        notificationRepository.save(notification);
+    }
+
     // Called by ProjectMemberService.inviteMember right after a new/re-sent
     // invitation is saved. The invited user is the "Admin action -> correct
     // recipient" notification this app was actually missing — see
-    // backend/README.md's Notifications section for why the old ADMIN
+    // docs/backend.md's Notifications section for why the old ADMIN
     // notification requirement didn't work: no event ever created one.
     public void notifyTeamInvitation(ProjectMember member, User inviter) {
         User invitee = member.getUser();
@@ -136,16 +183,5 @@ public class NotificationService {
                 + " your invitation to join \"" + member.getProject().getName() + "\"");
         notification.setProject(member.getProject());
         notificationRepository.save(notification);
-    }
-
-    private String humanizeStatus(String status) {
-        if (status == null || status.isBlank()) return "";
-        StringBuilder result = new StringBuilder();
-        for (String word : status.toLowerCase().split("_")) {
-            if (word.isEmpty()) continue;
-            if (!result.isEmpty()) result.append(' ');
-            result.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
-        }
-        return result.toString();
     }
 }

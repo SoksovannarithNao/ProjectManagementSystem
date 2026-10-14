@@ -3,26 +3,29 @@ import { CalendarDays, ListChecks, AlertTriangle } from 'lucide-react'
 import { Avatar, AvatarGroup } from './ui/Avatar'
 import { ProgressBar } from './ui/ProgressBar'
 import { Badge } from './ui/Badge'
+import { DelayedBadge } from './DelayedBadge'
 import { humanizeEnum, formatDate, initialsFor, colorForId } from '../api/format'
 
 // `stats` is optional ({ total, completed, overdue } from
 // buildProjectTaskStats) — omitted wherever a caller hasn't already fetched
 // the task list (e.g. Dashboard's top-2 widget), since fetching all tasks
-// just for two cards isn't worth it there.
-export function ProjectCard({ project, stats }) {
+// just for two cards isn't worth it there. `compact` is the dashboard's shorter preview: no
+// description, badges in one row, tighter padding; the Projects page keeps the full card.
+export function ProjectCard({ project, stats, compact = false }) {
   return (
     <Link
       to={`/projects/${project.id}`}
-      className="card hover:shadow-card-hover flex flex-col gap-4 px-6 py-[22px] shadow-[0_10px_28px_rgba(17,17,17,.22)] hover:-translate-y-0.5"
+      className={`card hover:shadow-card-hover flex flex-col hover:-translate-y-0.5 ${compact ? 'gap-3 px-5 py-4' : 'gap-4 px-6 py-[22px]'}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className={compact ? 'flex flex-col gap-2' : 'flex items-start justify-between gap-3'}>
         <div className="min-w-0">
-          <h3 className="text-ink truncate text-[15.5px] font-[650]">{project.name}</h3>
-          {project.projectCode && <p className="text-faint mt-0.5 text-[11px] font-semibold">{project.projectCode}</p>}
-          <p className="text-muted mt-1.5 line-clamp-2 text-[12.5px]">{project.description}</p>
+          <h3 className="text-ink truncate text-[15px] font-[650]">{project.name}</h3>
+          {project.projectCode && <p className="text-faint mt-0.5 text-[12px] font-semibold">{project.projectCode}</p>}
+          {!compact && <p className="text-muted mt-1.5 line-clamp-2 text-[12px]">{project.description}</p>}
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <div className={compact ? 'flex flex-wrap items-center gap-1.5' : 'flex shrink-0 flex-col items-end gap-1.5'}>
           <Badge tone={project.status}>{humanizeEnum(project.status)}</Badge>
+          <DelayedBadge project={project} />
           {project.priority && <Badge tone={project.priority}>{humanizeEnum(project.priority)}</Badge>}
         </div>
       </div>
@@ -36,13 +39,13 @@ export function ProjectCard({ project, stats }) {
       </div>
 
       {stats && (
-        <div className="text-muted flex items-center gap-3.5 text-[11.5px]">
+        <div className="text-muted flex items-center gap-3.5 text-[12px]">
           <span className="inline-flex items-center gap-1.5">
             <ListChecks size={13} />
             {stats.completed}/{stats.total} tasks
           </span>
           {stats.overdue > 0 && (
-            <span className="text-danger inline-flex items-center gap-1.5 font-semibold">
+            <span className="text-danger-ink inline-flex items-center gap-1.5 font-semibold">
               <AlertTriangle size={13} />
               {stats.overdue} overdue
             </span>
@@ -59,6 +62,11 @@ export function ProjectCard({ project, stats }) {
             size={22}
           />
           <span className="text-muted truncate text-[12px]">{project.manager.fullName}</span>
+          {project.lead && (
+            <span className="text-faint truncate text-[12px]" title="Project lead">
+              · Lead {project.lead.fullName}
+            </span>
+          )}
         </div>
       )}
 

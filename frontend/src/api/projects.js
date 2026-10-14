@@ -37,3 +37,9 @@ export function projectResponseToRequest(project, overrides = {}) {
     ...overrides,
   }
 }
+
+// Names a Team Leader of the project as its lead (userId), or clears it (null).
+// Needs PROJECT:ASSIGN in the project.
+export function setProjectLead(id, userId) {
+  return apiFetch(`/projects/${id}/lead`, { method: 'PUT', body: { userId } })
+}

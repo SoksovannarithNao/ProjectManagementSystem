@@ -2,6 +2,7 @@ package backend.dto;
 
 import backend.entity.Comment;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 public class CommentResponse {
 
@@ -13,6 +14,11 @@ public class CommentResponse {
     private String message;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+    // The active members of the project that the message mentions with @username.
+    private List<Mention> mentions = List.of();
+
+    public record Mention(Long id, String username, String fullName) {
+    }
 
     public CommentResponse(Comment comment) {
         this.id = comment.getId();
@@ -23,6 +29,15 @@ public class CommentResponse {
         this.message = comment.getMessage();
         this.createdAt = comment.getCreatedAt();
         this.updatedAt = comment.getUpdatedAt();
+    }
+
+    public List<Mention> getMentions() {
+        return mentions;
+    }
+
+    public CommentResponse withMentions(List<Mention> mentions) {
+        this.mentions = mentions;
+        return this;
     }
 
     public Long getId() {

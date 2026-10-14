@@ -7,8 +7,10 @@ import backend.entity.Task;
 import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.ActivityLogRepository;
+import backend.repository.ProjectMemberRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,16 +30,19 @@ public class ActivityLogService {
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
     private final ProjectAccessGuard projectAccessGuard;
+    private final ProjectMemberRepository projectMemberRepository;
 
     public ActivityLogService(
             ActivityLogRepository activityLogRepository,
             TaskRepository taskRepository,
             UserRepository userRepository,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            ProjectMemberRepository projectMemberRepository) {
         this.activityLogRepository = activityLogRepository;
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
         this.projectAccessGuard = projectAccessGuard;
+        this.projectMemberRepository = projectMemberRepository;
     }
 
     @Transactional(readOnly = true)
@@ -50,6 +55,47 @@ public class ActivityLogService {
         return activityLogRepository.findByTaskIdOrderByCreatedAtDesc(taskId).stream()
                 .map(ActivityLogResponse::new)
                 .toList();
+    }
+
+    // The project-wide feed (newest first). Same visibility rule as the
+    // per-task feed: members of the project, and administrators.
+    @Transactional(readOnly = true)
+    public List<ActivityLogResponse> getActivityByProjectId(Long projectId, int limit, String username) {
+        User caller = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+        projectAccessGuard.assertAccess(caller, projectId);
+        int size = Math.max(1, Math.min(limit, 200));
+        return activityLogRepository
+                .findByProjectIdOrderByCreatedAtDescIdDesc(projectId, PageRequest.of(0, size))
+                .stream()
+                .map(ActivityLogResponse::new)
+                .toList();
+    }
+
+    // The latest events across everything the caller may see (the dashboard's
+    // "recent activities"): every project for an administrator, otherwise the
+    // projects they are an active member of. `limit` is clamped to 1-50.
+    @Transactional(readOnly = true)
+    public List<ActivityLogResponse> getRecentActivity(int limit, String username) {
+        User caller = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+        PageRequest page = PageRequest.of(0, Math.max(1, Math.min(limit, 50)));
+        List<ActivityLog> entries;
+        if (projectAccessGuard.isAdmin(caller)) {
+            entries = activityLogRepository.findAllByOrderByCreatedAtDescIdDesc(page);
+        } else {
+            List<Long> visible = projectMemberRepository.findProjectIdsByUserId(caller.getId());
+            entries = visible.isEmpty()
+                    ? List.of()
+                    : activityLogRepository.findByProjectIdInOrderByCreatedAtDescIdDesc(visible, page);
+        }
+        return entries.stream().map(ActivityLogResponse::new).toList();
+    }
+
+    // An event about the project itself (created, updated, a file uploaded to
+    // it, a milestone) rather than about one task.
+    public void recordProjectEvent(User actor, Project project, String action, String description) {
+        recordForDeletedTask(actor, project, action, description);
     }
 
     public void record(User actor, Task task, String action, String description) {

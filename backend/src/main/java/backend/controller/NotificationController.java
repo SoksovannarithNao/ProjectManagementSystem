@@ -2,11 +2,11 @@ package backend.controller;
 
 import backend.dto.NotificationResponse;
 import backend.service.NotificationService;
+import backend.util.PageParams;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 // Every endpoint here is scoped to "the caller's own" notifications by
@@ -22,9 +22,18 @@ public class NotificationController {
         this.notificationService = notificationService;
     }
 
+    // With ?page and/or ?size the answer is a page ({ items, total, page, size }), newest first;
+    // without them it is every notification, as before.
     @GetMapping
-    public List<NotificationResponse> getMyNotifications(Authentication authentication) {
-        return notificationService.getMyNotifications(authentication.getName());
+    public Object getMyNotifications(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            Authentication authentication
+    ) {
+        PageParams paging = PageParams.of(page, size);
+        return paging == null
+                ? notificationService.getMyNotifications(authentication.getName())
+                : notificationService.getMyNotificationsPage(authentication.getName(), paging);
     }
 
     @GetMapping("/unread-count")

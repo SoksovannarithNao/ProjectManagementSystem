@@ -1,13 +1,16 @@
 package backend.service;
 
+import backend.dto.PageResponse;
 import backend.dto.TaskRequest;
 import backend.dto.TaskResponse;
 import backend.entity.Milestone;
 import backend.entity.Project;
 import backend.entity.Task;
+import backend.entity.TaskApproval;
 import backend.entity.User;
 import backend.entity.TaskAssignee;
 import backend.exception.NotFoundException;
+import backend.repository.ChecklistItemRepository;
 import backend.repository.MilestoneRepository;
 import backend.repository.ProjectMemberRepository;
 import backend.repository.ProjectRepository;
@@ -16,7 +19,12 @@ import backend.repository.TaskAssigneeRepository;
 import backend.repository.TaskDependencyRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
+import backend.repository.WorkLogRepository;
+import backend.util.PageParams;
+import backend.util.TaskListQuery;
 import backend.util.TextFormat;
+import backend.security.Action;
+import backend.security.Resource;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,9 +49,12 @@ public class TaskService {
     private final TaskAssigneeRepository taskAssigneeRepository;
     private final SubtaskRepository subtaskRepository;
     private final TaskDependencyRepository taskDependencyRepository;
-    private final NotificationService notificationService;
+    private final UpdateNotificationService updateNotificationService;
     private final ActivityLogService activityLogService;
     private final ProjectAccessGuard projectAccessGuard;
+    private final WorkLogRepository workLogRepository;
+    private final TaskApprovalService approvalService;
+    private final ChecklistItemRepository checklistItemRepository;
 
     public TaskService(
             TaskRepository taskRepository,
@@ -53,9 +65,12 @@ public class TaskService {
             TaskAssigneeRepository taskAssigneeRepository,
             SubtaskRepository subtaskRepository,
             TaskDependencyRepository taskDependencyRepository,
-            NotificationService notificationService,
+            UpdateNotificationService updateNotificationService,
             ActivityLogService activityLogService,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            WorkLogRepository workLogRepository,
+            TaskApprovalService approvalService,
+            ChecklistItemRepository checklistItemRepository) {
         this.taskRepository = taskRepository;
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
@@ -64,9 +79,12 @@ public class TaskService {
         this.taskAssigneeRepository = taskAssigneeRepository;
         this.subtaskRepository = subtaskRepository;
         this.taskDependencyRepository = taskDependencyRepository;
-        this.notificationService = notificationService;
+        this.updateNotificationService = updateNotificationService;
         this.activityLogService = activityLogService;
         this.projectAccessGuard = projectAccessGuard;
+        this.workLogRepository = workLogRepository;
+        this.approvalService = approvalService;
+        this.checklistItemRepository = checklistItemRepository;
     }
 
     // Scoped by project membership (Role_Requirment.md / Project_requirement_plan.md
@@ -77,7 +95,20 @@ public class TaskService {
     // enforces this), so project membership alone is a strict superset of
     // "tasks assigned to me" — no separate assignee-based clause is needed.
     @Transactional(readOnly = true)
-    public List<TaskResponse> getAllTasks(String username) {
+    public List<TaskResponse> getAllTasks(String username, TaskListQuery query) {
+        return toResponses(matching(username, query, false));
+    }
+
+    // The same list one page at a time (?page / ?size): the filter and sort run first, so the
+    // page and the total both describe what matches, and only the tasks of the page are built
+    // into responses. Without a sort the order is by id, so that a page is the same page every time.
+    @Transactional(readOnly = true)
+    public PageResponse<TaskResponse> getTasksPage(String username, TaskListQuery query, PageParams paging) {
+        List<Task> matched = matching(username, query, true);
+        return new PageResponse<>(toResponses(paging.slice(matched)), matched.size(), paging.getPage(), paging.getSize());
+    }
+
+    private List<Task> matching(String username, TaskListQuery query, boolean orderedById) {
         User caller = userRepository.findByUsername(username)
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
@@ -88,8 +119,18 @@ public class TaskService {
             List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
             tasks = taskRepository.findByProjectIdIn(visibleProjectIds);
         }
+        if (orderedById) {
+            tasks = tasks.stream().sorted(Comparator.comparing(Task::getId)).toList();
+        }
 
-        return toResponses(tasks);
+        // Search, filter and sort come last, over the tasks the caller may already see.
+        Map<Long, List<User>> assignees = new HashMap<>();
+        if (query.needsAssignees() && !tasks.isEmpty()) {
+            for (TaskAssignee ta : taskAssigneeRepository.findByTaskIdIn(tasks.stream().map(Task::getId).toList())) {
+                assignees.computeIfAbsent(ta.getTask().getId(), k -> new ArrayList<>()).add(ta.getUser());
+            }
+        }
+        return query.apply(tasks, assignees);
     }
 
     @Transactional(readOnly = true)
@@ -150,6 +191,15 @@ public class TaskService {
         for (var row : subtaskRepository.countByTaskIds(taskIds)) {
             counts.put(row.getTaskId(), new long[] { row.getTotal(), row.getCompleted() });
         }
+        Map<Long, BigDecimal> loggedHours = new HashMap<>();
+        for (var row : workLogRepository.sumHoursByTaskIds(taskIds)) {
+            loggedHours.put(row.getTaskId(), row.getHours());
+        }
+        Map<Long, TaskApproval> latestApprovals = approvalService.latestByTaskIds(taskIds);
+        Map<Long, long[]> checklistCounts = new HashMap<>();
+        for (var row : checklistItemRepository.countByTaskIds(taskIds)) {
+            checklistCounts.put(row.getTaskId(), new long[] { row.getTotal(), row.getCompleted() });
+        }
         Map<Long, List<String>> blockingTitles = new HashMap<>();
         for (var row : taskDependencyRepository.findBlockingTasks(taskIds)) {
             blockingTitles.computeIfAbsent(row.getTaskId(), k -> new ArrayList<>()).add(row.getTitle());
@@ -159,8 +209,12 @@ public class TaskService {
                     long[] c = counts.getOrDefault(t.getId(), new long[] { 0, 0 });
                     TaskResponse response = new TaskResponse(t, c[0], c[1]);
                     List<String> titles = blockingTitles.getOrDefault(t.getId(), List.of());
+                    response.setActualHours(loggedHours.get(t.getId()));
                     response.setBlocked(!titles.isEmpty());
                     response.setBlockingTaskTitles(titles);
+                    response.setApproval(latestApprovals.get(t.getId()));
+                    long[] items = checklistCounts.getOrDefault(t.getId(), new long[] { 0, 0 });
+                    response.setChecklistCounts(items[0], items[1]);
                     return response;
                 })
                 .toList();
@@ -179,7 +233,7 @@ public class TaskService {
     // spoofing gap this used to have.
     public TaskResponse createTask(TaskRequest request, String username) {
         User caller = requireUser(username);
-        projectAccessGuard.assertCanEditContent(caller, request.getProjectId());
+        projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.TASK, Action.CREATE);
 
         Task task = new Task();
         applyRequest(task, request);
@@ -203,31 +257,67 @@ public class TaskService {
         LocalDate previousDueDate = task.getDueDate();
         String effectiveStatus = request.getStatus() != null ? request.getStatus() : task.getStatus();
         boolean newlyCompleting = !"COMPLETED".equals(previousStatus) && "COMPLETED".equals(effectiveStatus);
+        Long currentProjectId = task.getProject().getId();
+        if ("COMPLETED".equals(previousStatus) && !"COMPLETED".equals(effectiveStatus)) {
+            // Taking a finished task back out of Completed (reopening or cancelling it) must not
+            // leave tasks that depend on it running on an unfinished prerequisite.
+            assertNoStartedDependents(id);
+        }
         if (newlyCompleting) {
+            // Marking a task Completed is an approval, not just a status change:
+            // it needs TASK:APPROVE (Project Manager, Team Leader, Administrator).
+            // A Team Member moves their work to In Review and an approver
+            // completes it. Checked before the subtask rule so the caller learns
+            // first that they may not do this at all.
+            projectAccessGuard.assertCan(caller, currentProjectId, Resource.TASK, Action.APPROVE);
+            // ...and a completion made here counts as the approval, so the same
+            // who-may-decide rules apply (named approver, no approving your own work).
+            approvalService.assertMayDecide(caller, task);
             assertNotCompletingWithOpenSubtasks(id);
         }
 
-        if (projectAccessGuard.canManage(caller, task.getProject().getId())) {
+        if (projectAccessGuard.can(caller, currentProjectId, Resource.TASK, Action.EDIT)) {
+            // Moving a task to another project is a write into THAT project
+            // too — being able to manage the project it's leaving isn't
+            // enough, otherwise a project owner/admin could push tasks into
+            // any project in the system, including ones they can't even see.
+            if (request.getProjectId() != null && !request.getProjectId().equals(currentProjectId)) {
+                projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.TASK, Action.EDIT);
+                // The approver named in the old project may not belong to the new one.
+                task.setApprover(null);
+            }
             applyRequest(task, request);
         } else {
+            // Without TASK:EDIT the caller may only change status/progress of a task
+            // assigned to them (TASK_STATUS:EDIT). A VIEWER has neither, so is
+            // read-only even for a task that was assigned to them.
+            projectAccessGuard.assertCan(caller, currentProjectId, Resource.TASK_STATUS, Action.EDIT);
             if (!taskAssigneeRepository.existsByTaskIdAndUserId(id, caller.getId())) {
                 throw new AccessDeniedException("You are not assigned to this task");
             }
             applyStatusAndProgressOnly(task, request);
         }
 
+        syncProgressWithStatus(task, previousStatus);
         Task saved = taskRepository.save(task);
         logFieldChanges(caller, saved, previousStatus, previousPriority, previousDueDate);
 
         if (previousStatus != null && !previousStatus.equals(saved.getStatus())) {
-            List<User> assignees = taskAssigneeRepository.findByTaskId(saved.getId())
-                    .stream()
-                    .map(TaskAssignee::getUser)
-                    .toList();
-            notificationService.notifyTaskStatusChanged(saved, assignees);
+            // Keep the approval trail in step with the status, whichever screen changed it.
+            if ("COMPLETED".equals(saved.getStatus())) {
+                approvalService.recordDirectCompletion(saved, caller);
+            } else if ("IN_REVIEW".equals(saved.getStatus())) {
+                approvalService.openRequest(saved, caller);
+            } else if ("IN_REVIEW".equals(previousStatus)) {
+                approvalService.withdrawPending(saved, caller);
+            }
+            updateNotificationService.notifyTaskStatusChanged(saved, caller);
         }
 
-        return new TaskResponse(saved);
+        TaskResponse response = new TaskResponse(saved);
+        response.setActualHours(workLogRepository.sumHoursByTaskId(saved.getId()));
+        approvalService.latestFor(saved.getId()).ifPresent(response::setApproval);
+        return response;
     }
 
     // One activity-log row per changed field, so the panel's Activity feed
@@ -250,6 +340,35 @@ public class TaskService {
             activityLogService.record(actor, saved, "TASK_DUE_DATE_CHANGED",
                     "Due date changed from " + (previousDueDate != null ? previousDueDate : "none")
                             + " to " + (saved.getDueDate() != null ? saved.getDueDate() : "none"));
+        }
+    }
+
+    // A task that depends on this one cannot already be running (or done) while this one is
+    // reopened: trg_tasks_dependencies_status_gate only looks at a task's OWN prerequisites, so
+    // this is the other direction. The database trigger trg_tasks_prerequisite_not_reopened
+    // refuses it too; this copy gives the clean message naming the tasks.
+    private void assertNoStartedDependents(Long taskId) {
+        List<String> started = taskDependencyRepository.findStartedDependentTitles(taskId);
+        if (!started.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "This task is a prerequisite of tasks that have already started (" + String.join(", ", started)
+                            + "). Move those back to To Do first");
+        }
+    }
+
+    // A Completed task is 100% done, and one that is reopened is not. Subtasks and checklist
+    // items drive the number when there are any (the database recalculates it from them); a
+    // task with neither gets it from its status, so it never sits at 100% in To Do or at its old
+    // number once Completed. Whichever screen or client changed the status gets the same result.
+    private void syncProgressWithStatus(Task task, String previousStatus) {
+        boolean completedNow = "COMPLETED".equals(task.getStatus());
+        boolean completedBefore = "COMPLETED".equals(previousStatus);
+        if (completedNow && !completedBefore) {
+            task.setProgress(new BigDecimal("100"));
+        } else if (!completedNow && completedBefore
+                && !subtaskRepository.existsByTaskId(task.getId())
+                && !checklistItemRepository.existsByTaskId(task.getId())) {
+            task.setProgress(BigDecimal.ZERO);
         }
     }
 
@@ -288,7 +407,7 @@ public class TaskService {
     public void deleteTask(Long id, String username) {
         Task task = getTaskEntityById(id);
         User caller = requireUser(username);
-        projectAccessGuard.assertCanManage(caller, task.getProject().getId());
+        projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.TASK, Action.DELETE);
         // recordForDeletedTask, not record(caller, task, ...) — see that
         // method's comment for why associating this entry with the Task
         // entity itself (even relying on ON DELETE SET NULL) trips a

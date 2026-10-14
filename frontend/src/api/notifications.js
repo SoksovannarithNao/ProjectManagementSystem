@@ -1,7 +1,8 @@
 import { apiFetch } from './client'
 
-export function getNotifications() {
-  return apiFetch('/notifications')
+// One page of the signed-in person's notifications, newest first: { items, total, page, size }.
+export function getNotificationsPage(page, size) {
+  return apiFetch(`/notifications?page=${page}&size=${size}`)
 }
 
 export function getUnreadNotificationCount() {

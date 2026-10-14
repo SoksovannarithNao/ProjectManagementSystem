@@ -17,7 +17,7 @@ import java.time.OffsetDateTime;
 // returned in plaintext — the only place the plaintext code appears is the
 // outgoing email), with an expiry, a capped number of verify attempts, and a
 // resend cooldown. All state lives in otp_verifications; see
-// database/README.md for the schema.
+// docs/database.md for the schema.
 @Service
 @Transactional
 public class OtpService {

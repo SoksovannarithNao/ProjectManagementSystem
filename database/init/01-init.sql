@@ -18,38 +18,52 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ==================== roles ==================== --
+-- Two levels of role (docs/adr/0015-two-level-roles-system-and-project.md):
+--   * system roles  (users.role_id): ADMINISTRATOR, PROJECT_MANAGER, USER - what
+--                    the account may do anywhere (create a project, generate
+--                    reports across projects, manage users and roles).
+--   * project roles (project_members.project_role): OWNER, ADMIN, MEMBER, VIEWER -
+--                    what a person may do inside ONE project. The business names
+--                    are Project Manager (the OWNER), Team Leader (ADMIN) and
+--                    Team Member (MEMBER); roles.project_role maps each project
+--                    role to its row here so the same person can be OWNER of one
+--                    project and MEMBER of another.
+-- Migration V10 builds the same end state for databases created before it.
+-- Migration V11 renames the task status TO_DO to TODO (reflected throughout this file).
+-- Migration V12 adds the task approval workflow (tasks.approver_id, task_approvals).
+-- Migration V13 adds file attachments and checklists (resources ATTACHMENT and CHECKLIST_ITEM,
+-- attachment_contents, checklist_items.created_by, checklist-aware task progress).
 
 CREATE TABLE roles (
-    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    name        VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(255),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name         VARCHAR(50) NOT NULL UNIQUE,
+    description  VARCHAR(255),
+    scope        VARCHAR(10) NOT NULL DEFAULT 'SYSTEM'
+                 CONSTRAINT roles_scope_check CHECK (scope IN ('SYSTEM', 'PROJECT', 'BOTH')),
+    project_role VARCHAR(20)
+                 CONSTRAINT roles_project_role_check CHECK (project_role IS NULL OR project_role IN ('OWNER', 'ADMIN', 'MEMBER', 'VIEWER')),
+    built_in     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Two system-level roles. Project/task authorization is entirely
--- project-scoped (see project_members.project_role below) — neither role
--- below grants any project-specific power beyond what ADMINISTRATOR's
--- bypass gives it:
---   USER          — assigned to every self-registered account by default
---                   (UserService.registerSelfServiceUser). No special
---                   access of any kind; purely an account-level label. All
---                   real authority still comes from project_members rows.
---   ADMINISTRATOR — genuinely global concerns unrelated to any one project:
---                   managing user accounts, managing this roles list, and a
---                   "sees every project/task" bypass (ProjectAccessGuard.isAdmin).
---                   Only granted by promoting an existing account; never
---                   assigned at registration.
-INSERT INTO roles (name, description) VALUES
-    ('USER', 'Standard registered account — no special access; all authority comes from project membership'),
-    ('ADMINISTRATOR', 'Full access to user accounts, system roles, and every project/report');
+CREATE UNIQUE INDEX idx_roles_project_role ON roles (project_role) WHERE project_role IS NOT NULL;
+
+INSERT INTO roles (name, description, scope, project_role, built_in) VALUES
+    ('ADMINISTRATOR',   'Full access to users, roles, permissions, reports and every project',                                              'SYSTEM',  NULL,     TRUE),
+    ('PROJECT_MANAGER', 'Creates projects and generates reports across the projects they belong to; owns the projects they create',          'SYSTEM',  NULL,     TRUE),
+    ('USER',            'A registered person with no global management rights; works through the role held in each project',                'SYSTEM',  NULL,     TRUE),
+    ('OWNER',           'Project owner (the Project Manager of this project): full authority inside it',                                     'PROJECT', 'OWNER',  TRUE),
+    ('ADMIN',           'Team Leader: plans, assigns and approves inside one project; cannot delete it',                                     'PROJECT', 'ADMIN',  TRUE),
+    ('MEMBER',          'Team Member: works on assigned tasks, subtasks, comments and time',                                                 'PROJECT', 'MEMBER', TRUE),
+    ('VIEWER',          'Read-only access inside a project (project role only, not a system role)',                                          'PROJECT', 'VIEWER', TRUE);
 
 -- ==================== permissions / role_permissions ==================== --
--- Granular authorization on top of the 4 fixed roles. Role_Requirment.md's
--- "Available actions" list (View, Create, Edit, Delete, Assign, Approve,
--- Generate Reports) becomes a flat permission catalog; role_permissions is
--- the default matrix. Deliberately role-level only — no per-user override
--- table — since nothing in the app needs finer granularity yet (see the
--- README's Authorization section for the reasoning and the ADMIN/PM caveat).
+-- Role_Requirment.md's "Available actions" (View, Create, Edit, Delete, Assign,
+-- Approve, Generate Reports) are the 7 permission codes. role_permissions says
+-- which role may do which action on which resource, at system scope or inside
+-- a project. The backend reads it (PermissionService); administrators edit it
+-- in the Role & Permission screen. Deliberately role-level only - no per-user
+-- override table. See docs/database.md section 13.
 
 CREATE TABLE permissions (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -63,26 +77,108 @@ INSERT INTO permissions (code, description) VALUES
     ('EDIT',             'Edit existing projects, tasks, and other records'),
     ('DELETE',           'Delete projects, tasks, and other records'),
     ('ASSIGN',           'Assign tasks or team members'),
-    ('APPROVE',          'Approve task/milestone completion or other workflow steps'),
+    ('APPROVE',          'Approve task completion'),
     ('GENERATE_REPORTS', 'Generate and view reports/KPIs');
 
 CREATE TABLE role_permissions (
     role_id       BIGINT NOT NULL REFERENCES roles (id) ON DELETE CASCADE,
     permission_id BIGINT NOT NULL REFERENCES permissions (id) ON DELETE CASCADE,
-    PRIMARY KEY (role_id, permission_id)
+    resource      VARCHAR(30) NOT NULL
+                  CONSTRAINT role_permissions_resource_check
+                  CHECK (resource IN ('PROJECT', 'MILESTONE', 'MEMBER', 'TASK', 'TASK_STATUS', 'SUBTASK',
+                                      'COMMENT', 'WORK_LOG', 'ATTACHMENT', 'CHECKLIST_ITEM',
+                                      'REPORT', 'USER', 'ROLE', 'LOOKUP')),
+    scope         VARCHAR(10) NOT NULL
+                  CONSTRAINT role_permissions_scope_check CHECK (scope IN ('SYSTEM', 'PROJECT')),
+    PRIMARY KEY (role_id, permission_id, resource, scope)
 );
 
 CREATE INDEX idx_role_permissions_permission_id ON role_permissions (permission_id);
 
--- ADMINISTRATOR gets every action at this flat, action-only granularity.
--- Project-scoped roles (OWNER/ADMIN/MEMBER/VIEWER on project_members) are
--- deliberately NOT rows here — this table only ever described the old
--- global-role matrix, and nothing in the backend actually queries it (see
--- README's Authorization section) — project/task permission is computed
--- directly from project_members.project_role instead.
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r, permissions p
-WHERE r.name = 'ADMINISTRATOR';
+-- scope SYSTEM  = applies everywhere, independent of any project
+-- scope PROJECT = applies inside a project where the user is an ACTIVE member
+--                 with the role's project_role (OWNER/ADMIN/MEMBER/VIEWER)
+-- ADMINISTRATOR holds every action on every resource at SYSTEM scope and also
+-- bypasses project membership in code (ProjectAccessGuard.isAdmin).
+INSERT INTO role_permissions (role_id, permission_id, resource, scope)
+SELECT r.id, p.id, g.resource, g.scope
+FROM (VALUES
+    -- Administrator: everything, system-wide
+    ('ADMINISTRATOR', 'SYSTEM', 'PROJECT',     ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'MILESTONE',   ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'MEMBER',      ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'TASK',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'TASK_STATUS', ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'SUBTASK',     ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'COMMENT',     ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'WORK_LOG',    ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'ATTACHMENT',     ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'CHECKLIST_ITEM', ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'REPORT',      ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'USER',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'ROLE',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+    ('ADMINISTRATOR', 'SYSTEM', 'LOOKUP',      ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE','GENERATE_REPORTS']),
+
+    -- System scope of Project Manager: create projects, cross-project reports.
+    -- USER holds nothing at system scope.
+    ('PROJECT_MANAGER', 'SYSTEM', 'PROJECT', ARRAY['CREATE']),
+    ('PROJECT_MANAGER', 'SYSTEM', 'REPORT',  ARRAY['GENERATE_REPORTS']),
+
+    -- Project scope: OWNER (the Project Manager of this project)
+    ('OWNER', 'PROJECT', 'PROJECT',     ARRAY['VIEW','EDIT','DELETE','ASSIGN']),
+    ('OWNER', 'PROJECT', 'MILESTONE',   ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('OWNER', 'PROJECT', 'MEMBER',      ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('OWNER', 'PROJECT', 'TASK',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE']),
+    ('OWNER', 'PROJECT', 'TASK_STATUS', ARRAY['EDIT']),
+    ('OWNER', 'PROJECT', 'SUBTASK',     ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('OWNER', 'PROJECT', 'COMMENT',     ARRAY['VIEW','CREATE','DELETE']),
+    ('OWNER', 'PROJECT', 'WORK_LOG',    ARRAY['VIEW','CREATE','DELETE']),
+    ('OWNER', 'PROJECT', 'ATTACHMENT',     ARRAY['VIEW','CREATE','DELETE']),
+    ('OWNER', 'PROJECT', 'CHECKLIST_ITEM', ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('OWNER', 'PROJECT', 'REPORT',      ARRAY['GENERATE_REPORTS']),
+
+    -- Project scope: ADMIN (Team Leader). May delete work items and remove
+    -- members, never the project or the owner (D-01).
+    ('ADMIN', 'PROJECT', 'PROJECT',     ARRAY['VIEW','EDIT']),
+    ('ADMIN', 'PROJECT', 'MILESTONE',   ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('ADMIN', 'PROJECT', 'MEMBER',      ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('ADMIN', 'PROJECT', 'TASK',        ARRAY['VIEW','CREATE','EDIT','DELETE','ASSIGN','APPROVE']),
+    ('ADMIN', 'PROJECT', 'TASK_STATUS', ARRAY['EDIT']),
+    ('ADMIN', 'PROJECT', 'SUBTASK',     ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('ADMIN', 'PROJECT', 'COMMENT',     ARRAY['VIEW','CREATE','DELETE']),
+    ('ADMIN', 'PROJECT', 'WORK_LOG',    ARRAY['VIEW','CREATE','DELETE']),
+    ('ADMIN', 'PROJECT', 'ATTACHMENT',     ARRAY['VIEW','CREATE','DELETE']),
+    ('ADMIN', 'PROJECT', 'CHECKLIST_ITEM', ARRAY['VIEW','CREATE','EDIT','DELETE']),
+    ('ADMIN', 'PROJECT', 'REPORT',      ARRAY['GENERATE_REPORTS']),
+
+    -- Project scope: MEMBER (Team Member). Limited create/edit; no task
+    -- creation, no deletes (authors may still delete their own content).
+    ('MEMBER', 'PROJECT', 'PROJECT',     ARRAY['VIEW']),
+    ('MEMBER', 'PROJECT', 'MILESTONE',   ARRAY['VIEW']),
+    ('MEMBER', 'PROJECT', 'MEMBER',      ARRAY['VIEW']),
+    ('MEMBER', 'PROJECT', 'TASK',        ARRAY['VIEW']),
+    ('MEMBER', 'PROJECT', 'TASK_STATUS', ARRAY['EDIT']),
+    ('MEMBER', 'PROJECT', 'SUBTASK',     ARRAY['VIEW','CREATE','EDIT']),
+    ('MEMBER', 'PROJECT', 'COMMENT',     ARRAY['VIEW','CREATE']),
+    ('MEMBER', 'PROJECT', 'WORK_LOG',    ARRAY['VIEW','CREATE']),
+    ('MEMBER', 'PROJECT', 'ATTACHMENT',     ARRAY['VIEW','CREATE']),
+    ('MEMBER', 'PROJECT', 'CHECKLIST_ITEM', ARRAY['VIEW','CREATE','EDIT']),
+
+    -- Project scope: VIEWER - read only
+    ('VIEWER', 'PROJECT', 'PROJECT',   ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'MILESTONE', ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'MEMBER',    ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'TASK',      ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'SUBTASK',   ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'COMMENT',   ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'WORK_LOG',  ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'ATTACHMENT',     ARRAY['VIEW']),
+    ('VIEWER', 'PROJECT', 'CHECKLIST_ITEM', ARRAY['VIEW'])
+) AS g(role_name, scope, resource, perms)
+JOIN roles r ON r.name = g.role_name
+CROSS JOIN LATERAL unnest(g.perms) AS u(perm_code)
+JOIN permissions p ON p.code = u.perm_code
+ON CONFLICT DO NOTHING;
 
 -- ==================== positions / departments ==================== --
 -- Org-wide lookup lists (Requirement: Position/Department must be managed by
@@ -121,7 +217,7 @@ CREATE TABLE users (
     date_of_birth    DATE,
     phone_number     VARCHAR(30),
     -- The photo itself, stored in the database rather than on local disk —
-    -- see backend/README.md — so it travels with a pg_dump/restore or a
+    -- see docs/backend.md — so it travels with a pg_dump/restore or a
     -- managed-Postgres migration instead of being left behind on whichever
     -- host originally received the upload. profile_photo_token is the
     -- public lookup key (regenerated on every upload) — never the user's
@@ -130,7 +226,7 @@ CREATE TABLE users (
     profile_photo_content_type  VARCHAR(50),
     profile_photo_token   UUID,
     -- Set only by a Team Admin (via project_members-scoped authorization in
-    -- the backend), never by the user themselves — see backend/README.md.
+    -- the backend), never by the user themselves — see docs/backend.md.
     position_id      BIGINT REFERENCES positions (id) ON DELETE SET NULL,
     department_id    BIGINT REFERENCES departments (id) ON DELETE SET NULL,
     -- Nullable: this is a SYSTEM-level role (ADMINISTRATOR or nothing), not
@@ -146,7 +242,7 @@ CREATE TABLE users (
     account_status   VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
                      CHECK (account_status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION')),
     -- Appearance/notification preferences: per-user application settings,
-    -- distinct from the personal-info fields above (see database/README.md).
+    -- distinct from the personal-info fields above (see docs/database.md).
     theme_preference VARCHAR(10) NOT NULL DEFAULT 'SYSTEM'
                      CHECK (theme_preference IN ('LIGHT', 'DARK', 'SYSTEM')),
     task_notifications_enabled BOOLEAN NOT NULL DEFAULT true,
@@ -209,17 +305,43 @@ CREATE TABLE projects (
                  CHECK (status IN ('PLANNING', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED')),
     progress     NUMERIC(5, 2) NOT NULL DEFAULT 0
                  CHECK (progress BETWEEN 0 AND 100),
+    -- When the project became COMPLETED; stamped and cleared by
+    -- trg_projects_completed_at below, never set by the application (V14).
+    completed_at TIMESTAMPTZ,
+    -- A Team Leader listed beside the Owner as the project lead (D-09, V15); kept valid
+    -- by trg_projects_lead_is_team_leader and trg_project_members_clear_lead below.
+    lead_id      BIGINT REFERENCES users (id) ON DELETE SET NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (end_date >= start_date)
 );
 
 CREATE INDEX idx_projects_manager_id ON projects (manager_id);
+CREATE INDEX idx_projects_lead_id ON projects (lead_id);
 CREATE INDEX idx_projects_status ON projects (status);
 
 CREATE TRIGGER trg_projects_updated_at
     BEFORE UPDATE ON projects
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- A COMPLETED project has a completion date, any other status has none: stamp
+-- completed_at when the status becomes COMPLETED (keeping an existing date) and
+-- clear it when the project is reopened, as trg_tasks_completed_at does for tasks.
+CREATE OR REPLACE FUNCTION set_project_completed_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'COMPLETED' AND NEW.completed_at IS NULL THEN
+        NEW.completed_at = now();
+    ELSIF NEW.status <> 'COMPLETED' THEN
+        NEW.completed_at = NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_projects_completed_at
+    BEFORE INSERT OR UPDATE ON projects
+    FOR EACH ROW EXECUTE FUNCTION set_project_completed_at();
 
 -- ==================== project_members ==================== --
 
@@ -254,49 +376,97 @@ CREATE INDEX idx_project_members_project_id ON project_members (project_id);
 CREATE INDEX idx_project_members_user_id ON project_members (user_id);
 CREATE INDEX idx_project_members_status ON project_members (status);
 
--- "A project must always have at least one ACTIVE owner." Without this, an
--- OWNER could demote/remove themselves (or be removed via a user account
--- deletion, which cascades into this table) and permanently orphan the
--- project — granting OWNER requires already being one (see backend
--- ProjectAccessGuard.assertIsOwner), so nobody could ever become OWNER
--- again. Mirrors ProjectMemberService.assertNotRemovingLastOwner at the
--- application layer; kept here too since ON DELETE CASCADE from `users`
--- reaches this table directly, bypassing that Java code path. To transfer
--- ownership: promote the new OWNER first (now two active owners exist),
--- then demote/remove the old one — the second step then sees the new owner
--- already in place and passes.
-CREATE OR REPLACE FUNCTION check_project_has_active_owner()
+-- "A project has exactly one ACTIVE owner." (ADR-0015; V10 replaces V8's
+-- "at least one owner" trigger.) Without it an OWNER could demote/remove
+-- themselves - or be removed by a user-account deletion, which cascades into
+-- this table - and orphan the project, or a second OWNER could be added.
+-- The check is DEFERRED to the end of the transaction so ownership moves in one
+-- step (demote the old owner and promote the new one together), and it is
+-- skipped when the project itself is being deleted, so a project with a single
+-- owner can be deleted. The backend (ProjectOwnership, ProjectMemberService)
+-- gives friendly errors first; this is the backstop.
+CREATE OR REPLACE FUNCTION check_project_has_single_owner()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_remaining_owners INTEGER;
+    v_project_id BIGINT;
+    v_owners     INTEGER;
 BEGIN
-    -- Only the removal/demotion of a currently-ACTIVE-OWNER row matters.
-    IF OLD.project_role <> 'OWNER' OR OLD.status <> 'ACTIVE' THEN
-        RETURN COALESCE(NEW, OLD);
-    END IF;
-    -- Still an active owner afterwards (e.g. an unrelated field changed) —
-    -- nothing to check.
-    IF TG_OP = 'UPDATE' AND NEW.project_role = 'OWNER' AND NEW.status = 'ACTIVE' THEN
-        RETURN NEW;
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.project_role <> 'OWNER' OR OLD.status <> 'ACTIVE' THEN RETURN NULL; END IF;
+        v_project_id := OLD.project_id;
+    ELSIF TG_OP = 'INSERT' THEN
+        IF NEW.project_role <> 'OWNER' OR NEW.status <> 'ACTIVE' THEN RETURN NULL; END IF;
+        v_project_id := NEW.project_id;
+    ELSE
+        IF NOT ((OLD.project_role = 'OWNER' AND OLD.status = 'ACTIVE')
+                OR (NEW.project_role = 'OWNER' AND NEW.status = 'ACTIVE')) THEN
+            RETURN NULL;
+        END IF;
+        v_project_id := NEW.project_id;
     END IF;
 
-    SELECT COUNT(*) INTO v_remaining_owners
+    -- The project is gone (it is being deleted): nothing to protect.
+    IF NOT EXISTS (SELECT 1 FROM projects WHERE id = v_project_id) THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT COUNT(*) INTO v_owners
     FROM project_members
-    WHERE project_id = OLD.project_id AND project_role = 'OWNER' AND status = 'ACTIVE'
-      AND id <> OLD.id;
+    WHERE project_id = v_project_id AND project_role = 'OWNER' AND status = 'ACTIVE';
 
-    IF v_remaining_owners = 0 THEN
-        RAISE EXCEPTION 'Project % must keep at least one active owner — promote another member to OWNER first',
-            OLD.project_id
-            USING ERRCODE = '23514'; -- check_violation — see the milestone trigger below
+    IF v_owners <> 1 THEN
+        RAISE EXCEPTION 'Project % must have exactly one active owner (it would have %) - transfer ownership instead of adding or removing an owner',
+            v_project_id, v_owners
+            USING ERRCODE = '23514'; -- check_violation, cleaned for the client by GlobalExceptionHandler
     END IF;
-    RETURN COALESCE(NEW, OLD);
+    RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_project_members_owner_integrity
-    BEFORE UPDATE OR DELETE ON project_members
-    FOR EACH ROW EXECUTE FUNCTION check_project_has_active_owner();
+DROP TRIGGER IF EXISTS trg_project_members_single_owner ON project_members;
+CREATE CONSTRAINT TRIGGER trg_project_members_single_owner
+    AFTER INSERT OR UPDATE OR DELETE ON project_members
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION check_project_has_single_owner();
+
+-- The project lead must be an ACTIVE Team Leader (project role ADMIN) of the project, and
+-- is cleared when that person stops being one (V15).
+CREATE OR REPLACE FUNCTION check_project_lead_is_team_leader()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.lead_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM project_members
+        WHERE project_id = NEW.id AND user_id = NEW.lead_id
+          AND project_role = 'ADMIN' AND status = 'ACTIVE'
+    ) THEN
+        RAISE EXCEPTION 'The project lead must be an active Team Leader of the project'
+            USING ERRCODE = '23514'; -- check_violation, cleaned for the client by GlobalExceptionHandler
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_projects_lead_is_team_leader ON projects;
+CREATE TRIGGER trg_projects_lead_is_team_leader
+    BEFORE INSERT OR UPDATE OF lead_id ON projects
+    FOR EACH ROW EXECUTE FUNCTION check_project_lead_is_team_leader();
+
+CREATE OR REPLACE FUNCTION clear_project_lead_when_not_team_leader()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        UPDATE projects SET lead_id = NULL WHERE id = OLD.project_id AND lead_id = OLD.user_id;
+    ELSIF NEW.project_role <> 'ADMIN' OR NEW.status <> 'ACTIVE' THEN
+        UPDATE projects SET lead_id = NULL WHERE id = NEW.project_id AND lead_id = NEW.user_id;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_project_members_clear_lead ON project_members;
+CREATE TRIGGER trg_project_members_clear_lead
+    AFTER UPDATE OF project_role, status OR DELETE ON project_members
+    FOR EACH ROW EXECUTE FUNCTION clear_project_lead_when_not_team_leader();
 
 -- ==================== milestones ==================== --
 
@@ -354,8 +524,8 @@ CREATE TABLE tasks (
     description     TEXT,
     priority        VARCHAR(20) NOT NULL DEFAULT 'MEDIUM'
                     CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
-    status          VARCHAR(20) NOT NULL DEFAULT 'TO_DO'
-                    CHECK (status IN ('TO_DO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED')),
+    status          VARCHAR(20) NOT NULL DEFAULT 'TODO'
+                    CHECK (status IN ('TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED')),
     start_date      DATE NOT NULL,
     due_date        DATE NOT NULL,
     estimated_hours NUMERIC(6, 2),
@@ -363,6 +533,9 @@ CREATE TABLE tasks (
                     CHECK (progress BETWEEN 0 AND 100),
     completed_at    TIMESTAMPTZ,
     created_by      BIGINT REFERENCES users (id) ON DELETE SET NULL,
+    -- The approver named for this task (optional); with none, anyone who may
+    -- approve in the project can decide (assignment-brief.md B3.8).
+    approver_id     BIGINT REFERENCES users (id) ON DELETE SET NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (due_date >= start_date)
@@ -373,10 +546,36 @@ CREATE INDEX idx_tasks_milestone_id ON tasks (milestone_id);
 CREATE INDEX idx_tasks_created_by ON tasks (created_by);
 CREATE INDEX idx_tasks_status ON tasks (status);
 CREATE INDEX idx_tasks_due_date ON tasks (due_date);
+CREATE INDEX idx_tasks_approver_id ON tasks (approver_id);
 
 CREATE TRIGGER trg_tasks_updated_at
     BEFORE UPDATE ON tasks
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ==================== task approvals ==================== --
+-- IN_REVIEW is only a status; approval is a separate decision on the task
+-- (assignment-brief.md B3.8, D-05). One row per review request: PENDING while it
+-- waits, then APPROVED (the task is completed), CHANGES_REQUESTED (back to
+-- IN_PROGRESS), REJECTED (the approver reopens or cancels it) or WITHDRAWN (the
+-- task left review without a decision).
+CREATE TABLE task_approvals (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    task_id      BIGINT NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    requested_by BIGINT REFERENCES users (id) ON DELETE SET NULL,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    decided_by   BIGINT REFERENCES users (id) ON DELETE SET NULL,
+    decided_at   TIMESTAMPTZ,
+    decision     VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+                 CHECK (decision IN ('PENDING', 'APPROVED', 'CHANGES_REQUESTED', 'REJECTED', 'WITHDRAWN')),
+    comment      VARCHAR(1000),
+    CONSTRAINT task_approvals_decided_check
+        CHECK ((decision = 'PENDING' AND decided_at IS NULL) OR (decision <> 'PENDING' AND decided_at IS NOT NULL))
+);
+
+CREATE INDEX idx_task_approvals_task_id ON task_approvals (task_id);
+CREATE INDEX idx_task_approvals_decision ON task_approvals (decision);
+-- A task has at most one open request at a time.
+CREATE UNIQUE INDEX uq_task_approvals_one_pending ON task_approvals (task_id) WHERE decision = 'PENDING';
 
 -- "A Completed Task must have a Completion Date": auto-stamp completed_at
 -- the moment status becomes COMPLETED, and clear it if the task is reopened,
@@ -520,6 +719,25 @@ CREATE TRIGGER trg_task_dependencies_no_cycle
     BEFORE INSERT OR UPDATE ON task_dependencies
     FOR EACH ROW EXECUTE FUNCTION check_task_dependency_cycle();
 
+-- A dependency joins two tasks of ONE project (workflow A4; V21). The service refuses
+-- it with a 400; this keeps the rule for any other way of writing the table.
+CREATE OR REPLACE FUNCTION check_task_dependency_same_project()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (SELECT project_id FROM tasks WHERE id = NEW.task_id)
+       IS DISTINCT FROM (SELECT project_id FROM tasks WHERE id = NEW.depends_on_task_id) THEN
+        RAISE EXCEPTION 'Task % and task % belong to different projects; a dependency joins tasks of one project',
+            NEW.task_id, NEW.depends_on_task_id
+            USING ERRCODE = '23514'; -- check_violation, like the cycle trigger
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_task_dependencies_same_project
+    BEFORE INSERT OR UPDATE ON task_dependencies
+    FOR EACH ROW EXECUTE FUNCTION check_task_dependency_same_project();
+
 -- "A dependent task should not start until its required previous task has
 -- been completed." Enforced from both directions, since either write path
 -- can create the same invalid state:
@@ -528,7 +746,7 @@ CREATE TRIGGER trg_task_dependencies_no_cycle
 --   2. A new/updated task_dependencies row pointing an already-active task
 --      at an incomplete prerequisite (checked further below, on
 --      task_dependencies).
--- TO_DO and CANCELLED are always allowed — neither needs prerequisites done.
+-- TODO and CANCELLED are always allowed — neither needs prerequisites done.
 CREATE OR REPLACE FUNCTION check_task_dependencies_completed()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -571,6 +789,31 @@ CREATE TRIGGER trg_task_dependencies_status_gate
     BEFORE INSERT OR UPDATE ON task_dependencies
     FOR EACH ROW EXECUTE FUNCTION check_new_dependency_against_task_status();
 
+-- The other direction (V17): a prerequisite cannot be taken back out of COMPLETED while a task
+-- that depends on it is running or finished, or that task would be left on an unfinished
+-- prerequisite. trg_tasks_dependencies_status_gate above only looks at a task's OWN prerequisites.
+CREATE OR REPLACE FUNCTION check_prerequisite_not_reopened()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status = 'COMPLETED' AND NEW.status <> 'COMPLETED' AND EXISTS (
+        SELECT 1
+        FROM task_dependencies td
+        JOIN tasks dependant ON dependant.id = td.task_id
+        WHERE td.depends_on_task_id = NEW.id
+          AND dependant.status IN ('IN_PROGRESS', 'IN_REVIEW', 'COMPLETED')
+    ) THEN
+        RAISE EXCEPTION 'Task % is a prerequisite of tasks that have already started; move those back to To Do before taking it out of COMPLETED',
+            NEW.id
+            USING ERRCODE = '23514'; -- check_violation, cleaned for the client by GlobalExceptionHandler
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_tasks_prerequisite_not_reopened
+    BEFORE UPDATE OF status ON tasks
+    FOR EACH ROW EXECUTE FUNCTION check_prerequisite_not_reopened();
+
 -- "A task under Project A should not be attachable to a milestone from
 -- Project B."
 CREATE OR REPLACE FUNCTION check_task_milestone_matches_project()
@@ -604,7 +847,7 @@ CREATE TRIGGER trg_tasks_milestone_project_match
 -- enforcement points below: the AFTER trigger on tasks recomputes both
 -- parents whenever a task changes, and the BEFORE UPDATE triggers on
 -- projects/milestones themselves recompute on *any* direct update to that
--- row, silently overriding whatever value was sent — see the README's
+-- row, silently overriding whatever value was sent — see docs/database.md's
 -- Business Rules section for the "writable but not authoritative" framing.
 
 CREATE OR REPLACE FUNCTION fn_compute_project_progress(p_project_id BIGINT)
@@ -708,8 +951,8 @@ CREATE TABLE subtasks (
     title       VARCHAR(200) NOT NULL,
     assignee_id BIGINT REFERENCES users (id) ON DELETE SET NULL,
     due_date    DATE,
-    status      VARCHAR(20) NOT NULL DEFAULT 'TO_DO'
-                CHECK (status IN ('TO_DO', 'IN_PROGRESS', 'COMPLETED')),
+    status      VARCHAR(20) NOT NULL DEFAULT 'TODO'
+                CHECK (status IN ('TODO', 'IN_PROGRESS', 'COMPLETED')),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -723,7 +966,7 @@ CREATE TRIGGER trg_subtasks_updated_at
 
 -- ==================== task/subtask completion consistency ==================== --
 -- Task status is otherwise entirely manual and independent of subtask
--- completion — a task may sit at TO_DO with every subtask done, and nothing
+-- completion — a task may sit at TODO with every subtask done, and nothing
 -- here ever promotes or demotes a task's status on its own. The ONE
 -- restriction is a one-directional gate: a task cannot be moved TO
 -- COMPLETED while it still has an incomplete subtask. That, plus keeping
@@ -779,20 +1022,37 @@ CREATE TRIGGER trg_tasks_not_completed_with_open_subtasks
     BEFORE UPDATE ON tasks
     FOR EACH ROW EXECUTE FUNCTION check_task_not_completed_with_open_subtasks();
 
-CREATE OR REPLACE FUNCTION fn_compute_task_progress_from_subtasks(p_task_id BIGINT)
+-- Progress counts subtasks and checklist items together (D-07):
+--   (completed subtasks + completed checklist items) / (all subtasks + all items).
+-- A COMPLETED task whose subtasks are all done is 100 even if some checklist items are
+-- still open (only subtasks gate completion). p_status is passed by the BEFORE UPDATE
+-- trigger, which must see the NEW status; without it the stored status is used.
+CREATE OR REPLACE FUNCTION fn_compute_task_progress_from_subtasks(p_task_id BIGINT, p_status VARCHAR DEFAULT NULL)
 RETURNS NUMERIC AS $$
 DECLARE
-    v_total     INTEGER;
-    v_completed INTEGER;
+    v_total      INTEGER;
+    v_completed  INTEGER;
+    v_items      INTEGER;
+    v_items_done INTEGER;
+    v_status     VARCHAR(20);
 BEGIN
     SELECT count(*), count(*) FILTER (WHERE status = 'COMPLETED')
     INTO v_total, v_completed
     FROM subtasks WHERE task_id = p_task_id;
 
-    IF v_total = 0 THEN
-        RETURN NULL; -- no subtasks: progress isn't subtask-derived, leave as-is
+    SELECT count(*), count(*) FILTER (WHERE is_completed)
+    INTO v_items, v_items_done
+    FROM checklist_items WHERE task_id = p_task_id;
+
+    IF v_total + v_items = 0 THEN
+        RETURN NULL; -- nothing to derive from: progress stays as it is
     END IF;
-    RETURN round(100.0 * v_completed / v_total, 2);
+
+    v_status := COALESCE(p_status, (SELECT status FROM tasks WHERE id = p_task_id));
+    IF v_status = 'COMPLETED' AND v_completed = v_total THEN
+        RETURN 100;
+    END IF;
+    RETURN round(100.0 * (v_completed + v_items_done) / (v_total + v_items), 2);
 END;
 $$ LANGUAGE plpgsql STABLE;
 
@@ -828,9 +1088,15 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_progress NUMERIC;
 BEGIN
-    v_progress := fn_compute_task_progress_from_subtasks(NEW.id);
+    v_progress := fn_compute_task_progress_from_subtasks(NEW.id, NEW.status);
     IF v_progress IS NOT NULL THEN
         NEW.progress = v_progress;
+    -- Nothing to derive it from: the status decides (V17). A task entering COMPLETED is 100 and
+    -- one leaving COMPLETED goes back to 0.
+    ELSIF NEW.status = 'COMPLETED' THEN
+        NEW.progress = 100;
+    ELSIF OLD.status = 'COMPLETED' THEN
+        NEW.progress = 0;
     END IF;
     RETURN NEW;
 END;
@@ -850,11 +1116,20 @@ CREATE TABLE checklist_items (
     content      VARCHAR(300) NOT NULL,
     is_completed BOOLEAN NOT NULL DEFAULT false,
     sort_order   INTEGER NOT NULL DEFAULT 0,
+    -- Who added it: an author may delete their own item without DELETE rights (B3.7).
+    created_by   BIGINT REFERENCES users (id) ON DELETE SET NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_checklist_items_task_id ON checklist_items (task_id);
+CREATE INDEX idx_checklist_items_created_by ON checklist_items (created_by);
+
+-- Keeps the parent task's progress current when an item changes (the same AFTER trigger
+-- function that follows subtasks; it reads task_id from the row).
+CREATE TRIGGER trg_checklist_items_sync_parent_task
+    AFTER INSERT OR UPDATE OR DELETE ON checklist_items
+    FOR EACH ROW EXECUTE FUNCTION trg_fn_subtasks_sync_parent_task();
 
 CREATE TRIGGER trg_checklist_items_updated_at
     BEFORE UPDATE ON checklist_items
@@ -889,7 +1164,8 @@ CREATE TABLE attachments (
     task_id     BIGINT REFERENCES tasks (id) ON DELETE CASCADE,
     uploaded_by BIGINT REFERENCES users (id) ON DELETE SET NULL,
     file_name   VARCHAR(255) NOT NULL,
-    file_url    VARCHAR(500) NOT NULL,
+    -- Unused since V13: the bytes live in attachment_contents.
+    file_url    VARCHAR(500),
     file_size   BIGINT,
     mime_type   VARCHAR(100),
     uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -898,6 +1174,13 @@ CREATE TABLE attachments (
 
 CREATE INDEX idx_attachments_project_id ON attachments (project_id);
 CREATE INDEX idx_attachments_task_id ON attachments (task_id);
+
+-- The file itself, kept apart from the metadata so listing attachments never reads the bytes.
+-- Stored in the database like profile photos, so it travels with a pg_dump.
+CREATE TABLE attachment_contents (
+    attachment_id BIGINT PRIMARY KEY REFERENCES attachments (id) ON DELETE CASCADE,
+    data          BYTEA NOT NULL
+);
 
 -- ==================== work_logs ==================== --
 
@@ -923,7 +1206,8 @@ CREATE TABLE notifications (
     type       VARCHAR(30) NOT NULL
                CHECK (type IN ('TASK_ASSIGNED', 'TASK_STATUS_CHANGED', 'COMMENT_ADDED',
                                 'PROJECT_UPDATED', 'DEADLINE_REMINDER', 'OVERDUE_TASK',
-                                'MILESTONE_UPDATED', 'TEAM_INVITATION', 'TEAM_INVITATION_RESPONDED')),
+                                'MILESTONE_UPDATED', 'TEAM_INVITATION', 'TEAM_INVITATION_RESPONDED',
+                                'APPROVAL_REQUESTED', 'APPROVAL_DECIDED', 'MENTION')),
     title      VARCHAR(200) NOT NULL,
     message    VARCHAR(500),
     project_id BIGINT REFERENCES projects (id) ON DELETE CASCADE,
@@ -953,7 +1237,7 @@ WHERE t.due_date < CURRENT_DATE
 -- of this function today, but still gets a fresh one tomorrow if the task
 -- is still overdue. Nothing calls this on a schedule yet — wiring a daily
 -- caller (a Spring @Scheduled job, pg_cron, etc.) is a backend follow-up;
--- see the README.
+-- see docs/database.md.
 CREATE OR REPLACE FUNCTION fn_generate_overdue_notifications()
 RETURNS INTEGER AS $$
 DECLARE
@@ -983,12 +1267,15 @@ CREATE TABLE activity_logs (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id     BIGINT REFERENCES users (id) ON DELETE SET NULL,
     action      VARCHAR(30) NOT NULL
-                CHECK (action IN ('PROJECT_CREATED', 'PROJECT_UPDATED', 'PROJECT_COMPLETED',
+                CHECK (action IN ('PROJECT_CREATED', 'PROJECT_UPDATED', 'PROJECT_COMPLETED', 'PROJECT_LEAD_CHANGED',
                                    'TASK_CREATED', 'TASK_DELETED', 'TASK_ASSIGNED', 'TASK_UNASSIGNED',
                                    'TASK_STATUS_CHANGED', 'TASK_PRIORITY_CHANGED', 'TASK_DUE_DATE_CHANGED',
                                    'TASK_COMPLETED', 'SUBTASK_ADDED', 'SUBTASK_COMPLETED', 'SUBTASK_DELETED',
                                    'COMMENT_ADDED', 'FILE_UPLOADED',
-                                   'MILESTONE_CREATED', 'MILESTONE_COMPLETED')),
+                                   'MILESTONE_CREATED', 'MILESTONE_COMPLETED',
+                                   'TASK_APPROVAL_REQUESTED', 'TASK_APPROVED', 'TASK_CHANGES_REQUESTED',
+                                   'TASK_REJECTED', 'TASK_APPROVER_SET',
+                                   'WORK_LOGGED', 'WORK_LOG_UPDATED', 'WORK_LOG_DELETED')),
     -- task_id is nullable and ON DELETE SET NULL (not CASCADE, unlike every
     -- other task_id FK in this file) specifically so a TASK_DELETED entry
     -- survives the task row it describes being deleted — logging it, then
@@ -1005,6 +1292,62 @@ CREATE INDEX idx_activity_logs_user_id ON activity_logs (user_id);
 CREATE INDEX idx_activity_logs_project_id ON activity_logs (project_id);
 CREATE INDEX idx_activity_logs_task_id ON activity_logs (task_id);
 CREATE INDEX idx_activity_logs_created_at ON activity_logs (created_at DESC);
+
+-- ==================== refresh_tokens ==================== --
+
+-- What keeps a person signed in: only the SHA-256 hash of the random token in their httpOnly
+-- cookie is stored. Deleted on sign-out, password change or reset; removed with the account.
+CREATE TABLE refresh_tokens (
+    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens (user_id);
+CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens (expires_at);
+
+-- ==================== audit_logs ==================== --
+-- The administrator audit log (V16; assignment-brief.md B10, workflow A7, D-11). Separate from
+-- activity_logs, which is the project members' feed. No foreign keys: an entry must outlive the
+-- user, role or project it describes. Append-only: the application role gets SELECT and INSERT
+-- only (03-app-role.sh) and the trigger below refuses UPDATE and DELETE for everyone.
+
+CREATE TABLE audit_logs (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    actor_id     BIGINT,
+    actor_name   VARCHAR(150) NOT NULL,
+    action       VARCHAR(40) NOT NULL
+                 CHECK (action IN ('USER_ROLE_CHANGED', 'PERMISSIONS_CHANGED', 'PROJECT_ROLE_CHANGED',
+                                   'OWNERSHIP_TRANSFERRED', 'ACCOUNT_CREATED', 'ACCOUNT_STATUS_CHANGED',
+                                   'ACCOUNT_DELETED', 'PROJECT_DELETED',
+                                   'ROLE_CREATED', 'ROLE_UPDATED', 'ROLE_DELETED')),
+    target_type  VARCHAR(20) NOT NULL CHECK (target_type IN ('USER', 'ROLE', 'PROJECT')),
+    target_id    BIGINT,
+    target_label VARCHAR(255),
+    -- The project an entry belongs to, so its Owner can read the ownership entries (D-11).
+    project_id   BIGINT,
+    before_value TEXT,
+    after_value  TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_audit_logs_created_at ON audit_logs (created_at DESC);
+CREATE INDEX idx_audit_logs_action ON audit_logs (action);
+CREATE INDEX idx_audit_logs_project_id ON audit_logs (project_id) WHERE project_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION audit_logs_append_only()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'The audit log is append-only: entries cannot be changed or deleted'
+        USING ERRCODE = '23514'; -- check_violation, cleaned for the client by GlobalExceptionHandler
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_audit_logs_append_only
+    BEFORE UPDATE OR DELETE ON audit_logs
+    FOR EACH ROW EXECUTE FUNCTION audit_logs_append_only();
 
 -- ==================== reporting views ==================== --
 -- Most of Role_Requirment.md's Reports section (Project/Task/Status/
@@ -1073,7 +1416,7 @@ FROM users u
 LEFT JOIN (
     SELECT ta.user_id,
            count(*) AS assigned_tasks,
-           count(*) FILTER (WHERE t.status IN ('TO_DO', 'IN_PROGRESS', 'IN_REVIEW')) AS active_tasks,
+           count(*) FILTER (WHERE t.status IN ('TODO', 'IN_PROGRESS', 'IN_REVIEW')) AS active_tasks,
            count(*) FILTER (
                WHERE t.due_date < CURRENT_DATE AND t.status NOT IN ('COMPLETED', 'CANCELLED')
            ) AS overdue_tasks,

@@ -1,17 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
-import { X, FolderKanban, Flag, CalendarDays } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { FolderKanban, Flag, CalendarDays } from 'lucide-react'
 import { Modal } from './ui/Modal'
-import { ConfirmDialog } from './ui/ConfirmDialog'
+import { SidePanel } from './ui/SidePanel'
 import { useToast } from './ui/Toast'
 import { useDirtyForm } from './ui/useDirtyForm'
 import { useApi } from '../api/useApi'
+import { parseDuration } from '../api/duration'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
 import { createTask, taskResponseToRequest, updateTask } from '../api/tasks'
 import { getTaskAssignees, createTaskAssignee, deleteTaskAssignee } from '../api/taskAssignees'
 import { useAuth } from '../auth/AuthContext'
-import { canEditProjectContent, canManageProject } from '../api/permissions'
-import { buildMyProjectRoleMap, getActiveProjectMembers } from '../api/relations'
+import { getActiveProjectMembers } from '../api/relations'
 import { humanizeEnum } from '../api/format'
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
@@ -20,27 +20,22 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
 
-// New tasks always start in TO_DO — per the board's workflow, they only ever
+// New tasks always start in TODO — per the board's workflow, they only ever
 // reach Doing/Done by being moved forward from there, never created directly.
 // Editing an existing task (`task` passed) keeps its current status untouched.
 export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose, onSaved }) {
   const isEdit = Boolean(task)
   const notify = useToast()
-  const { role, profile } = useAuth()
-  const isSystemAdmin = role === 'ADMINISTRATOR'
+  const { can } = useAuth()
   const { data: projects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
   const { data: taskAssignees } = useApi(getTaskAssignees)
-  const myProjectRoleMap = useMemo(
-    () => buildMyProjectRoleMap(projectMembers, profile?.id),
-    [projectMembers, profile]
-  )
-  // Only offer projects the caller can actually create/edit tasks in
-  // (OWNER/ADMIN/MEMBER, not VIEWER) — the backend enforces this
-  // authoritatively regardless, this just avoids an obvious 403.
+  // Only offer projects where the caller holds TASK:CREATE (or TASK:EDIT when
+  // editing) — the backend enforces this authoritatively regardless, this just
+  // avoids an obvious 403.
   const selectableProjects = useMemo(
-    () => (projects ?? []).filter((p) => canEditProjectContent(myProjectRoleMap.get(p.id), isSystemAdmin)),
-    [projects, myProjectRoleMap, isSystemAdmin]
+    () => (projects ?? []).filter((p) => can('TASK', isEdit ? 'EDIT' : 'CREATE', p.id)),
+    [projects, can, isEdit]
   )
   const [title, setTitle] = useState(task?.title ?? '')
   const [projectId, setProjectId] = useState(
@@ -60,10 +55,9 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
   const [error, setError] = useState('')
 
   const effectiveProjectId = projectId || (selectableProjects[0] ? String(selectableProjects[0].id) : '')
-  // Assigning a task to someone else requires OWNER/ADMIN of ITS project —
-  // a MEMBER can create/edit tasks but not hand them to other people (see
-  // ProjectAccessGuard.canManage on the backend).
-  const canAssign = canManageProject(myProjectRoleMap.get(Number(effectiveProjectId)), isSystemAdmin)
+  // Assigning a task to someone else needs TASK:ASSIGN in ITS project — a Team
+  // Member can create tasks but not hand them to other people.
+  const canAssign = can('TASK', 'ASSIGN', Number(effectiveProjectId))
 
   // The real ACTIVE members of the currently selected project only — not
   // the org-wide directory (useMembers()), which includes anyone the caller
@@ -114,27 +108,6 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
     estimatedHours,
   })
 
-  // New Task renders its own right-side drawer chrome (to match
-  // TaskDetailPanel) instead of going through the shared centered <Modal>,
-  // so it needs its own copy of the same dirty-check-before-close guard
-  // Modal already provides for the Edit path below — same isDirty snapshot,
-  // just not routed through that component.
-  const [confirmingClose, setConfirmingClose] = useState(false)
-  const requestClose = () => {
-    if (isDirty) setConfirmingClose(true)
-    else onClose()
-  }
-
-  useEffect(() => {
-    if (isEdit || !isDirty) return
-    const handler = (e) => {
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [isEdit, isDirty])
-
   // Reconcile the task's single assignee against the task-assignees join
   // table — Task itself carries no assignee field, assignment is a separate
   // POST/DELETE against /api/task-assignees.
@@ -153,8 +126,9 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
       setError('Start date must be on or before the due date')
       return
     }
-    if (estimatedHours !== '' && Number(estimatedHours) < 0) {
-      setError('Estimated hours cannot be negative')
+    const estimateValue = estimatedHours.trim() === '' ? null : parseDuration(estimatedHours)
+    if (estimatedHours.trim() !== '' && (estimateValue == null || estimateValue > 9999)) {
+      setError('Enter the estimate as hours or a time like 1.5, 1h 30m, 45m or 2d')
       return
     }
     setSubmitting(true)
@@ -180,7 +154,7 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
               priority,
               startDate: startDate || null,
               dueDate: dueDate || null,
-              estimatedHours: estimatedHours !== '' ? Number(estimatedHours) : null,
+              estimatedHours: estimateValue,
             })
           )
         : await createTask({
@@ -188,10 +162,10 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
             title: title.trim(),
             description: description.trim() || null,
             priority,
-            status: 'TO_DO',
+            status: 'TODO',
             startDate: startDate || null,
             dueDate: dueDate || null,
-            estimatedHours: estimatedHours !== '' ? Number(estimatedHours) : null,
+            estimatedHours: estimateValue,
             progress: 0,
           })
     } catch (err) {
@@ -229,23 +203,23 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
         {({ requestClose: requestCloseModal }) => (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1.5">
-              <span className="text-muted text-[12.5px] font-semibold">Title</span>
+              <span className="text-muted text-[12px] font-semibold">Title</span>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                className="field"
                 autoFocus
                 required
               />
             </label>
 
             <label className="flex flex-col gap-1.5">
-              <span className="text-muted text-[12.5px] font-semibold">Project</span>
+              <span className="text-muted text-[12px] font-semibold">Project</span>
               <select
                 value={effectiveProjectId}
                 onChange={(e) => setProjectId(e.target.value)}
-                className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                className="field"
                 required
               >
                 {!selectableProjects.length && <option value="">No projects available</option>}
@@ -258,44 +232,44 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
             </label>
 
             <label className="flex flex-col gap-1.5">
-              <span className="text-muted text-[12.5px] font-semibold">Description</span>
+              <span className="text-muted text-[12px] font-semibold">Description</span>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
-                className="bg-subtle border-border focus:border-lavender rounded-md border px-3 py-2 text-[13.5px] outline-none"
+                className="bg-subtle border-border focus:border-focus rounded-md border px-3 py-2 text-[13px] outline-none"
               />
             </label>
 
             <div className="flex gap-3">
               <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">Start date</span>
+                <span className="text-muted text-[12px] font-semibold">Start date</span>
                 <input
                   type="date"
                   value={startDate ?? ''}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                  className="field"
                   required
                 />
               </label>
               <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">Due date</span>
+                <span className="text-muted text-[12px] font-semibold">Due date</span>
                 <input
                   type="date"
                   value={dueDate ?? ''}
                   onChange={(e) => setDueDate(e.target.value)}
-                  className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                  className="field"
                 />
               </label>
             </div>
 
             <div className="flex gap-3">
               <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-muted text-[12.5px] font-semibold">Priority</span>
+                <span className="text-muted text-[12px] font-semibold">Priority</span>
                 <select
                   value={priority}
                   onChange={(e) => setPriority(e.target.value)}
-                  className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                  className="field"
                 >
                   {PRIORITY_OPTIONS.map((p) => (
                     <option key={p} value={p}>
@@ -306,11 +280,11 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
               </label>
               {canAssign && (
                 <label className="flex flex-1 flex-col gap-1.5">
-                  <span className="text-muted text-[12.5px] font-semibold">Assignee</span>
+                  <span className="text-muted text-[12px] font-semibold">Assignee</span>
                   <select
                     value={assigneeId}
                     onChange={(e) => setAssigneeId(e.target.value)}
-                    className="bg-subtle border-border h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                    className="field"
                   >
                     <option value="">Unassigned</option>
                     {projectMembersForAssignee.map((m) => (
@@ -320,26 +294,27 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
                     ))}
                   </select>
                   {canAssign && projectMembers && projectMembersForAssignee.length === 0 && (
-                    <span className="text-faint text-[11.5px]">No members in this project yet.</span>
+                    <span className="text-faint text-[12px]">No members in this project yet.</span>
                   )}
                 </label>
               )}
             </div>
 
             <label className="flex flex-col gap-1.5">
-              <span className="text-muted text-[12.5px] font-semibold">Estimated hours</span>
+              <span className="text-muted text-[12px] font-semibold">Estimated hours</span>
               <input
-                type="number"
-                min="0"
-                step="0.25"
+                type="text"
+                inputMode="decimal"
                 value={estimatedHours}
                 onChange={(e) => setEstimatedHours(e.target.value)}
-                placeholder="e.g. 4"
-                className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                placeholder="e.g. 4, 1h 30m or 2d"
+                className="field"
+                autoComplete="off"
               />
+              <span className="text-faint text-[12px]">Hours by default. m = minutes, d = 8-hour day.</span>
             </label>
 
-            {error && <p className="text-danger text-[12.5px] font-semibold">{error}</p>}
+            {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
 
             <div className="mt-1 flex justify-end gap-2">
               <button type="button" className="btn btn-secondary" onClick={requestCloseModal}>
@@ -355,37 +330,20 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
     )
   }
 
-  // New Task: a right-side drawer reusing TaskDetailPanel's exact chrome
-  // (backdrop, aside sizing/animation, header row, scrollable body, footer
-  // bar) instead of the centered Modal, per the redesign request — same
-  // fields/validation/API calls as before, just laid out like that panel's
-  // own sections (a bordered "details" box for the short fields, then
-  // labeled sections below for the longer ones).
+  // New Task: the shared right-hand SidePanel (the same frame as the task panel and the role form: scrim, title,
+  // close button, Escape and the "Discard changes?" check come from it).
   return (
-    <>
-      <div
-        className="animate-fade-in fixed inset-0 z-[60] flex justify-end bg-[rgba(20,20,22,.4)] backdrop-blur-[2px]"
-        onClick={requestClose}
-      >
-        <aside
-          className="animate-slide-in bg-card shadow-pop flex h-full w-[440px] max-w-[100vw] flex-col max-sm:w-[100vw]"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="border-divider flex items-center justify-between border-b px-[22px] py-[18px]">
-            <span className="text-faint text-[11.5px] font-[650] tracking-[0.05em] uppercase">New Task</span>
-            <button className="icon-btn" onClick={requestClose} aria-label="Close panel">
-              <X size={18} />
-            </button>
-          </div>
-
+    <SidePanel title="New Task" onClose={onClose} isDirty={isDirty}>
+      {({ requestClose }) => (
+        <>
           <form id="new-task-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-[22px] pt-5 pb-6">
             <label className="mb-5 flex flex-col gap-1.5">
-              <span className="text-muted text-[12.5px] font-semibold">Title</span>
+              <span className="text-muted text-[12px] font-semibold">Title</span>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="bg-subtle border-border focus:border-lavender h-10 rounded-md border px-3 text-[13.5px] outline-none"
+                className="field"
                 autoFocus
                 required
               />
@@ -393,13 +351,13 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
 
             <div className="bg-subtle border-border mb-[22px] grid grid-cols-2 gap-4 rounded-md border p-4 max-sm:grid-cols-1">
               <div className="flex flex-col gap-1.5">
-                <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+                <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                   <FolderKanban size={14} /> Project
                 </span>
                 <select
                   value={effectiveProjectId}
                   onChange={(e) => setProjectId(e.target.value)}
-                  className="bg-card border-border focus:border-lavender h-9 rounded-md border px-2.5 text-[12.5px] outline-none"
+                  className="bg-card border-border focus:border-focus h-9 rounded-md border px-2.5 text-[12px] outline-none"
                   required
                 >
                   {!selectableProjects.length && <option value="">No projects available</option>}
@@ -412,13 +370,13 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+                <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                   <Flag size={14} /> Priority
                 </span>
                 <select
                   value={priority}
                   onChange={(e) => setPriority(e.target.value)}
-                  className="bg-card border-border focus:border-lavender h-9 rounded-md border px-2.5 text-[12.5px] outline-none"
+                  className="bg-card border-border focus:border-focus h-9 rounded-md border px-2.5 text-[12px] outline-none"
                 >
                   {PRIORITY_OPTIONS.map((p) => (
                     <option key={p} value={p}>
@@ -429,37 +387,37 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+                <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                   <CalendarDays size={14} /> Start date
                 </span>
                 <input
                   type="date"
                   value={startDate ?? ''}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="bg-card border-border focus:border-lavender h-9 rounded-md border px-2.5 text-[12.5px] outline-none"
+                  className="bg-card border-border focus:border-focus h-9 rounded-md border px-2.5 text-[12px] outline-none"
                   required
                 />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <span className="text-faint inline-flex items-center gap-1.5 text-[11.5px] font-semibold">
+                <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                   <CalendarDays size={14} /> Due date
                 </span>
                 <input
                   type="date"
                   value={dueDate ?? ''}
                   onChange={(e) => setDueDate(e.target.value)}
-                  className="bg-card border-border focus:border-lavender h-9 rounded-md border px-2.5 text-[12.5px] outline-none"
+                  className="bg-card border-border focus:border-focus h-9 rounded-md border px-2.5 text-[12px] outline-none"
                 />
               </div>
 
               {canAssign && (
                 <div className="col-span-2 flex flex-col gap-1.5 max-sm:col-span-1">
-                  <span className="text-faint text-[11.5px] font-semibold">Assignee</span>
+                  <span className="text-faint text-[12px] font-semibold">Assignee</span>
                   <select
                     value={assigneeId}
                     onChange={(e) => setAssigneeId(e.target.value)}
-                    className="bg-card border-border focus:border-lavender h-9 rounded-md border px-2.5 text-[12.5px] outline-none"
+                    className="bg-card border-border focus:border-focus h-9 rounded-md border px-2.5 text-[12px] outline-none"
                   >
                     <option value="">Unassigned</option>
                     {projectMembersForAssignee.map((m) => (
@@ -469,7 +427,7 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
                     ))}
                   </select>
                   {projectMembers && projectMembersForAssignee.length === 0 && (
-                    <span className="text-faint text-[11.5px]">No members in this project yet.</span>
+                    <span className="text-faint text-[12px]">No members in this project yet.</span>
                   )}
                 </div>
               )}
@@ -482,27 +440,28 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
                 placeholder="Add a description…"
-                className="bg-subtle border-border focus:border-lavender w-full rounded-md border px-3 py-2 text-[13px] leading-relaxed outline-none"
+                className="bg-subtle border-border focus:border-focus w-full rounded-md border px-3 py-2 text-[13px] leading-relaxed outline-none"
               />
             </div>
 
             <div>
               <h4 className="mb-2.5 text-[13px] font-[650]">Estimated hours</h4>
               <input
-                type="number"
-                min="0"
-                step="0.25"
+                type="text"
+                inputMode="decimal"
                 value={estimatedHours}
                 onChange={(e) => setEstimatedHours(e.target.value)}
-                placeholder="e.g. 4"
-                className="bg-subtle border-border focus:border-lavender h-10 w-full max-w-[160px] rounded-md border px-3 text-[13.5px] outline-none"
+                placeholder="e.g. 4, 1h 30m or 2d"
+                className="field w-full max-w-[220px]"
+                autoComplete="off"
               />
+              <p className="text-faint mt-1.5 text-[12px]">Hours by default. m = minutes, d = 8-hour day. Logged time is compared with this.</p>
             </div>
 
-            {error && <p className="text-danger mt-4 text-[12.5px] font-semibold">{error}</p>}
+            {error && <p className="text-danger-ink mt-4 text-[12px] font-semibold">{error}</p>}
           </form>
 
-          <div className="border-divider flex items-center justify-end gap-2 border-t px-[18px] py-3.5">
+          <div className="border-divider flex items-center justify-end gap-2 border-t px-[22px] py-4">
             <button type="button" className="btn btn-secondary" onClick={requestClose}>
               Cancel
             </button>
@@ -515,18 +474,8 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
               {submitting ? 'Creating…' : 'Create Task'}
             </button>
           </div>
-        </aside>
-      </div>
-
-      {confirmingClose && (
-        <ConfirmDialog
-          title="Discard changes?"
-          message="You have unsaved changes. Closing now will discard them."
-          confirmLabel="Discard"
-          onConfirm={onClose}
-          onClose={() => setConfirmingClose(false)}
-        />
+        </>
       )}
-    </>
+    </SidePanel>
   )
 }

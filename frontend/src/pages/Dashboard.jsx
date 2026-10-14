@@ -1,19 +1,21 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, ChevronDown, Check, CalendarDays, Circle, CheckCircle2 } from 'lucide-react'
+import { ChevronDown, Check, AlertTriangle, Circle, CheckCircle2, History, Clock } from 'lucide-react'
 import {
   LineChart,
   Line,
   XAxis,
+  YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
 import { TopBar } from '../layout/TopBar'
 import { ProjectCard } from '../components/ProjectCard'
+import { StatCard } from '../components/StatCard'
+import { WorkloadTable } from '../components/WorkloadTable'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
-import { DonutChart } from '../components/ui/DonutChart'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Dropdown } from '../components/ui/Dropdown'
 import { useToast } from '../components/ui/Toast'
@@ -25,10 +27,13 @@ import { getProjectMembers } from '../api/projectMembers'
 import { getTasks, toggleTaskCompletion } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { buildProjectMemberMap, buildTaskAssigneeMap, toProjectCard } from '../api/relations'
-import { computeTaskOverview, computePeriodTaskStats, PERIOD_OPTIONS, groupTasksByStatus } from '../api/stats'
-import { formatDate, humanizeEnum } from '../api/format'
+import { computeTaskOverview, computePeriodTaskStats, taskOverviewFromStats, PERIOD_OPTIONS } from '../api/stats'
+import { getDashboardStats } from '../api/dashboard'
+import { getRecentActivity } from '../api/activityLog'
+import { getManagedWorkload } from '../api/teamViews'
+import { formatDate, humanizeEnum, taskDisplayTitle, timeAgo, dueSoonLabel } from '../api/format'
 
-const OPEN_STATUSES = new Set(['TO_DO', 'IN_PROGRESS', 'IN_REVIEW'])
+const OPEN_STATUSES = new Set(['TODO', 'IN_PROGRESS', 'IN_REVIEW'])
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
@@ -46,20 +51,31 @@ function ChartTooltip({ active, payload, label }) {
 }
 
 export function Dashboard() {
-  const { profile, username } = useAuth()
+  const { profile, username, can, canAny } = useAuth()
   const notify = useToast()
   const { getMember } = useMembers()
-  const { data: projects, loading: projectsLoading } = useApi(getProjects)
+  const { data: projects, loading: projectsLoading, error: projectsError, refetch: refetchProjects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
-  const { data: tasks, loading: tasksLoading, refetch: refetchTasks } = useApi(getTasks)
+  const { data: tasks, loading: tasksLoading, error: tasksError, refetch: refetchTasks } = useApi(getTasks)
   const { data: taskAssignees } = useApi(getTaskAssignees)
   const [period, setPeriod] = useState(PERIOD_OPTIONS[0])
+  // Project and task figures calculated on the server (B1.3, D-06), so every
+  // screen shows the same numbers; the lists below still come from the resources.
+  const { data: stats, error: statsError, refetch: refetchStats } = useApi(getDashboardStats)
+  const recentFetcher = useCallback(() => getRecentActivity(8), [])
+  const { data: recent } = useApi(recentFetcher)
+  // Team workload is a manager's card: only people who may assign tasks somewhere ask for it.
+  const showWorkload = canAny('TASK', 'ASSIGN')
+  const workloadFetcher = useCallback(() => (showWorkload ? getManagedWorkload() : Promise.resolve(null)), [showWorkload])
+  const { data: workload } = useApi(workloadFetcher)
 
   const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
-  const taskOverview = useMemo(() => computeTaskOverview(tasks), [tasks])
+  const taskOverview = useMemo(
+    () => (stats ? taskOverviewFromStats(stats.tasks) : computeTaskOverview(tasks)),
+    [stats, tasks]
+  )
   const periodReport = useMemo(() => computePeriodTaskStats(tasks, period.days), [tasks, period])
-  const kanbanColumns = useMemo(() => groupTasksByStatus(tasks), [tasks])
   const todayLabel = periodReport[periodReport.length - 1]?.day
 
   const topProjects = useMemo(() => {
@@ -73,21 +89,22 @@ export function Dashboard() {
     return (tasks ?? [])
       .filter((t) => OPEN_STATUSES.has(t.status) && t.dueDate)
       .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
-      .slice(0, 5)
+      .slice(0, 7)
   }, [tasks])
 
-  const workDistribution = useMemo(() => {
-    const total = tasks?.length ?? 0
-    const completed = (tasks ?? []).filter((t) => t.status === 'COMPLETED').length
-    return {
-      completedPercent: total ? Math.round((completed / total) * 100) : 0,
-      tasks: total,
-      projectsCount: projects?.length ?? 0,
-      completed,
-    }
-  }, [tasks, projects])
+  const overdueCount = stats
+    ? stats.tasks.overdue
+    : (tasks ?? []).filter((t) => t.overdue && OPEN_STATUSES.has(t.status)).length
 
   const firstName = (profile?.fullName || username || '').split(' ')[0] || ''
+
+  // A failed request must not look like an empty list ("Nothing due soon"): say so, and offer a retry.
+  const loadFailed = Boolean(projectsError || tasksError || statsError)
+  const retryAll = () => {
+    refetchProjects()
+    refetchTasks()
+    refetchStats()
+  }
 
   const handleToggle = async (task) => {
     try {
@@ -102,39 +119,60 @@ export function Dashboard() {
     <div>
       <TopBar title={`Hello, ${firstName}`} subtitle="Welcome back!" />
 
-      {/* Hero */}
-      <section className="bg-card rounded-hero mb-6 flex min-h-[148px] items-center justify-between gap-6 overflow-hidden px-10 py-[30px] max-sm:flex-col max-sm:items-start max-sm:p-6">
-        <div>
-          <h2 className="mb-2 max-w-[380px] text-2xl font-bold tracking-[-0.015em]">
-            Stay on top of your work
-          </h2>
-          <p className="mb-[18px] max-w-[360px] text-[13.5px] leading-[1.55] text-[#4a4e5c]">
-            Track your tasks, manage projects, and keep your team moving forward.
-          </p>
-          <Link to="/tasks" className="btn btn-primary px-5 py-[11px]">
-            View Tasks <ArrowUpRight size={15} />
-          </Link>
+      {loadFailed && (
+        <div
+          role="alert"
+          data-testid="dashboard-load-error"
+          className="bg-danger-soft text-danger-ink mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md px-4 py-3 text-[13px] font-semibold"
+        >
+          <AlertTriangle size={16} className="shrink-0" />
+          <span className="min-w-0 flex-1">Some dashboard figures could not be loaded, so they are left out.</span>
+          <button type="button" className="btn btn-secondary" onClick={retryAll}>
+            Try again
+          </button>
         </div>
-        <div className="flex shrink-0 max-sm:self-center" aria-hidden="true">
-          <svg width="180" height="130" viewBox="0 0 180 130" fill="none">
-            <rect x="18" y="14" width="96" height="100" rx="16" fill="#ffffffb3" />
-            <rect x="34" y="34" width="64" height="8" rx="4" fill="#242426" opacity="0.55" />
-            <rect x="34" y="52" width="46" height="8" rx="4" fill="#242426" opacity="0.3" />
-            <circle cx="41" cy="80" r="7" fill="#78A88A" />
-            <rect x="54" y="76" width="40" height="8" rx="4" fill="#242426" opacity="0.2" />
-            <rect x="86" y="0" width="76" height="76" rx="18" fill="#ffffffcc" />
-            <path d="M104 40l10 10 20-22" stroke="#242426" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" opacity="0.6" />
-          </svg>
-        </div>
-      </section>
+      )}
 
-      <div className="grid grid-cols-[1fr_380px] items-start gap-6 max-[1200px]:grid-cols-1">
-        {/* LEFT COLUMN */}
-        <div className="flex min-w-0 flex-col gap-6">
-          <section className="card px-6 py-[22px]">
-            <div className="mb-[18px] flex items-center justify-between">
+      <div className="mb-6 grid grid-cols-6 gap-4 max-[1200px]:grid-cols-3 max-[640px]:grid-cols-2" data-testid="dashboard-stats">
+        {stats ? (
+          <>
+            <StatCard label="Total projects" value={stats.projects.total} />
+            <StatCard label="Active projects" value={stats.projects.active} />
+            <StatCard label="Completed projects" value={stats.projects.completed} />
+            <StatCard label="Delayed projects" value={stats.projects.delayed} tone="danger" />
+            <StatCard label="Average completion" value={`${Math.round(Number(stats.projects.averageProgress))}%`} />
+            <StatCard label="Total tasks" value={stats.tasks.total} />
+          </>
+        ) : statsError ? (
+          <>
+            <StatCard label="Total projects" value="—" />
+            <StatCard label="Active projects" value="—" />
+            <StatCard label="Completed projects" value="—" />
+            <StatCard label="Delayed projects" value="—" />
+            <StatCard label="Average completion" value="—" />
+            <StatCard label="Total tasks" value="—" />
+          </>
+        ) : (
+          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[92px] rounded-card" />)
+        )}
+      </div>
+
+      {/* Two independent columns on desktop, so a short card never leaves a hole beside a tall one:
+          tasks on the wider left, project health then team workload on the right. Below 1200px the
+          columns dissolve (`contents`) and `order` puts the cards in reading order. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_380px] items-start gap-6 max-[1200px]:grid-cols-1">
+        <div className="contents min-[1201px]:flex min-[1201px]:min-w-0 min-[1201px]:flex-col min-[1201px]:gap-6">
+          <section className="card order-1 min-w-0 px-6 py-[22px] min-[1201px]:order-none">
+            <div className="mb-[18px] flex items-center justify-between gap-3">
               <h3 className="section-title">Task Overview</h3>
-              <span className="text-faint text-[12.5px] font-medium">{tasks?.length ?? 0} tasks</span>
+              {overdueCount > 0 && (
+                <Link
+                  to="/tasks"
+                  className="bg-danger-soft text-danger-ink hit-area relative inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] leading-none font-semibold whitespace-nowrap hover:underline"
+                >
+                  <AlertTriangle size={12} /> {overdueCount} overdue
+                </Link>
+              )}
             </div>
             <div className="flex flex-col">
               {tasksLoading &&
@@ -158,7 +196,7 @@ export function Dashboard() {
                     className="border-divider flex items-center gap-3.5 border-b py-3 first:pt-0 last:border-b-0 last:pb-0"
                   >
                     <div>
-                      <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90">
+                      <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90" aria-hidden="true">
                         <circle className="stroke-divider fill-none" cx="20" cy="20" r="16" strokeWidth="5" />
                         <circle
                           className="ease-[var(--ease-standard)] fill-none transition-[stroke-dashoffset] duration-700 [stroke-linecap:round]"
@@ -173,33 +211,19 @@ export function Dashboard() {
                       </svg>
                     </div>
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-ink text-[13.5px] font-semibold">{t.label}</span>
-                      <span className="text-faint mt-0.5 text-[11.5px]">{t.percent}% of total</span>
+                      <span className="text-ink text-[13px] font-semibold">{t.label}</span>
+                      <span className="text-faint mt-0.5 text-[12px]">{t.percent}% of total</span>
                     </div>
-                    <span className="text-ink text-[17px] font-bold">{t.count}</span>
+                    <span className="text-ink text-[17px] font-bold tabular-nums">{t.count}</span>
                   </div>
                 ))}
             </div>
           </section>
 
-          <section className="card px-6 py-[22px]">
+          <section className="card order-2 min-w-0 px-6 py-[22px] min-[1201px]:order-none">
             <div className="mb-[18px] flex items-center justify-between">
-              <h3 className="section-title">Projects</h3>
-              <Link to="/projects" className="text-muted hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] text-[12.5px] font-semibold transition-colors">
-                View all
-              </Link>
-            </div>
-            <div className="flex flex-col gap-4">
-              {projectsLoading &&
-                Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-[132px] rounded-card" />)}
-              {!projectsLoading && topProjects.map((p) => <ProjectCard key={p.id} project={p} />)}
-            </div>
-          </section>
-
-          <section className="card px-6 py-[22px]">
-            <div className="mb-[18px] flex items-center justify-between">
-              <h3 className="section-title">Upcoming Tasks</h3>
-              <Link to="/tasks" className="text-muted hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] text-[12.5px] font-semibold transition-colors">
+              <h3 className="section-title">Due &amp; Overdue</h3>
+              <Link to="/tasks" className="text-muted hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] -my-2.5 py-2.5 text-[12px] font-semibold transition-colors">
                 View all
               </Link>
             </div>
@@ -218,8 +242,8 @@ export function Dashboard() {
                     <Skeleton className="h-6 w-16 rounded-full" />
                   </div>
                 ))}
-              {!tasksLoading && upcomingTasks.length === 0 && (
-                <p className="text-faint py-3 text-[12.5px]">Nothing due soon.</p>
+              {!tasksLoading && !tasksError && upcomingTasks.length === 0 && (
+                <p className="text-faint py-3 text-[12px]">Nothing due soon.</p>
               )}
               {upcomingTasks.map((t) => {
                 const assigneeId = assigneeMap.get(t.id)?.[0]
@@ -228,194 +252,233 @@ export function Dashboard() {
                 return (
                   <div
                     key={t.id}
-                    className={`border-divider duration-[var(--duration-med)] ease-[var(--ease-standard)] flex items-center gap-3.5 border-b py-3 transition-opacity first:pt-0 last:border-b-0 last:pb-0 ${
+                    className={`border-divider duration-[var(--duration-med)] ease-[var(--ease-standard)] flex items-center gap-3.5 border-b py-3 transition-opacity first:pt-0 last:border-b-0 last:pb-0 max-sm:gap-3 ${
                       isChecked ? 'opacity-45' : ''
                     }`}
                   >
-                    <button
-                      className="text-faint duration-[var(--duration-fast)] ease-[var(--ease-standard)] inline-flex border-none bg-none p-0 transition-colors hover:scale-[1.08] hover:text-charcoal"
-                      onClick={() => handleToggle(t)}
-                      aria-label="toggle task"
-                    >
-                      {isChecked ? (
-                        <CheckCircle2 size={19} className="text-success" />
-                      ) : (
-                        <Circle size={19} />
-                      )}
-                    </button>
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span
-                        className={`text-ink truncate text-[13.5px] font-semibold ${isChecked ? 'line-through' : ''}`}
+                    {can('TASK', 'APPROVE', t.project?.id) ? (
+                      <button
+                        className="text-faint duration-[var(--duration-fast)] ease-[var(--ease-standard)] -m-2.5 inline-flex rounded-full border-none bg-none p-2.5 transition-colors hover:text-charcoal"
+                        onClick={() => handleToggle(t)}
+                        aria-label={isChecked ? `Mark "${t.title}" as not completed` : `Mark "${t.title}" as completed`}
                       >
-                        {t.title}
+                        {isChecked ? (
+                          <CheckCircle2 size={19} className="text-success-ink" />
+                        ) : (
+                          <Circle size={19} />
+                        )}
+                      </button>
+                    ) : (
+                      // Completing a task is an approval (TASK:APPROVE). Without it the
+                      // row shows state only; members move work forward from the Tasks page.
+                      <span className="text-faint inline-flex" aria-hidden="true">
+                        {isChecked ? <CheckCircle2 size={19} className="text-success-ink" /> : <Circle size={19} />}
                       </span>
-                      <span className="text-faint text-xs">{t.project?.name}</span>
+                    )}
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      {/* One line from 640px up; on a phone the title may take two lines instead of
+                          being cut at about twenty characters. */}
+                      <span
+                        className={`text-ink text-[13px] font-semibold max-sm:line-clamp-2 sm:truncate ${isChecked ? 'line-through' : ''}`}
+                      >
+                        {taskDisplayTitle(t.title, t.project?.name)}
+                      </span>
+                      <span className="text-faint flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs sm:flex-nowrap">
+                        <span
+                          className={`inline-flex shrink-0 items-center gap-1 ${
+                            t.overdue && !isChecked
+                              ? 'text-danger-ink font-semibold'
+                              : t.dueSoon && !isChecked
+                                ? 'text-warning-ink font-semibold'
+                                : ''
+                          }`}
+                        >
+                          {t.overdue && !isChecked && <AlertTriangle size={12} />}
+                          {t.overdue && !isChecked ? 'Overdue · ' : ''}
+                          {t.dueSoon && !isChecked ? `${dueSoonLabel(t.dueDate)} · ` : ''}
+                          {formatDate(t.dueDate)}
+                        </span>
+                        <span className="max-w-full truncate">· {t.project?.name}</span>
+                      </span>
                     </div>
                     <Badge tone={t.priority}>{humanizeEnum(t.priority)}</Badge>
-                    <span className="text-muted hidden items-center gap-1.5 text-xs whitespace-nowrap min-[900px]:inline-flex">
-                      <CalendarDays size={13} /> {formatDate(t.dueDate)}
-                    </span>
                     {member && <Avatar initials={member.initials} color={member.color} size={28} title={member.name} />}
                   </div>
                 )
               })}
             </div>
           </section>
-        </div>
 
-        {/* RIGHT COLUMN */}
-        <div className="flex min-w-0 flex-col gap-6">
-          <section className="card px-6 py-[22px]">
+          <section
+            className="card order-6 min-w-0 px-6 py-[22px] min-[1201px]:order-none"
+            data-testid="recent-activity"
+          >
             <div className="mb-[18px] flex items-center justify-between">
-              <h3 className="section-title">Reports</h3>
-              <Dropdown
-                button={({ toggle }) => (
-                  <button className="dash-dropdown" onClick={toggle}>
-                    {period.label} <ChevronDown size={14} />
-                  </button>
-                )}
-                align="right"
-              >
-                {({ close }) => (
-                  <div className="flex flex-col gap-0.5 p-1">
-                    {PERIOD_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        className={`hover:bg-subtle flex items-center justify-between gap-4 rounded-sm px-2 py-1.5 text-left text-[13px] ${
-                          period.id === opt.id ? 'text-ink font-semibold' : 'text-muted'
-                        }`}
-                        onClick={() => {
-                          setPeriod(opt)
-                          close()
-                        }}
-                      >
-                        {opt.label}
-                        {period.id === opt.id && <Check size={14} />}
-                      </button>
-                    ))}
+              <h3 className="section-title">Recent activity</h3>
+            </div>
+            {recent && recent.length === 0 && <p className="text-faint text-[12px]">No activity yet.</p>}
+            <div className="flex flex-col gap-3">
+              {(recent ?? []).map((a) => (
+                <div key={a.id} className="flex gap-2.5">
+                  <span className="bg-subtle text-faint mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                    <History size={12} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-ink text-[12px] leading-snug break-words">
+                      {a.taskTitle && <span className="text-muted font-semibold">{a.taskTitle} — </span>}
+                      {a.description}
+                    </p>
+                    <span className="text-faint text-[12px]">
+                      {a.userName}
+                      {a.projectName ? ` · ${a.projectName}` : ''} · {timeAgo(a.createdAt)}
+                    </span>
                   </div>
-                )}
-              </Dropdown>
-            </div>
-            <div className="-mx-1.5">
-              <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={periodReport} margin={{ top: 6, right: 4, left: -22, bottom: 0 }}>
-                  <CartesianGrid vertical={false} stroke="var(--border-divider)" />
-                  <XAxis dataKey="day" hide />
-                  <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-light)' }} />
-                  <Line type="monotone" dataKey="completed" name="Completed" stroke="var(--color-charcoal)" strokeWidth={2} dot={{ r: 3, fill: 'var(--color-charcoal)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="created" name="Created" stroke="var(--accent-lavender)" strokeWidth={2} dot={{ r: 3, fill: 'var(--accent-lavender)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="overdue" name="Overdue" stroke="var(--status-danger)" strokeWidth={1.5} strokeDasharray="3 3" dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex justify-between px-0.5 pt-1">
-              {period.days <= 7 && periodReport.map((d) => (
-                <span
-                  key={d.date.toISOString()}
-                  className={`rounded-full px-[9px] py-[5px] text-[11px] font-medium ${
-                    d.day === todayLabel ? 'bg-charcoal font-[650] text-white' : 'text-faint'
-                  }`}
-                >
-                  {d.day}
-                </span>
+                </div>
               ))}
             </div>
-            <div className="border-divider mt-4 flex gap-4 border-t pt-3.5">
-              <span className="text-muted inline-flex items-center gap-1.5 text-[11.5px]">
-                <i className="bg-charcoal h-2 w-2 rounded-full" /> Completed
-              </span>
-              <span className="text-muted inline-flex items-center gap-1.5 text-[11.5px]">
-                <i className="bg-lavender h-2 w-2 rounded-full" /> Created
-              </span>
-              <span className="text-muted inline-flex items-center gap-1.5 text-[11.5px]">
-                <i className="bg-danger h-2 w-2 rounded-full" /> Overdue
-              </span>
-            </div>
           </section>
+        </div>
 
-          <section className="card px-6 py-[22px]">
+        <div className="contents min-[1201px]:flex min-[1201px]:min-w-0 min-[1201px]:flex-col min-[1201px]:gap-6">
+          <section
+            className="card order-3 min-w-0 px-6 py-[22px] min-[1201px]:order-none"
+            data-testid="delayed-projects"
+          >
             <div className="mb-[18px] flex items-center justify-between">
-              <h3 className="section-title">Work Distribution</h3>
+              <h3 className="section-title">Delayed projects</h3>
+              <span className="text-faint text-[12px] tabular-nums">{stats?.projects.delayed ?? 0}</span>
             </div>
-            <div className="flex justify-center px-0 pt-2 pb-1">
-              <DonutChart
-                percent={workDistribution.completedPercent}
-                size={160}
-                thickness={16}
-                fillColor="var(--color-charcoal)"
-                trackColor="var(--accent-blue-gray)"
-                centerLabel={`${workDistribution.completedPercent}%`}
-                centerSub="Completed"
-              />
-            </div>
-            <div className="border-divider mt-4 flex flex-col gap-3 border-t pt-4">
-              <div className="flex items-center gap-2.5 text-[13px]">
-                <span className="bg-charcoal h-2 w-2 shrink-0 rounded-full" />
-                <span className="text-muted flex-1">Tasks</span>
-                <span className="text-ink font-[650]">{workDistribution.tasks}</span>
-              </div>
-              <div className="flex items-center gap-2.5 text-[13px]">
-                <span className="bg-lavender h-2 w-2 shrink-0 rounded-full" />
-                <span className="text-muted flex-1">Projects</span>
-                <span className="text-ink font-[650]">
-                  {String(workDistribution.projectsCount).padStart(2, '0')}
-                </span>
-              </div>
-              <div className="flex items-center gap-2.5 text-[13px]">
-                <span className="bg-success h-2 w-2 shrink-0 rounded-full" />
-                <span className="text-muted flex-1">Completed</span>
-                <span className="text-ink font-[650]">{workDistribution.completed}</span>
-              </div>
+            {stats && stats.delayedProjects.length === 0 && (
+              <p className="text-faint text-[12px]">Nothing is behind schedule.</p>
+            )}
+            <div className="flex flex-col">
+              {(stats?.delayedProjects ?? []).map((p) => (
+                <Link
+                  key={p.id}
+                  to={`/projects/${p.id}`}
+                  className="border-divider hover:bg-subtle -mx-2 flex items-center gap-3 rounded-md border-b px-2 py-2.5 last:border-b-0"
+                >
+                  <Clock size={15} className="text-danger-ink shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="text-ink block truncate text-[13px] font-semibold">{p.name}</span>
+                    <span className="text-faint text-[12px]">
+                      Ended {formatDate(p.endDate)} · {Math.round(Number(p.progress ?? 0))}% done
+                    </span>
+                  </span>
+                  <span className="bg-danger-soft text-danger-ink rounded-full px-2.5 py-1 text-[12px] leading-none font-semibold whitespace-nowrap">
+                    {p.daysDelayed}d late
+                  </span>
+                </Link>
+              ))}
             </div>
           </section>
-        </div>
-      </div>
 
-      {/* KANBAN PREVIEW */}
-      <section className="mt-6 px-6 py-[22px]">
-        <div className="mb-[18px] flex items-center justify-between">
-          <h3 className="section-title">Kanban Board</h3>
-          <Link to="/kanban" className="text-muted hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] text-[12.5px] font-semibold transition-colors">
-            Open board
-          </Link>
-        </div>
-        <div className="scroll-x flex gap-4 pb-1">
-          {kanbanColumns.map((col) => (
-            <div
-              key={col.id}
-              className="bg-container flex w-60 shrink-0 flex-col gap-2.5 rounded-md p-3.5"
-            >
-              <div className="text-ink flex items-center justify-between px-0.5 pb-1 text-[12.5px] font-[650]">
-                <span>{col.title}</span>
-                <span className="text-faint bg-card rounded-full px-[7px] text-[11px]">
-                  {col.tasks.length}
-                </span>
-              </div>
-              {col.tasks.slice(0, 2).map((task) => {
-                const assigneeId = assigneeMap.get(task.id)?.[0]
-                const member = getMember(assigneeId)
-                return (
-                  <div
-                    key={task.id}
-                    className="bg-card border-border shadow-card hover:shadow-card-hover duration-[var(--duration-med)] ease-[var(--ease-standard)] rounded-xl border p-3 transition hover:-translate-y-px"
-                  >
-                    <span className="text-faint text-[10.5px] font-[650] tracking-[0.04em] uppercase">
-                      {task.project?.name}
-                    </span>
-                    <p className="text-ink my-2 text-[13px] leading-normal font-semibold">{task.title}</p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted text-[11px]">{formatDate(task.dueDate)}</span>
-                      {member && <Avatar initials={member.initials} color={member.color} size={22} />}
-                    </div>
-                  </div>
-                )
-              })}
+          <section className="card order-4 min-w-0 px-6 py-[22px] min-[1201px]:order-none">
+            <div className="mb-[18px] flex items-center justify-between">
+              <h3 className="section-title">Projects</h3>
+              <Link to="/projects" className="text-muted hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] -my-2.5 py-2.5 text-[12px] font-semibold transition-colors">
+                View all
+              </Link>
             </div>
-          ))}
+            {/* Two across on a tablet, stacked in the narrow desktop column. */}
+            <div className="grid gap-4 sm:max-[1200px]:grid-cols-2">
+              {projectsLoading &&
+                Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-[132px] rounded-card" />)}
+              {!projectsLoading && topProjects.map((p) => <ProjectCard key={p.id} project={p} compact />)}
+            </div>
+          </section>
+
+          {showWorkload && (
+            <section
+              className="card order-5 min-w-0 px-6 py-[22px] min-[1201px]:order-none"
+              data-testid="dashboard-workload"
+            >
+              <div className="mb-[18px] flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h3 className="section-title">Team workload</h3>
+                <span className="text-faint text-[12px]">across the projects you manage</span>
+              </div>
+              {workload ? <WorkloadTable workload={workload} compact /> : <Skeleton className="h-[120px] rounded-card" />}
+            </section>
+          )}
         </div>
-      </section>
+
+        <section className="card order-7 min-w-0 px-6 py-[22px] min-[1201px]:order-none min-[1201px]:col-span-2" data-testid="task-activity">
+          <div className="mb-[18px] flex items-center justify-between">
+            <h3 className="section-title">Task activity</h3>
+            <Dropdown
+              button={({ toggle }) => (
+                <button className="dash-dropdown" onClick={toggle}>
+                  {period.label} <ChevronDown size={14} />
+                </button>
+              )}
+              align="right"
+            >
+              {({ close }) => (
+                <div className="flex flex-col gap-0.5 p-1">
+                  {PERIOD_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={`hover:bg-subtle flex items-center justify-between gap-4 rounded-sm px-2 py-1.5 text-left text-[13px] ${
+                        period.id === opt.id ? 'text-ink font-semibold' : 'text-muted'
+                      }`}
+                      onClick={() => {
+                        setPeriod(opt)
+                        close()
+                      }}
+                    >
+                      {opt.label}
+                      {period.id === opt.id && <Check size={14} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Dropdown>
+          </div>
+          <div className="-mx-1.5">
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={periodReport} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="var(--border-divider)" />
+                <XAxis dataKey="day" hide />
+                <YAxis
+                  width={30}
+                  allowDecimals={false}
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 12, fill: 'var(--text-muted)' }}
+                />
+                <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-light)' }} />
+                <Line type="monotone" dataKey="completed" name="Completed" stroke="var(--color-charcoal)" strokeWidth={2} dot={{ r: 3, fill: 'var(--color-charcoal)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="created" name="Created" stroke="var(--accent-lavender)" strokeWidth={2} dot={{ r: 3, fill: 'var(--accent-lavender)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="overdue" name="Overdue" stroke="var(--status-danger)" strokeWidth={1.5} strokeDasharray="3 3" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex justify-between pt-1 pl-[30px]">
+            {period.days <= 7 && periodReport.map((d) => (
+              <span
+                key={d.date.toISOString()}
+                className={`rounded-full px-[9px] py-[5px] text-[12px] font-medium ${
+                  d.day === todayLabel ? 'bg-charcoal font-[650] text-on-charcoal' : 'text-faint'
+                }`}
+              >
+                {d.day}
+              </span>
+            ))}
+          </div>
+          <div className="border-divider mt-4 flex flex-wrap gap-x-4 gap-y-1.5 border-t pt-3.5">
+            <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
+              <i className="bg-charcoal h-2 w-2 rounded-full" /> Completed
+            </span>
+            <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
+              <i className="bg-lavender h-2 w-2 rounded-full" /> Created
+            </span>
+            <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
+              <i className="bg-danger h-2 w-2 rounded-full" /> Overdue (open past their due date)
+            </span>
+          </div>
+        </section>
+      </div>
     </div>
   )
 }

@@ -20,8 +20,23 @@ export function blockedReason(task) {
   return `Blocked by: ${titles.join(', ')}`
 }
 
+// The name of a project role on every screen (the same as on Roles & Permissions), with the business name
+// of the assignment in brackets for the two roles that have one: Admin is the Team Leader, Member the Team
+// Member. Only the label: the stored values (OWNER, ADMIN, MEMBER, VIEWER) are not touched.
+const PROJECT_ROLE_LABELS = {
+  OWNER: 'Owner',
+  ADMIN: 'Admin (Team Leader)',
+  MEMBER: 'Member (Team Member)',
+  VIEWER: 'Viewer',
+}
+export function projectRoleLabel(role) {
+  return PROJECT_ROLE_LABELS[role] ?? humanizeEnum(role)
+}
+
 export function humanizeEnum(value) {
   if (!value) return ''
+  // Stored as one word, labelled as two.
+  if (value === 'TODO') return 'To Do'
   return value
     .toLowerCase()
     .split('_')
@@ -56,6 +71,34 @@ export function formatDate(dateStr) {
   const d = new Date(dateStr)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// Whole calendar days from today to a YYYY-MM-DD date (0 = today, negative = past).
+export function daysUntil(dateStr) {
+  if (!dateStr) return null
+  const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number)
+  if (!y || !m || !d) return null
+  const now = new Date()
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((Date.UTC(y, m - 1, d) - today) / 86400000)
+}
+
+// "Due today", "Due tomorrow", "Due in 3 days" - the wording of the near-deadline flag.
+export function dueSoonLabel(dateStr) {
+  const n = daysUntil(dateStr)
+  if (n === null) return 'Due soon'
+  if (n <= 0) return 'Due today'
+  if (n === 1) return 'Due tomorrow'
+  return `Due in ${n} days`
+}
+
+// A date with its year ("Oct 12, 2026"), for moments that can be far in the past
+// (when a project was completed). Accepts a date or a full timestamp.
+export function formatLongDate(dateStr) {
+  if (!dateStr) return '—'
+  const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 export function timeAgo(dateStr) {

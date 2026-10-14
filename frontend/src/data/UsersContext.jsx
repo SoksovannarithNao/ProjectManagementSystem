@@ -25,6 +25,7 @@ export function UsersProvider({ children }) {
       color: colorForId(u.id),
       photoUrl: u.profilePhotoUrl,
       role: u.role,
+      accountStatus: u.accountStatus,
       email: u.email,
       positionId: u.positionId,
       positionName: u.positionName,

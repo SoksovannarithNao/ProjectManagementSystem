@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Menu, Search, Bell, BellOff, LogOut, User, Settings, X, Sun, Moon, Monitor, Check } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Avatar } from '../components/ui/Avatar'
@@ -22,14 +22,56 @@ const THEME_OPTIONS = [
   { value: 'SYSTEM', label: 'System', icon: Monitor },
 ]
 
+// The header is sticky, but a header that wraps onto a second or third row (the action buttons on a phone, a project's
+// many actions) would pin a third of the screen. So only its FIRST row stays pinned: as the page scrolls, the rows
+// below it are clipped away, one pixel per pixel scrolled (the page content shows through where they were, and the
+// clipped part no longer takes clicks), exactly as if those rows had scrolled off. Scrolled back to the top the whole
+// header is there again. A one-row header stays pinned whole. The header keeps its size, so nothing in the page moves.
+// Measured again whenever the header or one of its blocks resizes (a window resize, a title that changes, buttons
+// that wrap).
+function usePinFirstRow(ref) {
+  useLayoutEffect(() => {
+    const header = ref.current
+    if (!header) return undefined
+    let hidden = 0 // the height of the rows below the first one
+    const clip = () => {
+      const cut = Math.min(hidden, Math.max(0, globalThis.scrollY))
+      header.style.clipPath = cut > 0 ? `inset(0 0 ${cut}px 0)` : ''
+    }
+    const measure = () => {
+      const box = header.getBoundingClientRect()
+      const [first, ...rest] = [...header.children].map((el) => el.getBoundingClientRect())
+      if (!first) return
+      // the first row: the first block, and any other block that sits on the same line
+      let bottom = first.bottom
+      for (const r of rest) if (r.top < first.bottom - 1) bottom = Math.max(bottom, r.bottom)
+      // 16px = the padding under the row (pb-4), so the pinned part ends the way the whole header would
+      hidden = Math.max(0, box.height - Math.min(box.height, bottom - box.top + 16))
+      clip()
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    for (const child of header.children) observer.observe(child)
+    globalThis.addEventListener('scroll', clip, { passive: true })
+    return () => {
+      observer.disconnect()
+      globalThis.removeEventListener('scroll', clip)
+      header.style.clipPath = ''
+    }
+  }, [ref])
+}
+
 // Search only renders when a page actually wires `onSearchChange` — a
 // decorative input that filters nothing is worse than no input at all.
 export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, searchPlaceholder = 'Search' }) {
   const showSearch = Boolean(onSearchChange)
+  const headerRef = useRef(null)
+  usePinFirstRow(headerRef)
   const { openMobileNav } = useLayout()
   const { profile, username, logout, refreshProfile } = useAuth()
   const { theme, setTheme } = useTheme()
-  const { notifications, unreadCount, markRead, markAllRead, dismiss } = useNotifications()
+  const { notifications, total, unreadCount, hasMore, loadingMore, loadMore, markRead, markAllRead, dismiss } = useNotifications()
   const notify = useToast()
   const navigate = useNavigate()
   const displayName = profile?.fullName || username || ''
@@ -84,7 +126,13 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
   }
 
   return (
-    <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
+    // Sticky: the header stays at the top while the page scrolls under it. It reaches up into the page's top padding
+    // (the -mt / pt pairs equal the padding of AppLayout's content box at each width) so it keeps the same spacing
+    // above the title when stuck, and its bottom gap is split into padding (covered by the canvas background, so
+    // content does not show through) and margin (the same 28px of space as before in total). z-30 is above the
+    // page content and below the sidebar (z-40), its mobile scrim (z-39), side panels and dialogs. Only the first
+    // row stays pinned when the header wraps (see usePinFirstRow).
+    <header ref={headerRef} className="bg-canvas sticky top-0 z-30 -mt-8 mb-3 flex flex-wrap items-center justify-between gap-4 pt-8 pb-4 max-lg:-mt-5 max-lg:pt-5 max-sm:-mt-4 max-sm:pt-4">
       <div className="flex min-w-0 items-center gap-3">
         <button
           className="border-border bg-card text-ink hidden h-[38px] w-[38px] shrink-0 items-center justify-center rounded-md border max-lg:inline-flex"
@@ -93,11 +141,11 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
         >
           <Menu size={20} />
         </button>
-        <div>
+        <div className="min-w-0">
           <h1 className="text-ink truncate text-[30px] font-bold tracking-[-0.02em] max-sm:text-2xl">
             {title}
           </h1>
-          {subtitle && <p className="text-muted mt-1 text-[13.5px]">{subtitle}</p>}
+          {subtitle && <p className="text-muted mt-1 text-[13px]">{subtitle}</p>}
         </div>
       </div>
 
@@ -111,7 +159,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
               placeholder={searchPlaceholder}
               value={searchValue ?? ''}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="text-ink placeholder:text-faint w-full border-none bg-transparent text-[13.5px] outline-none"
+              className="text-ink placeholder:text-faint w-full border-none bg-transparent text-[13px] outline-none"
             />
           </div>
         )}
@@ -134,7 +182,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                 {unreadCount > 0 && (
                   <button
                     type="button"
-                    className="text-muted hover:text-ink text-[11.5px] font-semibold"
+                    className="text-muted hover:text-ink text-[12px] font-semibold"
                     onClick={markAllRead}
                   >
                     Mark all read
@@ -156,14 +204,14 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                           <span className="flex items-center gap-1.5">
                             {!n.read && <span className="bg-info h-1.5 w-1.5 shrink-0 rounded-full" />}
-                            <span className="text-ink text-[12.5px] font-semibold">{n.title}</span>
+                            <span className="text-ink text-[12px] font-semibold">{n.title}</span>
                           </span>
                           {n.message && <span className="text-muted text-[12px]">{n.message}</span>}
-                          <span className="text-faint text-[11px]">{timeAgo(n.createdAt)}</span>
+                          <span className="text-faint text-[12px]">{timeAgo(n.createdAt)}</span>
                           <div className="mt-1 flex gap-2">
                             <button
                               type="button"
-                              className="btn btn-primary px-2.5 py-1 text-[11.5px]"
+                              className="btn btn-primary px-2.5 py-1 text-[12px]"
                               disabled={respondingId === n.id}
                               onClick={() => handleRespond(n, true)}
                             >
@@ -171,7 +219,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                             </button>
                             <button
                               type="button"
-                              className="btn btn-secondary px-2.5 py-1 text-[11.5px]"
+                              className="btn btn-secondary px-2.5 py-1 text-[12px]"
                               disabled={respondingId === n.id}
                               onClick={() => handleRespond(n, false)}
                             >
@@ -187,10 +235,10 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                         >
                           <span className="flex items-center gap-1.5">
                             {!n.read && <span className="bg-info h-1.5 w-1.5 shrink-0 rounded-full" />}
-                            <span className="text-ink text-[12.5px] font-semibold">{n.title}</span>
+                            <span className="text-ink text-[12px] font-semibold">{n.title}</span>
                           </span>
                           {n.message && <span className="text-muted text-[12px]">{n.message}</span>}
-                          <span className="text-faint text-[11px]">{timeAgo(n.createdAt)}</span>
+                          <span className="text-faint text-[12px]">{timeAgo(n.createdAt)}</span>
                         </button>
                       )}
                       <button
@@ -204,6 +252,16 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
                     </div>
                   )
                 })}
+                {hasMore && (
+                  <button
+                    type="button"
+                    className="text-muted hover:text-ink hover:bg-subtle mt-1 w-full rounded-md px-2.5 py-2 text-center text-[12px] font-semibold"
+                    disabled={loadingMore}
+                    onClick={loadMore}
+                  >
+                    {loadingMore ? 'Loading…' : `Show more (${total - notifications.length} older)`}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -269,7 +327,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
             <div className="flex flex-col gap-0.5">
               <div className="border-divider mb-1 border-b px-2.5 pb-2">
                 <p className="text-ink truncate text-[13px] font-semibold">{displayName}</p>
-                <p className="text-faint truncate text-[11.5px]">{username}</p>
+                <p className="text-faint truncate text-[12px]">{username}</p>
               </div>
               <button
                 type="button"
@@ -293,7 +351,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
               </button>
               <button
                 type="button"
-                className="hover:bg-subtle text-danger flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px]"
+                className="hover:bg-subtle text-danger-ink flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px]"
                 onClick={() => {
                   close()
                   handleLogout()
