@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./client', () => ({ apiFetch: vi.fn(() => Promise.resolve({})) }))
 
 import { apiFetch } from './client'
-import { advanceTaskStatus, canAdvanceStatus, checkTaskMove, moveTaskToStatus, setTaskStatus, taskResponseToRequest, toggleTaskCompletion } from './tasks'
+import { KANBAN_COLUMNS, advanceTaskStatus, canAdvanceStatus, checkTaskMove, getKanbanColumnPage, getProjectTaskStats, getTaskSummary, getTasksByMilestoneId, getTasksDueBetween, getTasksDueSoon, getTasksPage, moveTaskToStatus, setTaskStatus, taskResponseToRequest, toggleTaskCompletion } from './tasks'
 
 const task = (extra = {}) => ({
   id: 5,
@@ -227,5 +227,134 @@ describe('moveTaskToStatus (reads the task again before saving)', () => {
     expect(abilitiesFor).toHaveBeenCalledWith(fresh)
     expect(result.moved).toBe(false)
     expect(result.message).toMatch(/Only an approver/)
+  })
+})
+
+describe('the Tasks page list and summary', () => {
+  beforeEach(() => apiFetch.mockClear())
+
+  const urlOf = () => new URL(apiFetch.mock.calls.at(-1)[0], 'http://x')
+
+  it('asks for one page, grouped by project, with every filter as a parameter', () => {
+    getTasksPage(
+      { search: ' site ', statuses: ['TODO', 'IN_REVIEW'], priorities: ['HIGH'], assigneeIds: [4, 7], projectId: '10', due: 'week', view: 'upcoming', sort: 'priority' },
+      2,
+      50
+    )
+
+    const url = urlOf()
+    expect(url.pathname).toBe('/tasks')
+    expect(url.searchParams.get('search')).toBe('site')
+    expect(url.searchParams.getAll('status')).toEqual(['TODO', 'IN_REVIEW'])
+    expect(url.searchParams.getAll('priority')).toEqual(['HIGH'])
+    expect(url.searchParams.getAll('assigneeId')).toEqual(['4', '7'])
+    expect(url.searchParams.get('projectId')).toBe('10')
+    expect(url.searchParams.get('due')).toBe('week')
+    expect(url.searchParams.get('view')).toBe('upcoming')
+    expect(url.searchParams.get('sort')).toBe('priority')
+    expect(url.searchParams.get('groupBy')).toBe('project')
+    expect(url.searchParams.get('page')).toBe('2')
+    expect(url.searchParams.get('size')).toBe('50')
+  })
+
+  it('sends nothing for an empty filter, and no view for All', () => {
+    getTasksPage({ search: '  ', statuses: [], assigneeIds: [], unassigned: false, projectId: '', due: '', view: 'all' }, 0, 50)
+
+    expect([...urlOf().searchParams.keys()].sort()).toEqual(['groupBy', 'page', 'size'])
+  })
+
+  it('asks for the unassigned tasks with unassigned=true', () => {
+    getTasksPage({ unassigned: true }, 0, 50)
+
+    expect(urlOf().searchParams.get('unassigned')).toBe('true')
+  })
+
+  it('reads the summary over the same filters but not the view, sort or paging', () => {
+    getTaskSummary({ search: 'x', statuses: ['TODO'], view: 'overdue', sort: 'title' })
+
+    const url = urlOf()
+    expect(url.pathname).toBe('/tasks/summary')
+    expect([...url.searchParams.keys()].sort()).toEqual(['search', 'status'])
+  })
+})
+
+describe('the Calendar and project-card requests', () => {
+  beforeEach(() => apiFetch.mockClear())
+
+  it('asks for the tasks due in a window, both days included', () => {
+    getTasksDueBetween('2026-09-28', '2026-11-08')
+
+    expect(apiFetch.mock.calls.at(-1)[0]).toBe('/tasks?dueFrom=2026-09-28&dueTo=2026-11-08')
+  })
+
+  it('asks for the tasks of one milestone, whenever they are due', () => {
+    getTasksByMilestoneId(7)
+
+    expect(apiFetch.mock.calls.at(-1)[0]).toBe('/tasks/milestone/7')
+  })
+
+  it('asks for the task counts of the projects', () => {
+    getProjectTaskStats()
+
+    expect(apiFetch.mock.calls.at(-1)[0]).toBe('/tasks/project-stats')
+  })
+})
+
+describe('the dashboard due-soon list', () => {
+  beforeEach(() => apiFetch.mockClear())
+
+  it('asks for the open tasks that have a due date, earliest first, one short page', async () => {
+    apiFetch.mockResolvedValueOnce({ items: [{ id: 1 }, { id: 2 }], total: 9, page: 0, size: 7 })
+
+    const items = await getTasksDueSoon(7)
+
+    const url = new URL(apiFetch.mock.calls.at(-1)[0], 'http://x')
+    expect(url.pathname).toBe('/tasks')
+    expect(url.searchParams.getAll('status')).toEqual(['TODO', 'IN_PROGRESS', 'IN_REVIEW'])
+    expect(url.searchParams.get('dueFrom')).toBe('1970-01-01') // leaves out a task with no due date
+    expect(url.searchParams.get('sort')).toBe('dueDate')
+    expect(url.searchParams.get('page')).toBe('0')
+    expect(url.searchParams.get('size')).toBe('7')
+    expect(url.searchParams.has('groupBy')).toBe(false) // not grouped by project: the earliest due leads
+    expect(items).toEqual([{ id: 1 }, { id: 2 }])
+  })
+})
+
+describe('the Kanban board columns', () => {
+  beforeEach(() => apiFetch.mockClear())
+
+  const urlOf = () => new URL(apiFetch.mock.calls.at(-1)[0], 'http://x')
+  const column = (id) => KANBAN_COLUMNS.find((c) => c.id === id)
+
+  it('lists the five columns left to right, with Blocked a split of To Do and not a status', () => {
+    expect(KANBAN_COLUMNS.map((c) => c.id)).toEqual(['todo', 'inprogress', 'review', 'blocked', 'done'])
+    expect(column('todo')).toMatchObject({ status: 'TODO', blocked: false })
+    expect(column('blocked')).toMatchObject({ status: 'TODO', blocked: true })
+    expect(column('inprogress').blocked).toBeUndefined()
+  })
+
+  it('asks for one page of a column under the board filters', () => {
+    getKanbanColumnPage({ search: ' site ', priorities: ['HIGH', 'URGENT'], projectId: '10' }, column('inprogress'), 2, 25)
+
+    const url = urlOf()
+    expect(url.pathname).toBe('/tasks')
+    expect(url.searchParams.getAll('status')).toEqual(['IN_PROGRESS'])
+    expect(url.searchParams.getAll('priority')).toEqual(['HIGH', 'URGENT'])
+    expect(url.searchParams.get('search')).toBe('site')
+    expect(url.searchParams.get('projectId')).toBe('10')
+    expect(url.searchParams.get('page')).toBe('2')
+    expect(url.searchParams.get('size')).toBe('25')
+    expect(url.searchParams.has('blocked')).toBe(false)
+    expect(url.searchParams.has('groupBy')).toBe(false)
+  })
+
+  it('splits To Do and Blocked with the blocked parameter', () => {
+    getKanbanColumnPage({}, column('todo'), 0, 25)
+    expect(urlOf().searchParams.get('blocked')).toBe('false')
+    expect(urlOf().searchParams.getAll('status')).toEqual(['TODO'])
+
+    getKanbanColumnPage({}, column('blocked'), 0, 25)
+    expect(urlOf().searchParams.get('blocked')).toBe('true')
+    expect(urlOf().searchParams.getAll('status')).toEqual(['TODO'])
   })
 })

@@ -26,10 +26,6 @@ export function getPendingInvitations(projectId) {
   return apiFetch(`/project-members/project/${projectId}/invitations`)
 }
 
-// Team-Admin-only: how many invitations for this project are still PENDING.
-export function getPendingInvitationCount(projectId) {
-  return apiFetch(`/project-members/project/${projectId}/invitations/count`)
-}
 
 // Team-Admin-only type-ahead: ACTIVE users anywhere in the org who can still
 // be invited to this project (not you, not already a member/pending).

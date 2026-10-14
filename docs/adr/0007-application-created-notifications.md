@@ -25,8 +25,8 @@ Notifications must tell the right person about an event: someone assigned to a t
 ## Consequences
 
 - Message wording and the on/off preference are in one class; easy to extend with a new `notifyX` method.
-- Only code paths that call `NotificationService` produce notifications: changes made directly in SQL, and the subtask auto-promotion of a task's status, produce none.
-- The single switch `task_notifications_enabled` also controls **invitation** notifications, which are the only place the UI offers Accept/Decline — a user who turns it off cannot see invitations (issue I-12).
+- Only code paths that call `NotificationService` produce notifications: changes made directly in SQL produce none (the subtask auto-promotion of a task's status has been announced since 2026-10-14, I-17).
+- The single switch `task_notifications_enabled` controls the task, approval, reminder and overdue notices but **not** the invitation notification, which is the only place the UI offers Accept/Decline (changed 2026-10-14, issue I-12).
 - Delivery is in-app only and pull-based (no push; the UI fetches at load and after the user's own actions).
 - All 12 allowed notification types are produced (`MENTION`, 2026-10-13, comes from `UpdateNotificationService.notifyMentioned`, called by `CommentService`). `COMMENT_ADDED`, `PROJECT_UPDATED` and `MILESTONE_UPDATED` (2026-10-12) come from `UpdateNotificationService`, called by `CommentService`, `ProjectService` and `MilestoneService` in the same style; a separate class keeps `NotificationService` small and gives the "who is around this item" recipient rules one home.
 

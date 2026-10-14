@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
@@ -53,7 +54,17 @@ public class MilestoneService {
     // way as TaskService.getAllTasks.
     @Transactional(readOnly = true)
     public List<MilestoneResponse> getAllMilestones(String username) {
+        return getAllMilestones(username, null, null);
+    }
+
+    // The same list limited to milestones due between two dates, both included (null leaves an end
+    // open; a milestone with no due date is then left out).
+    @Transactional(readOnly = true)
+    public List<MilestoneResponse> getAllMilestones(String username, LocalDate dueFrom, LocalDate dueTo) {
         User caller = requireUser(username);
+        if (dueFrom != null && dueTo != null && dueTo.isBefore(dueFrom)) {
+            throw new IllegalArgumentException("Invalid range: dueTo is before dueFrom");
+        }
         List<Milestone> milestones;
         if (projectAccessGuard.isAdmin(caller)) {
             milestones = milestoneRepository.findAll();
@@ -63,7 +74,12 @@ public class MilestoneService {
                     .filter(m -> visibleProjectIds.contains(m.getProject().getId()))
                     .toList();
         }
-        return milestones.stream().map(MilestoneResponse::new).toList();
+        return milestones.stream()
+                .filter(m -> dueFrom == null && dueTo == null
+                        || m.getDueDate() != null
+                        && (dueFrom == null || !m.getDueDate().isBefore(dueFrom))
+                        && (dueTo == null || !m.getDueDate().isAfter(dueTo)))
+                .map(MilestoneResponse::new).toList();
     }
 
     @Transactional(readOnly = true)

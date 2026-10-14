@@ -1,15 +1,19 @@
 package backend.controller;
 
 import backend.dto.TaskRequest;
+import backend.dto.ProjectTaskStatsResponse;
 import backend.dto.TaskResponse;
+import backend.dto.TaskSummaryResponse;
 import backend.service.TaskService;
 import backend.util.PageParams;
 import backend.util.TaskListQuery;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 
@@ -31,24 +35,71 @@ public class TaskController {
     // status or priority with OR. They only narrow what the caller may already see.
     // With ?page and/or ?size the answer is a page ({ items, total, page, size }) instead of the
     // whole list; without them it is the whole list, as before.
+    // dueFrom / dueTo (YYYY-MM-DD, both included) keep the tasks due in that window - the calendar asks for
+    // the days on screen. blocked=true keeps only the tasks waiting on an unfinished prerequisite and
+    // blocked=false only the others (the Kanban columns To Do and Blocked). Beside those: several assigneeId values (the task must be assigned to all of them), unassigned=true
+    // (no assignee at all), view (one of all, today, upcoming, inprogress, completed, overdue) and
+    // groupBy=project (the tasks of a project together, finished projects last, the sort ordering each).
     @GetMapping
     public Object getAllTasks(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) List<String> status,
             @RequestParam(required = false) List<String> priority,
-            @RequestParam(required = false) Long assigneeId,
+            @RequestParam(required = false) List<Long> assigneeId,
+            @RequestParam(required = false) Boolean unassigned,
             @RequestParam(required = false) Long projectId,
             @RequestParam(required = false) String due,
+            @RequestParam(required = false) String view,
+            @RequestParam(required = false) Boolean blocked,
+            @RequestParam(required = false) String groupBy,
             @RequestParam(required = false) String sort,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dueFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dueTo,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             Authentication authentication
     ) {
-        TaskListQuery query = new TaskListQuery(search, status, priority, assigneeId, projectId, due, sort);
+        TaskListQuery query = new TaskListQuery(search, status, priority, assigneeId, Boolean.TRUE.equals(unassigned),
+                projectId, due, view, groupedByProject(groupBy), sort).dueBetween(dueFrom, dueTo).blockedIs(blocked);
         PageParams paging = PageParams.of(page, size);
         return paging == null
                 ? taskService.getAllTasks(authentication.getName(), query)
                 : taskService.getTasksPage(authentication.getName(), query, paging);
+    }
+
+    // How many tasks each project holds (not cancelled, completed, overdue), for the project cards:
+    // one grouped query over the projects the caller may see.
+    @GetMapping("/project-stats")
+    public List<ProjectTaskStatsResponse> getProjectTaskStats(Authentication authentication) {
+        return taskService.getProjectTaskStats(authentication.getName());
+    }
+
+    // The counts of the quick views and the people to offer in the assignee filter, over the same
+    // search and filters (the view, sort and paging do not apply).
+    @GetMapping("/summary")
+    public TaskSummaryResponse getTaskSummary(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) List<String> priority,
+            @RequestParam(required = false) List<Long> assigneeId,
+            @RequestParam(required = false) Boolean unassigned,
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String due,
+            Authentication authentication
+    ) {
+        TaskListQuery query = new TaskListQuery(search, status, priority, assigneeId, Boolean.TRUE.equals(unassigned),
+                projectId, due, null, false, null);
+        return taskService.getTaskSummary(authentication.getName(), query);
+    }
+
+    private static boolean groupedByProject(String groupBy) {
+        if (groupBy == null || groupBy.isBlank()) {
+            return false;
+        }
+        if (!"project".equals(groupBy)) {
+            throw new IllegalArgumentException("Invalid groupBy: " + groupBy);
+        }
+        return true;
     }
 
     @GetMapping("/{id}")

@@ -1,8 +1,13 @@
 import { apiFetch } from './client'
 
-// Every milestone in the projects the caller can see (the calendar draws them).
-export function getMilestones() {
-  return apiFetch('/milestones')
+// The milestones in the projects the caller can see (the calendar draws them). With { from, to }
+// (YYYY-MM-DD, both included) only those due in that window.
+export function getMilestones({ from, to } = {}) {
+  const params = new URLSearchParams()
+  if (from) params.set('dueFrom', from)
+  if (to) params.set('dueTo', to)
+  const query = params.toString()
+  return apiFetch(query ? `/milestones?${query}` : '/milestones')
 }
 
 export function getMilestonesByProjectId(projectId) {

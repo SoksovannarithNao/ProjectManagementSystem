@@ -29,7 +29,7 @@ services:
   # Flyway history yet (built by init/01-init.sql before this service existed),
   # so Flyway adopts that state and applies V9 onward. A database created from
   # the current init scripts carries its own baseline row (init/04-flyway-baseline.sql,
-  # version 14), so nothing already folded into 01-init.sql is replayed.
+  # version 21), so nothing already folded into 01-init.sql is replayed.
   # It uses the postgres superuser because migrations change the schema; the
   # backend itself still connects as the least-privileged taskmanager_app.
   migrate:
@@ -92,6 +92,9 @@ services:
       MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
       MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-false}
       MAIL_FROM: ${MAIL_FROM:-no-reply@taskflow.dev}
+      # A registration nobody verifies is deleted after this many hours (checked at the start of every hour).
+      PENDING_REGISTRATION_TTL_HOURS: ${PENDING_REGISTRATION_TTL_HOURS:-24}
+      PENDING_REGISTRATION_CLEANUP_CRON: ${PENDING_REGISTRATION_CLEANUP_CRON:-0 0 * * * *}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     volumes:

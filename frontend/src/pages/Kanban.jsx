@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, SlidersHorizontal, LayoutGrid, AlertTriangle, Lock, ListChecks } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
@@ -14,12 +14,9 @@ import { useToast } from '../components/ui/Toast'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
-import { getTasks, moveTaskToStatus, checkTaskMove, KANBAN_STATUS_LABELS } from '../api/tasks'
-import { getTaskAssignees } from '../api/taskAssignees'
+import { getKanbanColumnPage, getTaskById, KANBAN_COLUMNS, moveTaskToStatus, checkTaskMove, KANBAN_STATUS_LABELS } from '../api/tasks'
 import { getProjects } from '../api/projects'
-import { buildTaskAssigneeMap } from '../api/relations'
 import { canApproveTask } from '../api/permissions'
-import { groupTasksByStatus } from '../api/stats'
 import { formatDate, humanizeEnum, taskDisplayTitle, blockedReason } from '../api/format'
 import { ApprovalChip } from '../components/ApprovalChip'
 import { DueSoonBadge } from '../components/DueSoonBadge'
@@ -33,6 +30,9 @@ const COLUMN_ACCENT = {
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 
+// Each column reads its cards from the server 25 at a time ("Show more" reads the next 25), with its own total.
+const PAGE_SIZE = 25
+
 // The status a column stands for when a card is dropped on it; the Blocked column is not one.
 const columnTarget = (col) => (col.id === 'blocked' ? 'BLOCKED' : col.status)
 
@@ -40,14 +40,18 @@ export function Kanban() {
   const { canAny, can, permissions, profile } = useAuth()
   const notify = useToast()
   const { getMember } = useMembers()
-  const { data: tasks, loading, error: tasksError, refetch } = useApi(getTasks)
-  const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects } = useApi(getProjects)
   const [activeTaskId, setActiveTaskId] = useState(null)
   const [showNewTask, setShowNewTask] = useState(false)
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState(() => new Set())
   const [projectFilter, setProjectFilter] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [reloadTick, setReloadTick] = useState(0)
+  const [board, setBoard] = useState(null)
+  const [loadError, setLoadError] = useState(null)
+  const [loadingMore, setLoadingMore] = useState(null)
+  const [fetchedTask, setFetchedTask] = useState(null)
   // A card being dragged, the column under it, and the card whose move is being saved.
   const [dragTask, setDragTask] = useState(null)
   const [overColumn, setOverColumn] = useState(null)
@@ -58,42 +62,105 @@ export function Kanban() {
   const canAddTasks = canAny('TASK', 'CREATE')
   const activeFilterCount = priorityFilter.size + (projectFilter ? 1 : 0)
 
-  const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 250)
+    return () => clearTimeout(timer)
+  }, [search])
+  const filters = useMemo(
+    () => ({ search: debouncedSearch, priorities: Array.from(priorityFilter), projectId: projectFilter }),
+    [debouncedSearch, priorityFilter, projectFilter]
+  )
+
+  // Every column is read from the server on its own (its cards and its total), under the board's filters.
+  // How many pages each column has on screen is kept, so reloading after a move reads as many again
+  // instead of dropping every column back to its first cards.
+  const loaded = useRef({ filters: null, pages: {} })
+  useEffect(() => {
+    if (loaded.current.filters !== filters) loaded.current = { filters, pages: {} }
+    const state = loaded.current
+    let cancelled = false
+    Promise.all(
+      KANBAN_COLUMNS.map((col) =>
+        Promise.all(
+          Array.from({ length: state.pages[col.id] ?? 1 }, (_, p) => getKanbanColumnPage(filters, col, p, PAGE_SIZE))
+        ).then((pages) => [col.id, { items: pages.flatMap((r) => r.items), total: pages[0].total }])
+      )
+    )
+      .then((entries) => {
+        if (cancelled) return
+        setBoard({ for: filters, tick: reloadTick, cols: Object.fromEntries(entries) })
+        setLoadError(null)
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [filters, reloadTick])
+
+  const loadMore = async (col) => {
+    const state = loaded.current
+    const next = state.pages[col.id] ?? 1
+    setLoadingMore(col.id)
+    try {
+      const page = await getKanbanColumnPage(filters, col, next, PAGE_SIZE)
+      if (loaded.current !== state) return // the search or a filter changed meanwhile
+      state.pages[col.id] = next + 1
+      setBoard((prev) => ({
+        ...prev,
+        cols: { ...prev.cols, [col.id]: { items: [...prev.cols[col.id].items, ...page.items], total: page.total } },
+      }))
+    } catch (err) {
+      notify(err.message || 'Failed to load more tasks', { tone: 'error' })
+    } finally {
+      setLoadingMore(null)
+    }
+  }
+
+  const columns = useMemo(
+    () => KANBAN_COLUMNS.map((def) => ({ ...def, tasks: board?.cols[def.id]?.items ?? [], total: board?.cols[def.id]?.total ?? 0 })),
+    [board]
+  )
+  const loading = board == null && !loadError
+  // Whether the board shows the data for the search, filters and reload asked for (the search waits a moment before it is
+  // sent, and every read is a request): announced as aria-busy so that a screen reader, and a test, can tell.
+  const settled = board != null && board.for === filters && board.tick === reloadTick && debouncedSearch === search
+  const tasksError = loadError
+  const refetchAll = () => setReloadTick((n) => n + 1)
+  const refetch = refetchAll
+
+  // The open task is read on its own as well, so the panel still shows a card the board does not hold:
+  // one a move has just taken into a column whose first cards are on screen, or out of the filters.
+  useEffect(() => {
+    if (activeTaskId == null) return
+    let cancelled = false
+    getTaskById(activeTaskId)
+      .then((t) => {
+        if (!cancelled) setFetchedTask(t)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [activeTaskId, reloadTick])
 
   // Derived (never copied into its own state) so the open detail panel
   // always reflects the live list — see the identical pattern (and its
   // comment) in Tasks.jsx.
   const activeTask = useMemo(() => {
     if (activeTaskId == null) return null
-    const t = (tasks ?? []).find((task) => task.id === activeTaskId)
-    return t ? { ...t, assigneeIds: assigneeMap.get(t.id) ?? [] } : null
-  }, [activeTaskId, tasks, assigneeMap])
-
-  const filteredTasks = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return (tasks ?? []).filter((t) => {
-      if (q) {
-        const haystack = `${t.title ?? ''} ${t.project?.name ?? ''}`.toLowerCase()
-        if (!haystack.includes(q)) return false
-      }
-      if (priorityFilter.size > 0 && !priorityFilter.has(t.priority)) return false
-      if (projectFilter && String(t.project?.id) !== projectFilter) return false
-      return true
-    })
-  }, [tasks, search, priorityFilter, projectFilter])
-
-  const columns = useMemo(() => groupTasksByStatus(filteredTasks, { includeBlocked: true }), [filteredTasks])
-
-  const refetchAll = () => {
-    refetch()
-    refetchAssignees()
-  }
+    const t =
+      columns.flatMap((c) => c.tasks).find((task) => task.id === activeTaskId) ??
+      (fetchedTask?.id === activeTaskId ? fetchedTask : null)
+    return t ? { ...t, assigneeIds: t.assigneeIds ?? [] } : null
+  }, [activeTaskId, columns, fetchedTask])
 
   // What this person may do to one task's status: an editor, or an assignee (TASK_STATUS:EDIT);
   // completing it is an approval. The server checks again.
   const abilitiesFor = (task) => {
     const projectId = task.project?.id
-    const isAssignee = (assigneeMap.get(task.id) ?? []).includes(profile?.id)
+    const isAssignee = (task.assigneeIds ?? []).includes(profile?.id)
     return {
       canChange: can('TASK', 'EDIT', projectId) || (can('TASK_STATUS', 'EDIT', projectId) && isAssignee),
       canApprove: canApproveTask(permissions, profile?.id, task, isAssignee),
@@ -230,7 +297,7 @@ export function Kanban() {
       )}
 
       {!tasksError && (
-      <div className="scroll-x flex items-start gap-[18px] pb-2">
+      <div data-testid="kanban-board" aria-busy={!settled} className="scroll-x flex items-start gap-[18px] pb-2">
         {columns.map((col) => {
           // While a card is dragged, the column under it shows whether the drop would be accepted.
           const dropState =
@@ -272,7 +339,7 @@ export function Kanban() {
                 <span className="text-ink text-[13px] font-[650]">{col.title}</span>
               </span>
               <span className="text-faint bg-card border-border rounded-full border px-2 text-[12px]">
-                {col.tasks.length}
+                {col.total}
               </span>
             </div>
             <div className="flex flex-col gap-2.5">
@@ -292,7 +359,7 @@ export function Kanban() {
                   />
                 )}
                 {col.tasks.map((task, i) => {
-                  const assigneeIds = assigneeMap.get(task.id) ?? []
+                  const assigneeIds = task.assigneeIds ?? []
                   const member = getMember(assigneeIds[0])
                   // A card can be dragged, and has a "Move to" menu, only for someone who may change its status.
                   const abilities = abilitiesFor(task)
@@ -383,6 +450,17 @@ export function Kanban() {
                     </div>
                   )
                 })}
+                {col.tasks.length < col.total && (
+                  <button
+                    type="button"
+                    data-testid={`kanban-more-${col.id}`}
+                    className="btn btn-secondary shrink-0 justify-center text-[12px]"
+                    disabled={loadingMore === col.id}
+                    onClick={() => loadMore(col)}
+                  >
+                    {loadingMore === col.id ? 'Loading…' : `Show more (${col.total - col.tasks.length} more)`}
+                  </button>
+                )}
               </div>
               {col.id === 'todo' && canAddTasks && (
                 <button

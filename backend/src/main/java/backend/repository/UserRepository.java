@@ -22,6 +22,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.role WHERE u.username = :username")
     Optional<User> findByUsername(String username);
 
+    // Accounts that registered but never entered their code (read by PendingRegistrationCleanup).
+    List<User> findByAccountStatusAndCreatedAtBefore(String accountStatus, java.time.OffsetDateTime cutoff);
+
     // Case-insensitive lookup for the team-invitation "search by username"
     // flow — usernames are unique case-insensitively (idx_users_username_lower)
     // but stored with their original casing.

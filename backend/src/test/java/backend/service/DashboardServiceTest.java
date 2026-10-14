@@ -56,6 +56,56 @@ class DashboardServiceTest {
         when(userRepository.findByUsername("pm.olivia")).thenReturn(Optional.of(caller));
     }
 
+    // ---- the activity chart's figures (risk R-5) ----
+
+    private Task activityTask(long id, long projectId, String status, String createdAt) {
+        Task t = new Task();
+        ReflectionTestUtils.setField(t, "id", id);
+        ReflectionTestUtils.setField(t, "createdAt", java.time.OffsetDateTime.parse(createdAt));
+        t.setStatus(status);
+        return t;
+    }
+
+    @Test
+    void taskActivity_overAMembersProjectsOnly() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        when(taskRepository.findByProjectIdIn(List.of(10L))).thenReturn(List.of(activityTask(1, 10, "TODO", "2026-10-11T09:00:00Z")));
+
+        var points = service.getTaskActivity("pm.olivia", 3, java.time.ZoneId.of("UTC"), null, TODAY);
+
+        assertThat(points).hasSize(3);
+        assertThat(points.get(2).getCreated()).isEqualTo(1);
+        verify(taskRepository, never()).findAll();
+    }
+
+    @Test
+    void taskActivity_forAnAdministratorCoversEveryTask() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(true);
+        when(taskRepository.findAll()).thenReturn(List.of(activityTask(1, 10, "TODO", "2026-10-11T09:00:00Z"), activityTask(2, 20, "TODO", "2026-10-11T10:00:00Z")));
+
+        var points = service.getTaskActivity("pm.olivia", 1, java.time.ZoneId.of("UTC"), null, TODAY);
+
+        assertThat(points.get(0).getCreated()).isEqualTo(2);
+        verify(projectMemberRepository, never()).findProjectIdsByUserId(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void taskActivity_forOneProject_checksAccessFirst() {
+        when(taskRepository.findByProjectId(10L)).thenReturn(List.of(activityTask(1, 10, "TODO", "2026-10-11T09:00:00Z")));
+
+        var points = service.getTaskActivity("pm.olivia", 1, java.time.ZoneId.of("UTC"), 10L, TODAY);
+
+        verify(projectAccessGuard).assertAccess(caller, 10L);
+        assertThat(points.get(0).getCreated()).isEqualTo(1);
+    }
+
+    @Test
+    void taskActivity_aZoneThatDoesNotExistIsRefused() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.getTaskActivity("pm.olivia", 7, "Mars/Olympus", null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Invalid zone");
+    }
+
     private Project project(long id, String name, String status, LocalDate end, int progress) {
         Project p = new Project();
         ReflectionTestUtils.setField(p, "id", id);

@@ -32,7 +32,7 @@ Only the task's **progress %** follows its subtasks automatically ([ADR-0012](00
 
 - Predictable behaviour; users are never surprised by automatic status changes beyond the one auto-promotion.
 - A task can sit at `TODO` with every subtask done (by design).
-- The auto-promotion changes status without creating a notification and does log an activity entry (issue I-17).
+- The auto-promotion changes status, logs an activity entry and, since 2026-10-14, notifies like any other status change (issue I-17).
 - Reopening a task clears `completed_at` (`trg_tasks_completed_at` clears it whenever the status is not `COMPLETED`).
 - The completion-gate message exists in three places (service, trigger, UI) and must stay identical.
 

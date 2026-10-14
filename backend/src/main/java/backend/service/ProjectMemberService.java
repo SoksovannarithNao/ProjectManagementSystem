@@ -369,7 +369,12 @@ public class ProjectMemberService {
         projectAccessGuard.assertCan(requireUser(username), projectMember.getProject().getId(), Resource.MEMBER, Action.DELETE);
         assertNotRemovingLastOwner(projectMember, null);
         clearLeadUnless(false, projectMember);
+        boolean wasPending = "PENDING".equals(projectMember.getStatus());
         projectMemberRepository.delete(projectMember);
+        if (wasPending) {
+            // cancelling an invitation: the invitee's notice offering Accept / Decline goes with it
+            notificationService.cancelInvitationNotice(projectMember);
+        }
     }
 
     // A project always has exactly one ACTIVE owner. The owner's membership can

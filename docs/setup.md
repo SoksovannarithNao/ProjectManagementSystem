@@ -189,6 +189,7 @@ Defaults work for local development; every variable has a fallback in `docker-co
 | `REFRESH_EXPIRATION_MS` | `604800000` (7 days) | Lifetime of the refresh cookie that renews the access token |
 | `REFRESH_COOKIE_SECURE` | `false` | Set `true` when the site is served over HTTPS, so the refresh cookie is only sent over it |
 | `OTP_EXPIRATION_MINUTES` / `OTP_MAX_ATTEMPTS` / `OTP_RESEND_COOLDOWN_SECONDS` | `10` / `5` / `60` | Registration code rules |
+| `PENDING_REGISTRATION_TTL_HOURS` / `PENDING_REGISTRATION_CLEANUP_CRON` | `24` / `0 0 * * * *` | A registration nobody verifies is deleted after this many hours; the cleanup runs at the start of every hour (cron with seconds) |
 | `SECURITY_LOG_LEVEL` | `INFO` | Spring Security log level (`DEBUG` for JWT troubleshooting) |
 | `ATTACHMENT_MAX_BYTES` / `ATTACHMENT_MAX_PER_TARGET` | `10485760` (10 MB) / `25` | Largest file and most files per task or project |
 | `MULTIPART_MAX_FILE_SIZE` / `MULTIPART_MAX_REQUEST_SIZE` | `10MB` / `11MB` | Spring's own upload limits (a request larger than these is refused before the attachment rules run) |

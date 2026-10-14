@@ -54,4 +54,7 @@ export async function openBoard(page, who, stamp) {
   await login(page, who)
   await page.goto('/kanban')
   await page.getByPlaceholder('Search tasks').fill(stamp)
+  // The search is sent to the server a moment after typing, so the board first shows everything: wait until it
+  // shows only what was searched for before the test picks a card (a board that changes mid-drag misses its drop).
+  await expect(page.getByTestId('kanban-board')).toHaveAttribute('aria-busy', 'false')
 }

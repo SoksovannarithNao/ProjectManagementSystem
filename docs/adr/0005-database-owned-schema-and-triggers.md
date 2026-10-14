@@ -31,7 +31,7 @@ The requirements contain rules that span rows or tables (a task's due date must 
 - **Two schema sources must be kept in sync by hand, and they have drifted:** four of the task/subtask consistency objects exist only in `01-init.sql` (`V13` re-creates the fifth, a function) ([../database.md](../database.md#8-migrations-vs-the-init-script), issue X-04). Editing one without the other "is how the drift this project had before gets reintroduced" (`../database.md`).
 - Changing the schema locally requires wiping the data volume (`docker compose down -v`) because init scripts run only against an empty volume.
 - Triggers are not covered by automated tests that try forbidden writes (see [../testing.md](../testing.md#5-database-tests)).
-- `CHECK` violations and most unique violations still reach clients as raw PostgreSQL text (issue I-11).
+- `CHECK` and unique violations used to reach clients as raw PostgreSQL text; since 2026-10-14 `DatabaseMessages` turns them into plain sentences (issue I-11), and a trigger's own sentence still passes through.
 
 ## Evidence
 

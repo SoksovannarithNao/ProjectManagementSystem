@@ -152,11 +152,13 @@ test.describe('task filters', () => {
     await page.getByRole('button', { name: /^Filter/ }).click()
     await page.getByLabel('Assignee').selectOption({ index: 2 })
     await expect(page.getByRole('button', { name: /^Filter \(1\)/ })).toBeVisible()
+    // the server filters, so the list changes a moment after the choice (and "total" is the first page)
+    await expect.poll(async () => rows.count()).toBeLessThan(total)
     const byAssignee = await rows.count()
-    expect(byAssignee).toBeLessThan(total)
 
     await page.getByLabel('Due date').selectOption('overdue')
     await expect(page.getByRole('button', { name: /^Filter \(2\)/ })).toBeVisible()
+    await expect(rows.filter({ hasNotText: 'Overdue' })).toHaveCount(0)
     expect(await rows.count()).toBeLessThanOrEqual(byAssignee)
 
     await page.getByRole('button', { name: 'Clear filters' }).click()

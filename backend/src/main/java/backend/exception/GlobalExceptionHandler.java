@@ -87,27 +87,13 @@ public class GlobalExceptionHandler {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(new ErrorResponse(HttpStatus.CONFLICT.value(), "Conflict", PROJECT_CODE_EXISTS_MESSAGE));
         }
-        String cleanMessage = cleanPostgresMessage(rootMessage);
+        String cleanMessage = DatabaseMessages.forViolation(rootMessage);
         log.warn("Data integrity violation: {}", cleanMessage);
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Data Integrity Violation", cleanMessage));
     }
 
-    // The trigger-raised messages in database/init/01-init.sql (RAISE
-    // EXCEPTION '...') are already clear, specific sentences written for a
-    // human — e.g. "Task due_date (2026-09-18) cannot be later than its
-    // project end_date (2026-07-01)". The JDBC driver just wraps that first
-    // line in an "ERROR: " prefix and appends a "Where: PL/pgSQL function
-    // ..." line pointing at the trigger internals, which isn't meaningful to
-    // an end user — strip both so only the actual reason reaches the client.
-    private String cleanPostgresMessage(String message) {
-        if (message == null || message.isBlank()) {
-            return "One or more fields are invalid";
-        }
-        String firstLine = message.split("\\r?\\n", 2)[0].trim();
-        return firstLine.startsWith("ERROR: ") ? firstLine.substring("ERROR: ".length()) : firstLine;
-    }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {

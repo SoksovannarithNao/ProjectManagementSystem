@@ -10,7 +10,7 @@ import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
-import { getTasks } from '../api/tasks'
+import { getProjectTaskStats } from '../api/tasks'
 import { buildProjectMemberMap, buildProjectTaskStats, toProjectCard } from '../api/relations'
 import { humanizeEnum } from '../api/format'
 
@@ -57,7 +57,7 @@ export function Projects() {
   const { canSys } = useAuth()
   const { data: projects, loading, refetch } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
-  const { data: tasks } = useApi(getTasks)
+  const { data: projectStats } = useApi(getProjectTaskStats)
   const [showNewProject, setShowNewProject] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState(() => new Set())
@@ -67,7 +67,7 @@ export function Projects() {
   const toggleStatus = toggleInSet(setStatusFilter)
   const togglePriority = toggleInSet(setPriorityFilter)
   const memberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
-  const taskStats = useMemo(() => buildProjectTaskStats(tasks), [tasks])
+  const taskStats = useMemo(() => buildProjectTaskStats(projectStats), [projectStats])
 
   const items = useMemo(
     () =>

@@ -123,6 +123,141 @@ class TaskListQueryTest {
         assertThatThrownBy(() -> run(null, List.of("DONE"), null, null, null, null, null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> run(null, null, List.of("CRITICAL"), null, null, null, null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> run(null, null, null, null, null, "soon", null)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> run(null, null, null, null, null, null, "title")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> run(null, null, null, null, null, null, "colour")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> view("soon")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ---- the task screen: quick views, unassigned, several assignees, project groups (risk R-5) ----
+
+    private TaskListQuery full(List<Long> assigneeIds, boolean unassigned, Long projectId, String view, boolean groupByProject, String sort) {
+        return new TaskListQuery(null, null, null, assigneeIds, unassigned, projectId, null, view, groupByProject, sort);
+    }
+
+    private List<Task> view(String name) {
+        return full(null, false, null, name, false, null).apply(all, assignees);
+    }
+
+    @Test
+    void sortByTitle_isAlphabeticalIgnoringCase() {
+        assertThat(run(null, null, null, null, null, null, "title")).containsExactly(build, design, undated, test, late);
+    }
+
+    @Test
+    void quickViews_narrowWhatTheOtherFiltersLeave() {
+        assertThat(view("all")).containsExactly(design, build, test, late, undated);
+        assertThat(view("upcoming")).containsExactly(design, build);
+        assertThat(view("inprogress")).containsExactly(design, late);
+        assertThat(view("completed")).containsExactly(test);
+        assertThat(view("overdue")).containsExactly(late);
+        assertThat(view("today")).isEmpty();
+    }
+
+    @Test
+    void theTodayView_holdsOpenTasksDueToday_notFinishedOnes() {
+        Task open = task(6L, "Due today", alpha, "TODO", "LOW", today, "0", "2026-10-05T09:00:00Z");
+        Task finished = task(7L, "Done today", alpha, "COMPLETED", "LOW", today, "100", "2026-10-05T10:00:00Z");
+
+        assertThat(full(null, false, null, "today", false, null).apply(List.of(open, finished), Map.of())).containsExactly(open);
+    }
+
+    @Test
+    void viewCounts_ignoreTheViewButKeepTheOtherFilters() {
+        Map<String, Long> everything = full(null, false, null, "completed", false, null).viewCounts(all, assignees);
+        assertThat(everything).containsEntry("all", 5L).containsEntry("upcoming", 2L).containsEntry("inprogress", 2L)
+                .containsEntry("completed", 1L).containsEntry("overdue", 1L).containsEntry("today", 0L);
+        assertThat(everything.keySet()).containsExactlyElementsOf(TaskListQuery.VIEWS);
+
+        Map<String, Long> inBeta = full(null, false, 20L, null, false, null).viewCounts(all, assignees);
+        assertThat(inBeta).containsEntry("all", 3L).containsEntry("upcoming", 0L).containsEntry("inprogress", 1L)
+                .containsEntry("completed", 1L).containsEntry("overdue", 1L);
+    }
+
+    @Test
+    void unassigned_keepsOnlyTasksWithNoAssignee_andNothingWhenAnAssigneeIsAlsoNamed() {
+        assertThat(full(null, true, null, null, false, null).apply(all, assignees)).containsExactly(undated);
+        assertThat(full(List.of(1L), true, null, null, false, null).apply(all, assignees)).isEmpty();
+        assertThat(full(null, true, null, null, false, null).needsAssignees()).isTrue();
+    }
+
+    @Test
+    void severalAssignees_mustAllHoldTheTask() {
+        assertThat(full(List.of(1L, 2L), false, null, null, false, null).apply(all, assignees)).containsExactly(build);
+        assertThat(full(List.of(2L, 2L), false, null, null, false, null).apply(all, assignees)).containsExactly(build, test, late);
+    }
+
+    // ---- the calendar window and the project counts (risk R-5) ----
+
+    @Test
+    void dueBetween_keepsTasksDueInTheWindowBothEndsIncluded_andDropsUndatedOnes() {
+        Task early = task(6L, "Early", alpha, "TODO", "LOW", today.minusDays(10), "0", "2026-10-05T09:00:00Z");
+        Task onStart = task(7L, "On the first day", alpha, "TODO", "LOW", today.minusDays(5), "0", "2026-10-05T09:01:00Z");
+        Task onEnd = task(8L, "On the last day", alpha, "TODO", "LOW", today.plusDays(2), "0", "2026-10-05T09:02:00Z");
+        Task late = task(9L, "Late", alpha, "TODO", "LOW", today.plusDays(3), "0", "2026-10-05T09:03:00Z");
+        Task undated = task(10L, "Undated", alpha, "TODO", "LOW", null, "0", "2026-10-05T09:04:00Z");
+        List<Task> tasks = List.of(early, onStart, onEnd, late, undated);
+
+        List<Task> window = full(null, false, null, null, false, null).dueBetween(today.minusDays(5), today.plusDays(2)).apply(tasks, Map.of());
+
+        assertThat(window).containsExactly(onStart, onEnd);
+    }
+
+    @Test
+    void dueBetween_withOneEndOpen_andWithNoEnds() {
+        assertThat(full(null, false, null, null, false, null).dueBetween(today, null).apply(all, assignees)).containsExactly(design, build);
+        assertThat(full(null, false, null, null, false, null).dueBetween(null, today.minusDays(4)).apply(all, assignees)).containsExactly(test);
+        assertThat(full(null, false, null, null, false, null).dueBetween(null, null).apply(all, assignees)).containsExactly(design, build, test, late, undated);
+    }
+
+    @Test
+    void dueBetween_combinesWithTheOtherFilters_andARangeBackwardsIsRefused() {
+        assertThat(full(null, false, 20L, null, false, null).dueBetween(today.minusDays(6), today).apply(all, assignees)).containsExactly(test, late);
+        assertThatThrownBy(() -> full(null, false, null, null, false, null).dueBetween(today, today.minusDays(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void completedByAssignee_countsCompletedTasksPerPerson_oncePerTask() {
+        Task both = task(6L, "Shared", alpha, "COMPLETED", "LOW", today, "100", "2026-10-05T09:00:00Z");
+        Task mine = task(7L, "Mine", alpha, "COMPLETED", "LOW", today, "100", "2026-10-05T10:00:00Z");
+        List<Task> tasks = List.of(design, test, both, mine);
+        Map<Long, List<User>> who = Map.of(1L, List.of(olivia), 3L, List.of(david), 6L, List.of(olivia, david), 7L, List.of(olivia));
+
+        Map<Long, Long> counts = full(null, false, null, null, false, null).completedByAssignee(tasks, who);
+
+        // design is not finished; test is david's; shared is both people's; mine is olivia's
+        assertThat(counts).containsEntry(1L, 2L).containsEntry(2L, 2L).hasSize(2);
+    }
+
+    @Test
+    void completedByAssignee_followsTheOtherFilters_ignoresTheView_andOmitsPeopleWithNone() {
+        // Beta holds only `test` (completed, david's); Alpha has nothing completed
+        assertThat(full(null, false, 20L, null, false, null).completedByAssignee(all, assignees)).containsOnlyKeys(2L).containsEntry(2L, 1L);
+        assertThat(full(null, false, 10L, null, false, null).completedByAssignee(all, assignees)).isEmpty();
+        assertThat(full(null, false, 20L, "overdue", false, null).completedByAssignee(all, assignees)).containsEntry(2L, 1L);
+        assertThat(full(List.of(1L), false, null, null, false, null).completedByAssignee(all, assignees)).isEmpty();
+    }
+
+    @Test
+    void blockedIs_isRememberedForTheServiceToApply_andLeavesTheListAloneItself() {
+        TaskListQuery query = full(null, false, null, null, false, null).blockedIs(true);
+
+        assertThat(query.blocked()).isTrue();
+        assertThat(full(null, false, null, null, false, null).blocked()).isNull();
+        assertThat(query.apply(all, assignees)).containsExactly(design, build, test, late, undated);
+    }
+
+    @Test
+    void groupByProject_keepsProjectsTogetherWithFinishedOnesLast_andSortsInsideEach() {
+        Project done = project(30L, "Aardvark");
+        done.setProgress(new BigDecimal("100"));
+        Task doneTask = task(6L, "Wrap up", done, "COMPLETED", "LOW", today.minusDays(9), "100", "2026-10-05T09:00:00Z");
+        List<Task> mixed = List.of(doneTask, test, build, late, design, undated);
+
+        List<Task> grouped = full(null, false, null, null, true, "dueDate").apply(mixed, assignees);
+
+        // Alpha (design, build), Beta (test, late, undated), then the finished Aardvark last
+        assertThat(grouped).containsExactly(design, build, test, late, undated, doneTask);
+        // without the grouping the same sort mixes the projects
+        assertThat(full(null, false, null, null, false, "dueDate").apply(mixed, assignees)).startsWith(doneTask);
     }
 }

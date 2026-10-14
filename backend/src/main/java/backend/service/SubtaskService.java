@@ -30,6 +30,7 @@ public class SubtaskService {
     private final ActivityLogService activityLogService;
     private final ProjectAccessGuard projectAccessGuard;
     private final TaskAssigneeRepository taskAssigneeRepository;
+    private final UpdateNotificationService updateNotificationService;
 
     public SubtaskService(
             SubtaskRepository subtaskRepository,
@@ -38,7 +39,8 @@ public class SubtaskService {
             UserRepository userRepository,
             ActivityLogService activityLogService,
             ProjectAccessGuard projectAccessGuard,
-            TaskAssigneeRepository taskAssigneeRepository) {
+            TaskAssigneeRepository taskAssigneeRepository,
+            UpdateNotificationService updateNotificationService) {
         this.subtaskRepository = subtaskRepository;
         this.taskRepository = taskRepository;
         this.taskDependencyRepository = taskDependencyRepository;
@@ -46,6 +48,7 @@ public class SubtaskService {
         this.activityLogService = activityLogService;
         this.projectAccessGuard = projectAccessGuard;
         this.taskAssigneeRepository = taskAssigneeRepository;
+        this.updateNotificationService = updateNotificationService;
     }
 
     // Someone who can edit tasks (Owner, Team Leader) edits any subtask. A Team
@@ -134,6 +137,9 @@ public class SubtaskService {
         task.setStatus("IN_PROGRESS");
         Task saved = taskRepository.save(task);
         activityLogService.record(actor, saved, "TASK_STATUS_CHANGED", "Status changed from To Do to In Progress");
+        // a status change that nobody asked for by name is still announced to the same people as any other
+        // (the assignees, the Owner and the Team Leaders, never the person who made it; issue I-17)
+        updateNotificationService.notifyTaskStatusChanged(saved, actor);
     }
 
     public void deleteSubtask(Long id, String username) {

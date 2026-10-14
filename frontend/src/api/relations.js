@@ -76,11 +76,6 @@ export function countByValue(idLists) {
   return counts
 }
 
-export function filterTasksByProject(tasks, projectId) {
-  if (!projectId) return tasks ?? []
-  return (tasks ?? []).filter((t) => String(t.project?.id) === String(projectId))
-}
-
 export function toProjectCard(project, memberIds = []) {
   return {
     id: project.id,
@@ -102,23 +97,16 @@ export function toProjectCard(project, memberIds = []) {
   }
 }
 
-// projectId -> { total, completed, overdue } — CANCELLED excluded from
-// total/completed, same convention as the backend's own
-// fn_compute_project_progress (a cancelled task isn't remaining project
-// work and shouldn't count against it either way). Lets a project card show
-// real task traction ("8/12 tasks · 2 overdue") without a per-project fetch.
-export function buildProjectTaskStats(tasks) {
+// projectId -> { total, completed, overdue } from GET /api/tasks/project-stats. The server leaves
+// CANCELLED out of total/completed, the same convention as the backend's own
+// fn_compute_project_progress (a cancelled task isn't remaining project work and shouldn't count
+// against it either way). Lets a project card show real task traction ("8/12 tasks · 2 overdue")
+// without fetching the tasks.
+export function buildProjectTaskStats(stats) {
   const map = new Map()
-  for (const t of tasks ?? []) {
-    const projectId = t.project?.id
-    if (projectId == null) continue
-    const entry = map.get(projectId) ?? { total: 0, completed: 0, overdue: 0 }
-    if (t.status !== 'CANCELLED') {
-      entry.total += 1
-      if (t.status === 'COMPLETED') entry.completed += 1
-    }
-    if (t.overdue) entry.overdue += 1
-    map.set(projectId, entry)
+  for (const s of stats ?? []) {
+    if (s.projectId == null) continue
+    map.set(s.projectId, { total: s.total, completed: s.completed, overdue: s.overdue })
   }
   return map
 }

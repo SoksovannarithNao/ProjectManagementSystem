@@ -2,7 +2,10 @@ package backend.service;
 
 import backend.dto.PageResponse;
 import backend.dto.TaskRequest;
+import backend.dto.ProjectTaskStatsResponse;
 import backend.dto.TaskResponse;
+import backend.dto.TaskSummaryResponse;
+import backend.dto.UserResponse;
 import backend.entity.Milestone;
 import backend.entity.Project;
 import backend.entity.Task;
@@ -108,29 +111,79 @@ public class TaskService {
         return new PageResponse<>(toResponses(paging.slice(matched)), matched.size(), paging.getPage(), paging.getSize());
     }
 
-    private List<Task> matching(String username, TaskListQuery query, boolean orderedById) {
+    // What the task screen needs beside the page itself, over the same filters: how many tasks each
+    // quick view holds (the view is ignored, so every count shows) and the people who hold an
+    // assignment on any task the caller may see (for the assignee filter; not narrowed by the filters).
+    @Transactional(readOnly = true)
+    public TaskSummaryResponse getTaskSummary(String username, TaskListQuery query) {
+        List<Task> tasks = visibleTasks(username);
+        Map<Long, List<User>> assignees = assigneesByTask(tasks);
+        Map<Long, User> people = new HashMap<>();
+        for (List<User> users : assignees.values()) {
+            for (User u : users) {
+                people.put(u.getId(), u);
+            }
+        }
+        List<UserResponse> assigneeOptions = people.values().stream()
+                .sorted(Comparator.comparing(User::getFullName, String.CASE_INSENSITIVE_ORDER))
+                .map(UserResponse::new)
+                .toList();
+        return new TaskSummaryResponse(query.viewCounts(tasks, assignees), assigneeOptions, query.completedByAssignee(tasks, assignees));
+    }
+
+    // The task counts of every project the caller may see (one grouped query), for the project cards.
+    @Transactional(readOnly = true)
+    public List<ProjectTaskStatsResponse> getProjectTaskStats(String username) {
+        User caller = requireUser(username);
+        java.util.Set<Long> visible = projectAccessGuard.isAdmin(caller)
+                ? null
+                : new java.util.HashSet<>(projectMemberRepository.findProjectIdsByUserId(caller.getId()));
+        return taskRepository.statsByProject(LocalDate.now()).stream()
+                .filter(row -> visible == null || visible.contains(row.getProjectId()))
+                .map(row -> new ProjectTaskStatsResponse(row.getProjectId(), row.getTotal(), row.getCompleted(), row.getOverdue()))
+                .toList();
+    }
+
+    private List<Task> visibleTasks(String username) {
         User caller = userRepository.findByUsername(username)
                 .orElseThrow(() -> new NotFoundException("User not found"));
-
-        List<Task> tasks;
         if (projectAccessGuard.isAdmin(caller)) {
-            tasks = taskRepository.findAll();
-        } else {
-            List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
-            tasks = taskRepository.findByProjectIdIn(visibleProjectIds);
+            return taskRepository.findAll();
         }
+        List<Long> visibleProjectIds = projectMemberRepository.findProjectIdsByUserId(caller.getId());
+        return taskRepository.findByProjectIdIn(visibleProjectIds);
+    }
+
+    // task id -> the users it is assigned to.
+    private Map<Long, List<User>> assigneesByTask(List<Task> tasks) {
+        Map<Long, List<User>> assignees = new HashMap<>();
+        if (!tasks.isEmpty()) {
+            for (TaskAssignee ta : taskAssigneeRepository.findByTaskIdIn(tasks.stream().map(Task::getId).toList())) {
+                assignees.computeIfAbsent(ta.getTask().getId(), k -> new ArrayList<>()).add(ta.getUser());
+            }
+        }
+        return assignees;
+    }
+
+    private List<Task> matching(String username, TaskListQuery query, boolean orderedById) {
+        List<Task> tasks = visibleTasks(username);
         if (orderedById) {
             tasks = tasks.stream().sorted(Comparator.comparing(Task::getId)).toList();
         }
 
         // Search, filter and sort come last, over the tasks the caller may already see.
-        Map<Long, List<User>> assignees = new HashMap<>();
-        if (query.needsAssignees() && !tasks.isEmpty()) {
-            for (TaskAssignee ta : taskAssigneeRepository.findByTaskIdIn(tasks.stream().map(Task::getId).toList())) {
-                assignees.computeIfAbsent(ta.getTask().getId(), k -> new ArrayList<>()).add(ta.getUser());
-            }
+        Map<Long, List<User>> assignees = query.needsAssignees() ? assigneesByTask(tasks) : new HashMap<>();
+        List<Task> matched = query.apply(tasks, assignees);
+        if (query.blocked() == null || matched.isEmpty()) {
+            return matched;
         }
-        return query.apply(tasks, assignees);
+        // Blocked is read from the dependencies (a task with a prerequisite not yet completed), as in
+        // toResponses, and only for the tasks that matched; the order the filters gave is kept.
+        java.util.Set<Long> blockedIds = taskDependencyRepository
+                .findBlockingTasks(matched.stream().map(Task::getId).toList()).stream()
+                .map(row -> row.getTaskId())
+                .collect(java.util.stream.Collectors.toSet());
+        return matched.stream().filter(t -> blockedIds.contains(t.getId()) == query.blocked()).toList();
     }
 
     @Transactional(readOnly = true)
@@ -204,6 +257,7 @@ public class TaskService {
         for (var row : taskDependencyRepository.findBlockingTasks(taskIds)) {
             blockingTitles.computeIfAbsent(row.getTaskId(), k -> new ArrayList<>()).add(row.getTitle());
         }
+        Map<Long, List<User>> assignees = assigneesByTask(tasks);
         return tasks.stream()
                 .map(t -> {
                     long[] c = counts.getOrDefault(t.getId(), new long[] { 0, 0 });
@@ -215,6 +269,7 @@ public class TaskService {
                     response.setApproval(latestApprovals.get(t.getId()));
                     long[] items = checklistCounts.getOrDefault(t.getId(), new long[] { 0, 0 });
                     response.setChecklistCounts(items[0], items[1]);
+                    response.setAssigneeIds(assignees.getOrDefault(t.getId(), List.of()).stream().map(User::getId).toList());
                     return response;
                 })
                 .toList();

@@ -7,9 +7,8 @@ import { DelayedBadge } from './DelayedBadge'
 import { humanizeEnum, formatDate, initialsFor, colorForId } from '../api/format'
 
 // `stats` is optional ({ total, completed, overdue } from
-// buildProjectTaskStats) — omitted wherever a caller hasn't already fetched
-// the task list (e.g. Dashboard's top-2 widget), since fetching all tasks
-// just for two cards isn't worth it there. `compact` is the dashboard's shorter preview: no
+// buildProjectTaskStats, read from GET /api/tasks/project-stats) — omitted
+// wherever a caller hasn't fetched them (e.g. Dashboard's top-2 widget). `compact` is the dashboard's shorter preview: no
 // description, badges in one row, tighter padding; the Projects page keeps the full card.
 export function ProjectCard({ project, stats, compact = false }) {
   return (
