@@ -38,7 +38,7 @@ jobs:
     # Throwaway Postgres just for this job's tests — not your real database.
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -71,6 +71,15 @@ jobs:
           for f in "${{ github.workspace }}"/database/init/*.sql; do
             psql -h localhost -U postgres -d taskmanager_test -f "$f"
           done
+
+      # The init scripts hold the end state of every migration up to the baseline in
+      # 04-flyway-baseline.sql, so Flyway has nothing left to apply to the database just loaded. A
+      # migration that was not folded into 01-init.sql would be applied here: the step fails, because
+      # a fresh volume would not have it. (A database cannot be built from the migrations alone: issue X-04.)
+      - name: Check the migrations are folded into the init scripts
+        run: >-
+          bash "${{ github.workspace }}/database/check_migrations_folded.sh"
+          jdbc:postgresql://localhost:5432/taskmanager_test postgres postgres
 
       # database/verify_invariants.sql is a set of queries each expected to
       # return zero rows. -t -A (tuples-only, unaligned) suppresses headers

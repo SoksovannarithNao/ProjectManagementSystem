@@ -24,16 +24,14 @@ import { useMembers } from '../data/UsersContext'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
 import { getProjectMembers } from '../api/projectMembers'
-import { getTasks, toggleTaskCompletion } from '../api/tasks'
-import { getTaskAssignees } from '../api/taskAssignees'
-import { buildProjectMemberMap, buildTaskAssigneeMap, toProjectCard } from '../api/relations'
-import { computeTaskOverview, computePeriodTaskStats, taskOverviewFromStats, PERIOD_OPTIONS } from '../api/stats'
-import { getDashboardStats } from '../api/dashboard'
+import { getTasksDueSoon, toggleTaskCompletion } from '../api/tasks'
+import { buildProjectMemberMap, toProjectCard } from '../api/relations'
+import { activityToPeriodPoints, taskOverviewFromStats, PERIOD_OPTIONS } from '../api/stats'
+import { getDashboardStats, getTaskActivity } from '../api/dashboard'
 import { getRecentActivity } from '../api/activityLog'
 import { getManagedWorkload } from '../api/teamViews'
 import { formatDate, humanizeEnum, taskDisplayTitle, timeAgo, dueSoonLabel } from '../api/format'
 
-const OPEN_STATUSES = new Set(['TODO', 'IN_PROGRESS', 'IN_REVIEW'])
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
@@ -56,12 +54,17 @@ export function Dashboard() {
   const { getMember } = useMembers()
   const { data: projects, loading: projectsLoading, error: projectsError, refetch: refetchProjects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
-  const { data: tasks, loading: tasksLoading, error: tasksError, refetch: refetchTasks } = useApi(getTasks)
-  const { data: taskAssignees } = useApi(getTaskAssignees)
+  // The seven open tasks that are due first (the overdue ones lead), read from the server with their assignees.
+  const dueSoonFetcher = useCallback(() => getTasksDueSoon(7), [])
+  const { data: dueSoonData, loading: tasksLoading, error: tasksError, refetch: refetchUpcoming } = useApi(dueSoonFetcher)
+  const upcomingTasks = dueSoonData ?? []
   const [period, setPeriod] = useState(PERIOD_OPTIONS[0])
   // Project and task figures calculated on the server (B1.3, D-06), so every
   // screen shows the same numbers; the lists below still come from the resources.
   const { data: stats, error: statsError, refetch: refetchStats } = useApi(getDashboardStats)
+  // The chart's daily figures for the chosen period, worked out on the server in the caller's time zone.
+  const activityFetcher = useCallback(() => getTaskActivity(period.days), [period])
+  const { data: activity, error: activityError, refetch: refetchActivity } = useApi(activityFetcher)
   const recentFetcher = useCallback(() => getRecentActivity(8), [])
   const { data: recent } = useApi(recentFetcher)
   // Team workload is a manager's card: only people who may assign tasks somewhere ask for it.
@@ -69,13 +72,10 @@ export function Dashboard() {
   const workloadFetcher = useCallback(() => (showWorkload ? getManagedWorkload() : Promise.resolve(null)), [showWorkload])
   const { data: workload } = useApi(workloadFetcher)
 
-  const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
-  const taskOverview = useMemo(
-    () => (stats ? taskOverviewFromStats(stats.tasks) : computeTaskOverview(tasks)),
-    [stats, tasks]
-  )
-  const periodReport = useMemo(() => computePeriodTaskStats(tasks, period.days), [tasks, period])
+  const taskOverview = useMemo(() => (stats ? taskOverviewFromStats(stats.tasks) : []), [stats])
+  const statsLoading = !stats && !statsError
+  const periodReport = useMemo(() => activityToPeriodPoints(activity, period.days), [activity, period])
   const todayLabel = periodReport[periodReport.length - 1]?.day
 
   const topProjects = useMemo(() => {
@@ -85,31 +85,26 @@ export function Dashboard() {
       .map((p) => toProjectCard(p, projectMemberMap.get(p.id) ?? []))
   }, [projects, projectMemberMap])
 
-  const upcomingTasks = useMemo(() => {
-    return (tasks ?? [])
-      .filter((t) => OPEN_STATUSES.has(t.status) && t.dueDate)
-      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
-      .slice(0, 7)
-  }, [tasks])
-
-  const overdueCount = stats
-    ? stats.tasks.overdue
-    : (tasks ?? []).filter((t) => t.overdue && OPEN_STATUSES.has(t.status)).length
+  const overdueCount = stats ? stats.tasks.overdue : 0
 
   const firstName = (profile?.fullName || username || '').split(' ')[0] || ''
 
   // A failed request must not look like an empty list ("Nothing due soon"): say so, and offer a retry.
-  const loadFailed = Boolean(projectsError || tasksError || statsError)
+  const loadFailed = Boolean(projectsError || tasksError || statsError || activityError)
   const retryAll = () => {
     refetchProjects()
-    refetchTasks()
+    refetchUpcoming()
     refetchStats()
+    refetchActivity()
   }
 
   const handleToggle = async (task) => {
     try {
       await toggleTaskCompletion(task)
-      refetchTasks()
+      // completing (or reopening) a task changes the list, the counts and the chart
+      refetchUpcoming()
+      refetchStats()
+      refetchActivity()
     } catch (err) {
       notify(err.message || 'Failed to update task', { tone: 'error' })
     }
@@ -175,7 +170,7 @@ export function Dashboard() {
               )}
             </div>
             <div className="flex flex-col">
-              {tasksLoading &&
+              {statsLoading &&
                 Array.from({ length: 4 }).map((_, i) => (
                   <div
                     key={i}
@@ -189,7 +184,7 @@ export function Dashboard() {
                     <Skeleton className="h-4 w-6" />
                   </div>
                 ))}
-              {!tasksLoading &&
+              {!statsLoading &&
                 taskOverview.map((t) => (
                   <div
                     key={t.key}
@@ -246,7 +241,7 @@ export function Dashboard() {
                 <p className="text-faint py-3 text-[12px]">Nothing due soon.</p>
               )}
               {upcomingTasks.map((t) => {
-                const assigneeId = assigneeMap.get(t.id)?.[0]
+                const assigneeId = t.assigneeIds?.[0]
                 const member = getMember(assigneeId)
                 const isChecked = t.status === 'COMPLETED'
                 return (

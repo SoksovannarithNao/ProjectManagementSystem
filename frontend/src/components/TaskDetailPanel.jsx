@@ -31,7 +31,7 @@ import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
 import { getActiveProjectMembers } from '../api/relations'
 import { getProjectMembers } from '../api/projectMembers'
-import { setTaskStatus, deleteTask, getTasks } from '../api/tasks'
+import { setTaskStatus, deleteTask, getTasksByProjectId } from '../api/tasks'
 import { useApi } from '../api/useApi'
 import { getSubtasksByTask, createSubtask, updateSubtask, deleteSubtask } from '../api/subtasks'
 import { getCommentsByTask, createComment, updateComment, deleteComment } from '../api/comments'
@@ -132,10 +132,13 @@ export function TaskDetailPanel({ task, onClose, onChange, embedded = false }) {
   const dependencies = useMemo(() => dependenciesData ?? [], [dependenciesData])
 
   // Used only to populate the "add a dependency" picker with other tasks in
-  // the same project — not shared with the caller's own already-fetched
-  // task list (Tasks.jsx/Kanban.jsx), so this is its own independent fetch,
-  // same as TaskFormModal's own separate getProjects/getProjectMembers calls.
-  const { data: allTasksData } = useApi(getTasks)
+  // the same project (a dependency joins tasks of one project only) — so only
+  // that project's tasks are read, not every task the caller can see. Not shared
+  // with the caller's own already-fetched task list (Tasks.jsx/Kanban.jsx), so
+  // this is its own independent fetch, same as TaskFormModal's own separate
+  // getProjects/getProjectMembers calls.
+  const projectTasksFetcher = useCallback(() => getTasksByProjectId(task.project?.id), [task.project?.id])
+  const { data: allTasksData } = useApi(projectTasksFetcher)
   const availableToDepend = useMemo(() => {
     const dependsOnIds = new Set(dependencies.map((d) => d.dependsOnTask.id))
     return (allTasksData ?? []).filter(

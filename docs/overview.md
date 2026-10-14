@@ -46,7 +46,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 .
 ├── backend/               Spring Boot API
 │   └── src/main/java/backend/
-│       ├── controller/    26 REST controllers (125 endpoints)
+│       ├── controller/    26 REST controllers (128 endpoints)
 │       ├── service/       business rules, transactions, ProjectAccessGuard
 │       ├── repository/    Spring Data JPA repositories
 │       ├── entity/        24 JPA entities

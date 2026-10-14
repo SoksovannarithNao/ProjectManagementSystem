@@ -1,8 +1,88 @@
 import { apiFetch } from './client'
 import { blockedReason } from './format'
 
-export function getTasks() {
-  return apiFetch('/tasks')
+// The tasks due between two dates, both included (YYYY-MM-DD): what the Calendar shows for the days
+// on screen. A task with no due date is never in it.
+export function getTasksDueBetween(from, to) {
+  return apiFetch(`/tasks?${new URLSearchParams({ dueFrom: from, dueTo: to })}`)
+}
+
+// The open tasks that have a due date, the earliest due first (so the overdue ones lead): the
+// dashboard's "Due & Overdue" card. A task with no due date is left out by asking for tasks due
+// from the earliest date on.
+export function getTasksDueSoon(limit) {
+  const params = taskFilterParams({ statuses: ['TODO', 'IN_PROGRESS', 'IN_REVIEW'] })
+  params.set('dueFrom', '1970-01-01')
+  params.set('sort', 'dueDate')
+  params.set('page', 0)
+  params.set('size', limit)
+  return apiFetch(`/tasks?${params}`).then((page) => page.items)
+}
+
+// The columns of the Kanban board, left to right. A column is a status; To Do and Blocked share TODO and
+// split it by whether the task waits on a task it depends on ("blocked" is not a status a task holds).
+export const KANBAN_COLUMNS = [
+  { id: 'todo', title: 'To Do', status: 'TODO', blocked: false },
+  { id: 'inprogress', title: 'In Progress', status: 'IN_PROGRESS' },
+  { id: 'review', title: 'In Review', status: 'IN_REVIEW' },
+  { id: 'blocked', title: 'Blocked', status: 'TODO', blocked: true },
+  { id: 'done', title: 'Completed', status: 'COMPLETED' },
+]
+
+// One page of one Kanban column: { items, total, page, size }, in creation order. `total` is every task
+// the column holds under the board's search (`search`), priorities (`priorities[]`) and `projectId`,
+// not only the page, so the column's count is right while it shows its first cards.
+export function getKanbanColumnPage(filters, column, page, size) {
+  const params = taskFilterParams({ ...filters, statuses: [column.status] })
+  if (column.blocked !== undefined) params.set('blocked', column.blocked)
+  params.set('page', page)
+  params.set('size', size)
+  return apiFetch(`/tasks?${params}`)
+}
+
+// The tasks linked to one milestone, wherever they are due.
+export function getTasksByMilestoneId(milestoneId) {
+  return apiFetch(`/tasks/milestone/${milestoneId}`)
+}
+
+// How many tasks each project holds, for the project cards: [{ projectId, total, completed, overdue }]
+// (cancelled tasks are not counted; overdue means past due and still open).
+export function getProjectTaskStats() {
+  return apiFetch('/tasks/project-stats')
+}
+
+// The search and filters of the Tasks page as query parameters. All optional:
+//   search, statuses[], priorities[], assigneeIds[] (the task must be assigned to all of them),
+//   unassigned, projectId, due ('overdue' | 'today' | 'week' | 'none').
+function taskFilterParams({ search, statuses = [], priorities = [], assigneeIds = [], unassigned = false, projectId, due } = {}) {
+  const params = new URLSearchParams()
+  if (search && search.trim()) params.set('search', search.trim())
+  statuses.forEach((s) => params.append('status', s))
+  priorities.forEach((p) => params.append('priority', p))
+  assigneeIds.forEach((id) => params.append('assigneeId', id))
+  if (unassigned) params.set('unassigned', 'true')
+  if (projectId) params.set('projectId', projectId)
+  if (due) params.set('due', due)
+  return params
+}
+
+// One page of the Tasks page's list: { items, total, page, size }. The server applies the filters,
+// then the quick `view` (all, today, upcoming, inprogress, completed, overdue), and keeps the
+// tasks of a project together (finished projects last) with `sort` ordering each project.
+export function getTasksPage(filters, page, size) {
+  const params = taskFilterParams(filters)
+  if (filters?.view && filters.view !== 'all') params.set('view', filters.view)
+  if (filters?.sort) params.set('sort', filters.sort)
+  params.set('groupBy', 'project')
+  params.set('page', page)
+  params.set('size', size)
+  return apiFetch(`/tasks?${params}`)
+}
+
+// What sits beside the list over the same search and filters: { viewCounts, assignees } - how many
+// tasks each quick view holds, and everyone who holds an assignment on a task the caller can see.
+export function getTaskSummary(filters) {
+  return apiFetch(`/tasks/summary?${taskFilterParams(filters)}`)
 }
 
 export function getTasksByProjectId(projectId) {

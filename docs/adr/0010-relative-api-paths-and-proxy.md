@@ -30,7 +30,7 @@ No frontend environment variable holds an API base URL.
 
 - Same-origin requests in both environments; `app.cors.allowed-origins` stays as a fallback for direct cross-origin calls.
 - Any new deployment must provide an equivalent proxy (nginx config, ingress rule…). The deployment target is **Unknown**.
-- Behind nginx the backend sees the proxy as the client address; combined with `getRemoteAddr()` in the login limiter this probably weakens per-client rate limiting (issue I-09, needs verification).
+- Behind nginx the backend used to see the proxy as the client address, which made the login limiter's key effectively the username (issue I-09, reproduced and fixed 2026-10-14): nginx now sends `X-Forwarded-For: $remote_addr` and the backend reads it (`server.forward-headers-strategy=native`, trusted only from a private-network proxy).
 - The Docker frontend and `npm run dev` both want port 5173, and the backend container and local backend both want 8080 — stop one before starting the other ([../setup.md](../setup.md#7-troubleshooting)).
 
 ## Evidence

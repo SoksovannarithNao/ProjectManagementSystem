@@ -19,6 +19,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -66,6 +67,35 @@ class MilestoneServiceTest {
         milestone.setProject(project(10L));
         milestone.setTitle("Beta");
         lenient().when(milestoneRepository.findById(3L)).thenReturn(Optional.of(milestone));
+    }
+
+    private Milestone dueOn(Long id, java.time.LocalDate due) {
+        Milestone m = new Milestone();
+        ReflectionTestUtils.setField(m, "id", id);
+        m.setProject(project(10L));
+        m.setTitle("Milestone " + id);
+        m.setDueDate(due);
+        return m;
+    }
+
+    @Test
+    void getAllMilestones_limitedToAWindow_keepsThoseDueInItBothEndsIncluded() {
+        java.time.LocalDate from = java.time.LocalDate.of(2026, 10, 5);
+        java.time.LocalDate to = java.time.LocalDate.of(2026, 10, 11);
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        when(milestoneRepository.findAll()).thenReturn(List.of(
+                dueOn(1L, from.minusDays(1)), dueOn(2L, from), dueOn(3L, to), dueOn(4L, to.plusDays(1)), dueOn(5L, null)));
+
+        assertThat(service.getAllMilestones("pm.olivia", from, to)).extracting(backend.dto.MilestoneResponse::getId)
+                .containsExactly(2L, 3L);
+        assertThat(service.getAllMilestones("pm.olivia")).hasSize(5);
+    }
+
+    @Test
+    void getAllMilestones_aWindowBackwardsIsRefused() {
+        assertThatThrownBy(() -> service.getAllMilestones("pm.olivia", java.time.LocalDate.of(2026, 10, 11), java.time.LocalDate.of(2026, 10, 5)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private Project project(Long id) {

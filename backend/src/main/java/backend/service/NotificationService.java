@@ -154,11 +154,11 @@ public class NotificationService {
     // recipient" notification this app was actually missing — see
     // docs/backend.md's Notifications section for why the old ADMIN
     // notification requirement didn't work: no event ever created one.
+    // Sent whatever the invitee's "task notifications" preference says (issue I-12): it is not a
+    // task notification, and it is the only place the invitee can accept or decline, so skipping
+    // it would leave the invitation pending with nobody able to answer it.
     public void notifyTeamInvitation(ProjectMember member, User inviter) {
         User invitee = member.getUser();
-        if (!invitee.isTaskNotificationsEnabled()) {
-            return;
-        }
         Notification notification = new Notification();
         notification.setUser(invitee);
         notification.setType("TEAM_INVITATION");
@@ -166,6 +166,14 @@ public class NotificationService {
         notification.setMessage(inviter.getFullName() + " invited you to join \"" + member.getProject().getName() + "\"");
         notification.setProject(member.getProject());
         notificationRepository.save(notification);
+    }
+
+    // Called when a pending invitation is cancelled (ProjectMemberService.deleteProjectMember): the
+    // invitee's "Team invitation" notice would otherwise keep offering Accept / Decline for an
+    // invitation that no longer exists (issue I-13).
+    public void cancelInvitationNotice(ProjectMember member) {
+        notificationRepository.deleteByUserIdAndProjectIdAndType(
+                member.getUser().getId(), member.getProject().getId(), "TEAM_INVITATION");
     }
 
     // Called by ProjectMemberService.respondToInvitation — notifies the

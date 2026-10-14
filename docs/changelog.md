@@ -6,6 +6,122 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-15 (controller and repository tests, and a Flyway check in CI)
+
+**Added**
+- **Controller tests (standalone `MockMvc`, 45 tests).** The auth, task, dashboard, milestone, team, project and notification endpoints: which URL and parameters, which status, which JSON, the refresh cookie (`HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, `Secure` over HTTPS, never in the body), the limiter's key, every filter of `GET /api/tasks` reaching the query (checked by running the captured query over three tasks), wrong values as `400` before any service is asked, and the error JSON.
+- **Repository query tests (`QueryRepositoriesTest`, 11 tests, `@DataJpaTest` on the real schema).** Each custom query is compared with the same question asked in plain SQL over the same rows, inside a rolled-back transaction, so the tests hold whatever the data is: the project task counts, the entity-graph loading, the subtask, checklist and hours groupings, the unfinished prerequisites, the visible and administered projects, the sole owner, the co-members, the invitable users, the user lookups, the project codes and the code lock. Both kinds were shown to fail when the code is broken on purpose, then restored.
+- **CI step: every migration must be folded into the init scripts.** `database/check_migrations_folded.sh` runs `flyway migrate` against the database the CI job has just built from `database/init/`; Flyway must have nothing to apply. Checked locally in three cases (nothing pending: exit 0; a migration not in the init scripts: exit 1; no baseline: exit 1). An attempt to also catch an edited old migration did not work, because an init-built database has no checksum for V1 to the baseline, and the script says so.
+
+**Changed:** a stale "version 14" in a `docker-compose.yml` comment now says 21. The docs' future-work lists drop what is now done (controller and repository tests, the Flyway check).
+
+**Not done (still open):** a test through the security filter chain and `@PreAuthorize`, tests for the controllers not covered, Flyway in a production deployment, and a deploy target.
+
+**Tests:** backend 513 → **569** (56 new), all also run against PostgreSQL 18 built the way the CI builds it, with the app role; frontend unit tests 196 and Playwright 291, unchanged. **Docs:** `testing.md`, `backend.md`, `database.md`, `issues.md` (F-83, F-84), `roadmap.md`, README.
+
+## 2026-10-14 (the Kanban board reads each column) — checklist R-5 closed for the task lists
+
+**Changed**
+- **Each Kanban column is read from the server on its own, 25 cards at a time.** The board fetched every task and every assignment and sorted the cards into columns, searched and filtered, in the browser. Now every column asks `GET /api/tasks` for its own status, the Blocked column through the new **`blocked`** filter (`blocked=true` keeps only tasks waiting on an unfinished prerequisite, `blocked=false` the others, applied before the paging), under the board's search, priority and project filters. The column badge shows the column's real total, a *Show more (N more)* button reads the next 25, and a reload after a move reads as many pages as the column showed. Cards carry their `assigneeIds`. Dragging and the *Move to* menu are unchanged.
+- **The board says when it is busy.** It is `aria-busy` until it shows the data for the current search, filters and reload (the search is sent a moment after typing). The Kanban specs wait for it: with server-side search a test could pick a card on the unfiltered board and have the filtered one land mid-drag, which showed up as a flaky drop (found with a probe, fixed, then 36 of 36 over three repeats).
+- `getTasks`, `groupTasksByStatus` and its three tests were removed: nothing reads the whole task list any more.
+
+**R-5 is closed for the task lists.** What still reads a whole collection: the task assignments (the task form, Team and the project pages) and the project members, two small relation tables, recorded under the known limitations. The README's future-work list drops the items that were already built (the refresh-token flow, the report export, the extra system roles).
+
+**Tests:** backend 509 → **513** (`TaskServiceTest` +3, `TaskListQueryTest` +1); frontend unit tests **196** (3 added, 3 removed with the grouping helper); Playwright 286 → **291** (`kanban-server.spec.js` 5), the whole suite 291/291 on a freshly seeded second copy of the stack with the CI's settings. **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `architecture.md`, `roadmap.md`, `issues.md` (F-82), `testing.md`, `test-cases.md` (TSK-25), README.
+
+## 2026-10-14 (Reports Overview reads less) — checklist R-5, Reports Overview
+
+**Changed**
+- **The four stat cards, Task Completion and Team Productivity come from the server.** The Overview fetched every task and every assignment and counted in the browser, filtering by the chosen project there too. It now reads `GET /api/tasks/summary` (with `projectId` for a chosen project) for the counts and the new `completedByAssignee` (user id to completed tasks among those the filters leave) and `GET /api/dashboard/task-activity` (with the same `projectId`) for the chart. The page reads no task list and no assignment list.
+- Three helpers that only this page used (`computePeriodTaskStats`, `computeWeeklyTaskStats`, `filterTasksByProject`) and their four tests were removed.
+- `.env.example` lists the two optional registration-cleanup settings.
+
+**Still reading every task:** the Kanban board alone (it groups the whole list into columns).
+
+**Tests:** backend 506 → **509** (`TaskListQueryTest` +2, `TaskServiceTest` +1); frontend unit tests 200 → **196** (four removed with the helper they tested); Playwright 282 → **286** (`reports-overview-server.spec.js` 4), the whole suite 286/286 on a freshly seeded second copy of the stack with the CI's settings. **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `roadmap.md`, `issues.md` (F-81), `testing.md`, `test-cases.md` (REP-09), README.
+
+## 2026-10-14 (the Dashboard reads less) — checklist R-5, the Dashboard
+
+**Changed**
+- **The chart's daily figures come from the server.** New `GET /api/dashboard/task-activity` (`days` 1 to 366, the caller's time zone as `zone`, optional `projectId`) returns one row per day, oldest first, ending today: the tasks created and completed that day and the open tasks due before it, worked out in `util/TaskActivity` over what the caller may see. The browser used to work this out over every task. That makes **128 endpoints**.
+- **"Due & Overdue" reads a page of seven tasks** (open, with a due date, earliest first: `GET /api/tasks` with `dueFrom`, `sort=dueDate`, `size=7`), each with its assignees, instead of every task and every assignment. Completing a task from the card refreshes the card, the counts and the chart.
+- The Dashboard no longer fetches `GET /api/tasks` whole or `GET /api/task-assignees`. The same activity endpoint, with `projectId`, is what Reports Overview needs next.
+
+**Still reading every task:** Kanban and Reports Overview.
+
+**About the live database:** the live database had been edited by hand during testing (a registered account promoted to Project Manager, the Project Manager permission grid changed, a project created), so two role specs that assert on the seeded permissions failed against it. They pass on a freshly seeded database: the whole suite, **282/282**, was run on a second copy of the stack with the CI's settings (2 workers, no retries needed) and the copy removed afterwards. The live database was left as it was.
+
+**Tests:** backend 497 → **506** (`TaskActivityTest` 5, `DashboardServiceTest` +4); frontend unit tests 194 → **200** (`stats.test.js` +3, `tasks.test.js` +1, `dashboard.test.js` 2); Playwright 276 → **282** (`dashboard-server.spec.js` 6). **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `architecture.md`, `roadmap.md`, `issues.md` (F-80), `testing.md`, `test-cases.md` (DSH-10), README.
+
+## 2026-10-14 (the cross-layer inconsistencies closed) — X-04, X-05, X-06
+
+**Fixed**
+- **X-05, CI on PostgreSQL 16 while everything else runs 18.** The backend job of `.github/workflows/ci.yml` now uses `postgres:18`. The CI's database steps (load the init files, invariants, app role, grants) and the backend tests were replayed on a throw-away PostgreSQL 18.6 with the CI's credentials: 24 seeded users, no invariant or grant output, 30 triggers like the live database, 497/497 tests. It has not run on GitHub itself.
+- **X-06, the last stale comment in `01-init.sql`** (dependency ordering "enforced in application business logic, not here") now says the database enforces it. Comment only: the init script is applied once to an empty volume and has no checksum. The same sentence in the applied `V1` migration is left alone.
+
+**Settled without a code change (X-04):** I first wrote a `V22` migration to add the task/subtask consistency objects, then built an empty database from the migrations alone to prove it, and found the chain **fails at `V13`** (it refers to a trigger function that only the init scripts create). A migrations-only build has never worked, `V22` would never have been reached and would have done nothing on the supported routes, so it was removed (and the one row it left in the live `flyway_schema_history` deleted; the live database is at version 21 and validates). The supported routes are unchanged and the limit is now written down in `issues.md` and `database.md`.
+
+**Register:** no open defects and no open inconsistencies remain.
+
+**Tests:** none added (comment, CI image and docs only). 497/497 backend (also against PostgreSQL 18 with the CI settings), 194/194 frontend unit tests, 276/276 end-to-end. **Docs:** `issues.md` (X-04 to X-06, D-09, the summary, known limitations), `database.md`, README.
+
+## 2026-10-14 (the Low defects closed) — I-08, I-13, I-14, I-17, I-18, I-23
+
+**Fixed**
+- **I-23, `npm audit`:** `npm audit fix` raised `brace-expansion` to 5.0.12 and `source-map-js` to 1.2.2 (two patch bumps in the lockfile); 0 vulnerabilities, lint, unit tests and the build unchanged.
+- **I-08, the code endpoints revealed which usernames exist.** `verify-otp` now gives one message for every failure (unknown name, already verified, no code, used, expired, too many attempts, wrong), and `resend-otp` answers `200` for an unknown or verified account. Registration still says a name is taken (accepted: a person signing up has to be told). The attempts left are no longer shown.
+- **I-14, abandoned registrations kept their name for ever.** An hourly job (`PendingRegistrationScheduler` → `PendingRegistrationCleanup`) deletes a registration not verified within 24 hours (`PENDING_REGISTRATION_TTL_HOURS`, `PENDING_REGISTRATION_CLEANUP_CRON`, both passed through `docker-compose.yml`). Verified live with a 10-second schedule: a 25-hour-old account was deleted, a fresh one kept, no code rows left behind. Needs the backend image rebuilt.
+- **I-13, pending invitations could not be listed or cancelled.** The project page lists them to managers (person, role offered, who invited them) with a *Cancel* button; cancelling deletes the row and the invitee's *Team invitation* notification.
+- **I-17, the subtask auto-promotion told nobody.** It now notifies the assignees, the Owner and the Team Leaders (never the person who touched the subtask) like any other status change. Unassigning someone still notifies nobody; the specification does not ask for it.
+
+**Closed without a code change (I-18):** a project may be marked Completed with unfinished tasks on purpose (the brief does not forbid closing early), the project-code race was already fixed (F-39), and `kpi_snapshots` is not used by any code. The three are listed under the known limitations.
+
+**Register:** no open defects remain (I-01 to I-23 are all fixed or closed); the "Fixed" count is 79 (F-76 to F-79 added).
+
+**Tests:** backend 481 → **497** (`OtpServiceTest` 4, `PendingRegistrationCleanupTest` 2, `SubtaskServiceTest` 3, `AuthServiceTest` +4, `ProjectMemberServiceTest` +2, `NotificationServiceTest` +1); Playwright 274 → **276** (`hardening.spec.js` +2); frontend unit tests 194, unchanged. All green: 497/497, 194/194, 276/276 at 4 workers; the user count is still 24. **Docs:** `issues.md` (I-08 to I-23, F-76 to F-79, known limitations), `api-reference.md`, `backend.md`, `security.md`, `authentication-authorization.md`, `users-and-projects.md`, `notifications.md`, `roadmap.md`, `setup.md`, ADRs 0003, 0007 and 0013, `testing.md`, `test-cases.md` (REG-06, REG-07, PRJ-12, NTF-10), `frontend.md`, README.
+
+## 2026-10-14 (the Calendar and the project cards read less) — checklist R-5, Calendar and Projects
+
+**Changed**
+- **The Calendar reads only the days on screen.** It used to fetch every task and every milestone and pick the month out in the browser. `GET /api/tasks` and `GET /api/milestones` now take `dueFrom` / `dueTo` (both days included, undated items left out, a bad date or a backwards range is `400`), and the Calendar asks for the six-week month grid, the Monday-to-Sunday week or the day, and reads a new window when you move on. A task opened from a milestone's linked tasks (now read by milestone), or one an edit moved out of the window, is read by id.
+- **The project cards read their counts.** New `GET /api/tasks/project-stats` (one grouped query; cancelled tasks left out, overdue means past due and still open) replaces fetching every task to count them per project. That makes **127 endpoints**.
+- **The task panel's dependency picker reads only its own project's tasks** instead of every task, which every screen that opens a task panel was doing.
+
+**Corrected record:** the earlier R-5 lists named the Gantt chart and the project pages as whole-list readers. They read one project's tasks. The screens that still read every task are the Dashboard, Kanban and Reports Overview; the whole assignment list is still read by the task form, Dashboard, Kanban, Reports, Team and the project pages.
+
+**Tests:** backend 474 → **481** (`TaskListQueryTest` +3, `TaskServiceTest` +2, `MilestoneServiceTest` +2); frontend unit tests 178 → **194** (`calendarRange.test.js` 8, `tasks.test.js` +3, `milestones.test.js` 3, `relations.test.js` 2); Playwright 268 → **274** (`calendar-projects-server.spec.js` 5, `tasks-server-list.spec.js` +1). All green: 481/481, 194/194, 274/274 at 4 workers; the user count is still 24. **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `roadmap.md`, `issues.md` (F-75), `testing.md`, `test-cases.md` (MIL-06, PRJ-11), README.
+
+## 2026-10-14 (three Medium issues closed, and the register tidied) — I-09, I-11, I-12
+
+**Fixed**
+- **I-09, the sign-in lockout was not per client behind nginx.** Reproduced first: after one client was locked on a name, a second client at another address was locked too, because the backend saw only the proxy's address. `frontend/nginx.conf` now sends `X-Forwarded-For: $remote_addr` (a header from the client is replaced, not extended) and `application.properties` sets `server.forward-headers-strategy=native`, so `getRemoteAddr()` is the real client (Tomcat trusts the header from a private-network proxy only). Verified live: the locked client stays locked even with a spoofed header, another client is not locked. Needs the frontend image rebuilt.
+- **I-11, raw database text in error answers.** New `DatabaseMessages` turns a CHECK, UNIQUE, foreign-key or NOT NULL violation into a plain sentence (`The task due date cannot be before its start date.`, `That username is already taken.`, a general sentence for the rest); a trigger's own sentence still passes through. The status stays `400`.
+- **I-12, an invitation vanished for someone with task notifications off.** The invitation notification is now created whatever the switch says, since it is the only place to accept or decline.
+
+**Register and docs.** I-20 (no required feature is missing) and I-21 (the live-data rows are gone; all 15 invariant queries return nothing) are closed; three planned-list entries that were already built (refresh tokens, PDF / Excel export, the administrator audit view) are struck. Open defects: 11 → 6 (I-08, I-13, I-14, I-17, I-18, I-23); the "Fixed" count said 67 when 69 rows were recorded and is now 74. `api-reference.md`, `security.md`, `authentication-authorization.md`, `backend.md`, `notifications.md`, `users-and-projects.md`, `roadmap.md` and ADRs 0003, 0005, 0007 and 0010 no longer describe the three as open.
+
+**Tests:** backend 463 → **474** (`DatabaseMessagesTest` 9, `GlobalExceptionHandlerTest` +1, `NotificationServiceTest` +1); Playwright 265 → **268** (`hardening.spec.js` 3); frontend unit tests 178, unchanged. 474/474, 178/178 and 268/268 at 4 workers; the user count is still 24 after the run.
+
+## 2026-10-14 (the Tasks page reads from the server) — checklist R-5, the Tasks page
+
+**Changed**
+- **The Tasks page loads 50 tasks at a time.** It used to fetch every task and every assignment and then search, filter, sort, group and count the quick views in the browser. It now asks `GET /api/tasks` for a page (with `groupBy=project`, so the tasks of a project stay together, finished projects last, and the chosen sort orders each project) and a *Show more (N more)* button reads the next page; the search (after a short pause), the filters, the quick view and the sort are all applied by the server. The project and status groups look as before; they are built from the pages loaded so far.
+- **Quick-view counts and the assignee choices come from the server.** New `GET /api/tasks/summary` answers `{ viewCounts, assignees }` over the same search and filters (the view itself is ignored, so every count shows).
+- **A task carries its assignees.** `TaskResponse` has `assigneeIds`, filled from one batched query, so the page no longer needs `GET /api/task-assignees`.
+
+**Added (API)**
+- On `GET /api/tasks`: `view` (`all`, `today`, `upcoming`, `inprogress`, `completed`, `overdue`), `unassigned=true`, `groupBy=project`, sort by `title`, and a repeated `assigneeId` (the task must be assigned to all of them: *My Tasks* together with a chosen person). A bad `view` or `groupBy` is `400`. That makes **126 endpoints**.
+- The open task panel is read by id as well, so it stays open when an edit moves the task out of the current filter, and it opens a task from *Awaiting your approval* that is on a page not loaded yet.
+
+**Not changed (R-5 stays open in part):** the Dashboard, Kanban, Calendar, Gantt, Projects and Reports Overview still read every task, as do the task panel's dependency picker and the task form's assignee list.
+
+**Tests:** backend 453 → **463** (`TaskListQueryTest` +7, `TaskServiceTest` +3); frontend unit tests 174 → **178** (`tasks.test.js` +4); Playwright 257 → **265** (`tasks-server-list.spec.js` 8; `batch1.spec.js` waits for the server's list in the assignee case). All green: 463/463, 178/178, 265/265 at 4 workers; checked against the live stack. **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `roadmap.md`, `issues.md` (F-70, F-71), `testing.md`, `test-cases.md` (TSK-22, TSK-23), README.
+
+## 2026-10-14 (registration spec cleans up after itself) — tests only
+
+`registration.spec.js` registers real accounts through the form and never removed them, so every run of the suite left a verified `new.*` account on the Team page and unverified `pending.*` and `wrong.*` accounts in the database (3 per run). The spec now records each username it registers and deletes it through the API in `afterEach` (as administrator; the seeded `admin.system`, which the "name already taken" test types in, is skipped). Verified: the spec alone leaves the user count unchanged, and a full run (257/257, 4 workers) ends with the same 24 users it started with.
+
 ## 2026-10-14 (project pages on a phone) — front end only
 
 At 390 px wide a project page was wider than the screen (6 px for most projects, up to 58 px for one with a long name), so it scrolled sideways. Two causes, both fixed: the **role picker in the team list** is a native select that is as wide as its widest option, *Owner (transfer ownership)*, and it no longer shrinks below that, so it now has `min-w-0` and a 9 rem ceiling on a phone; and the **header's title wrapper** (`TopBar`) could not shrink, so a long project name never reached its ellipsis, and it now has `min-w-0` on every page.

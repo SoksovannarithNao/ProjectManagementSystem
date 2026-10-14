@@ -40,7 +40,7 @@ import { ProjectActivity } from '../components/ProjectActivity'
 import { useApi } from '../api/useApi'
 import { useAuth } from '../auth/AuthContext'
 import { getProjectById, updateProject, deleteProject, projectResponseToRequest, setProjectLead } from '../api/projects'
-import { getMembersByProjectId, getPendingInvitationCount, updateProjectMemberRole } from '../api/projectMembers'
+import { getMembersByProjectId, getPendingInvitations, deleteProjectMember, updateProjectMemberRole } from '../api/projectMembers'
 import { getTasksByProjectId } from '../api/tasks'
 import { getTaskAssignees } from '../api/taskAssignees'
 import { getMilestonesByProjectId, createMilestone, deleteMilestone } from '../api/milestones'
@@ -118,15 +118,29 @@ export function ProjectDetail() {
   const canChangeRoles = can('MEMBER', 'EDIT', projectId)
   const canTransferOwnership = can('PROJECT', 'ASSIGN', projectId)
 
-  // The members list above only carries ACTIVE rows, so pending invitations
-  // are counted server-side by their own PENDING status (Team-Admin-only, so
-  // only fetched once the caller is known to manage this project).
+  // The members list above only carries ACTIVE rows, so the pending invitations
+  // are read by their own PENDING status (Team-Admin-only, so only fetched once
+  // the caller is known to manage this project): counted, listed, and cancelled.
   const pendingFetcher = useCallback(
-    () => (canManageTeam ? getPendingInvitationCount(projectId) : Promise.resolve(null)),
+    () => (canManageTeam ? getPendingInvitations(projectId) : Promise.resolve(null)),
     [projectId, canManageTeam]
   )
   const { data: pendingData, refetch: refetchPending } = useApi(pendingFetcher)
-  const pendingCount = canManageTeam ? (pendingData?.count ?? 0) : 0
+  const pendingInvites = canManageTeam ? (pendingData ?? []) : []
+  const pendingCount = pendingInvites.length
+  const [cancellingInviteId, setCancellingInviteId] = useState(null)
+  const cancelInvitation = async (invite) => {
+    setCancellingInviteId(invite.id)
+    try {
+      await deleteProjectMember(invite.id)
+      notify(`The invitation to ${invite.user.fullName} was cancelled`, { tone: 'success' })
+      refetchPending()
+    } catch (err) {
+      notify(err.message || 'Failed to cancel the invitation', { tone: 'error' })
+    } finally {
+      setCancellingInviteId(null)
+    }
+  }
 
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -731,9 +745,32 @@ export function ProjectDetail() {
             </div>
 
             {pendingCount > 0 && (
-              <p className="text-faint mt-3 text-[12px]">
-                {pendingCount} pending invitation{pendingCount === 1 ? '' : 's'}
-              </p>
+              <div className="mt-3 flex flex-col gap-1.5" data-testid="pending-invitations">
+                <p className="text-faint text-[12px]">
+                  {pendingCount} pending invitation{pendingCount === 1 ? '' : 's'}
+                </p>
+                {pendingInvites.map((invite) => (
+                  <div key={invite.id} className="bg-subtle flex items-center justify-between gap-2 rounded-md px-3 py-2">
+                    <span className="min-w-0 truncate text-[13px]">
+                      <span className="text-ink font-semibold">{invite.user.fullName}</span>
+                      <span className="text-muted">
+                        {' '}
+                        · {projectRoleLabel(invite.projectRole)}
+                        {invite.invitedByName ? ` · invited by ${invite.invitedByName}` : ''}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary h-7 shrink-0 px-2.5 text-[12px]"
+                      disabled={cancellingInviteId === invite.id}
+                      onClick={() => cancelInvitation(invite)}
+                      aria-label={`Cancel the invitation to ${invite.user.fullName}`}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 

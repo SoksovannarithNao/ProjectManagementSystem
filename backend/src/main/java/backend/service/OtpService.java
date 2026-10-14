@@ -22,6 +22,10 @@ import java.time.OffsetDateTime;
 @Transactional
 public class OtpService {
 
+    // The one thing a failed verification says, whatever the reason (no code, used, expired, too many
+    // attempts, wrong) and whether or not the username exists, so it reveals nothing (issue I-08).
+    public static final String INVALID_CODE_MESSAGE = "The code is incorrect or has expired. Request a new code if needed.";
+
     private static final String PURPOSE = "REGISTRATION";
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -89,26 +93,18 @@ public class OtpService {
     public void verify(User user, String code) {
         OtpVerification otp = otpVerificationRepository
                 .findTopByUserIdAndPurposeOrderByCreatedAtDesc(user.getId(), PURPOSE)
-                .orElseThrow(() -> new IllegalArgumentException("No verification code found for this account"));
+                .orElseThrow(() -> new IllegalArgumentException(INVALID_CODE_MESSAGE));
 
-        if (otp.getConsumedAt() != null) {
-            throw new IllegalArgumentException("This code has already been used");
-        }
-        if (otp.getExpiresAt().isBefore(OffsetDateTime.now())) {
-            throw new IllegalArgumentException("This code has expired — request a new one");
-        }
-        if (otp.getAttempts() >= otp.getMaxAttempts()) {
-            throw new IllegalArgumentException("Too many incorrect attempts — request a new code");
+        if (otp.getConsumedAt() != null
+                || otp.getExpiresAt().isBefore(OffsetDateTime.now())
+                || otp.getAttempts() >= otp.getMaxAttempts()) {
+            throw new IllegalArgumentException(INVALID_CODE_MESSAGE);
         }
 
         if (!passwordEncoder.matches(code, otp.getOtpHash())) {
             otp.setAttempts(otp.getAttempts() + 1);
             otpVerificationRepository.save(otp);
-            int remaining = otp.getMaxAttempts() - otp.getAttempts();
-            throw new IllegalArgumentException(
-                    remaining > 0
-                            ? "Incorrect code — " + remaining + " attempt(s) remaining"
-                            : "Incorrect code — too many attempts, request a new code");
+            throw new IllegalArgumentException(INVALID_CODE_MESSAGE);
         }
 
         otp.setConsumedAt(OffsetDateTime.now());

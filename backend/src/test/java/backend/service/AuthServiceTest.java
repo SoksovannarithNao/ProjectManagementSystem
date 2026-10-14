@@ -16,6 +16,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -67,6 +68,68 @@ class AuthServiceTest {
         assertThat(result.response().getUsername()).isEqualTo("dev.chen");
         assertThat(result.response().getRole()).isEqualTo("USER");
         verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
+    }
+
+    // ---- the code endpoints reveal nothing about which usernames exist (issue I-08) ----
+
+    private backend.dto.OtpVerifyRequest verifyRequest(String username) {
+        backend.dto.OtpVerifyRequest request = new backend.dto.OtpVerifyRequest();
+        request.setUsername(username);
+        request.setOtp("123456");
+        return request;
+    }
+
+    private backend.dto.OtpResendRequest resendRequest(String username) {
+        backend.dto.OtpResendRequest request = new backend.dto.OtpResendRequest();
+        request.setUsername(username);
+        return request;
+    }
+
+    @Test
+    void verifyingAnUnknownUsername_andAnAlreadyVerifiedOne_answerLikeAWrongCode() {
+        when(userService.getUserEntityByUsername("ghost")).thenThrow(new backend.exception.NotFoundException("User not found"));
+        user.setAccountStatus("ACTIVE");
+        when(userService.getUserEntityByUsername("dev.chen")).thenReturn(user);
+
+        assertThatThrownBy(() -> service.verifyOtp(verifyRequest("ghost")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage(OtpService.INVALID_CODE_MESSAGE);
+        assertThatThrownBy(() -> service.verifyOtp(verifyRequest("dev.chen")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage(OtpService.INVALID_CODE_MESSAGE);
+        verify(otpService, never()).verify(any(), any());
+        verify(userService, never()).activateUser(any());
+    }
+
+    @Test
+    void verifyingAPendingAccount_checksTheCodeThenActivatesIt() {
+        user.setAccountStatus("PENDING_VERIFICATION");
+        when(userService.getUserEntityByUsername("dev.chen")).thenReturn(user);
+
+        service.verifyOtp(verifyRequest("dev.chen"));
+
+        verify(otpService).verify(user, "123456");
+        verify(userService).activateUser("dev.chen");
+    }
+
+    @Test
+    void askingForANewCode_forAnUnknownOrAlreadyVerifiedAccount_quietlyDoesNothing() {
+        when(userService.getUserEntityByUsername("ghost")).thenThrow(new backend.exception.NotFoundException("User not found"));
+        user.setAccountStatus("ACTIVE");
+        when(userService.getUserEntityByUsername("dev.chen")).thenReturn(user);
+
+        service.resendOtp(resendRequest("ghost"));
+        service.resendOtp(resendRequest("dev.chen"));
+
+        verify(otpService, never()).resendOtp(any());
+    }
+
+    @Test
+    void askingForANewCode_forAPendingAccount_sendsOne() {
+        user.setAccountStatus("PENDING_VERIFICATION");
+        when(userService.getUserEntityByUsername("dev.chen")).thenReturn(user);
+
+        service.resendOtp(resendRequest("dev.chen"));
+
+        verify(otpService).resendOtp(user);
     }
 
     @Test

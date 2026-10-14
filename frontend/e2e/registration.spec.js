@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { SEED_PASSWORD, SEED_ADMIN_USERNAME } from './helpers.js'
 
 // Self-registration with an emailed one-time code (ADR 0008). The backend sends the
 // code to Mailpit, the local mail catcher, so the test reads it from there like a user
@@ -18,7 +19,22 @@ async function otpFor(request, email) {
   throw new Error(`No verification email arrived for ${email}`)
 }
 
+// Registering creates a real account (a pending one when the code is never entered), so each
+// test records the usernames it registers and afterEach removes them, leaving none on the Team page.
+const registered = []
+
+async function removeRegistered(request) {
+  const login = await request.post('/api/auth/login', { data: { username: SEED_ADMIN_USERNAME, password: SEED_PASSWORD } })
+  const headers = { Authorization: `Bearer ${(await login.json()).token}` }
+  for (const username of registered.splice(0)) {
+    if (username === SEED_ADMIN_USERNAME) continue // the taken-username test registers a seeded name
+    const found = await request.get(`/api/users/username/${username}`, { headers })
+    if (found.ok()) await request.delete(`/api/users/${(await found.json()).id}`, { headers })
+  }
+}
+
 async function fillRegistration(page, { username, email, password, confirmPassword = password }) {
+  registered.push(username)
   await page.goto('/register')
   await page.getByLabel('Username').fill(username)
   await page.getByLabel('Email').fill(email)
@@ -33,6 +49,10 @@ async function fillRegistration(page, { username, email, password, confirmPasswo
 const unique = () => `${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`
 
 test.describe('Registration', () => {
+  test.afterEach(async ({ request }) => {
+    await removeRegistered(request)
+  })
+
   test('a new person registers, verifies the emailed code and signs in', async ({ page, request }) => {
     const id = unique()
     const account = { username: `new.${id}`, email: `new.${id}@example.test`, password: 'Sup3rSecret!pw' }

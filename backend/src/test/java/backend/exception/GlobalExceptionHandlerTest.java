@@ -77,6 +77,22 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void aCheckOrUniqueViolation_isA400WithAPlainSentenceNotTheDatabaseText() {
+        DataIntegrityViolationException check = new DataIntegrityViolationException("could not execute statement",
+                new RuntimeException("ERROR: new row for relation \"tasks\" violates check constraint \"tasks_check\"\n  Detail: Failing row contains (1)."));
+        DataIntegrityViolationException unique = new DataIntegrityViolationException("could not execute statement",
+                new RuntimeException("ERROR: duplicate key value violates unique constraint \"idx_users_username_lower\"\n  Detail: Key (lower(username))=(x) already exists."));
+
+        ResponseEntity<ErrorResponse> checkResponse = handler.handleDataIntegrityViolation(check);
+        ResponseEntity<ErrorResponse> uniqueResponse = handler.handleDataIntegrityViolation(unique);
+
+        assertThat(checkResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(checkResponse.getBody().message()).isEqualTo("The task due date cannot be before its start date.");
+        assertThat(uniqueResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(uniqueResponse.getBody().message()).isEqualTo("That username is already taken.");
+    }
+
+    @Test
     void unexpectedException_mapsTo500WithoutLeakingTheRawExceptionMessage() {
         ResponseEntity<ErrorResponse> response =
                 handler.handleUnexpected(new RuntimeException("some internal detail that shouldn't reach the client"));

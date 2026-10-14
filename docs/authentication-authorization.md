@@ -15,7 +15,7 @@ sequenceDiagram
     participant RL as LoginRateLimiter
     participant AM as AuthenticationManager
     UI->>API: { username, password }
-    API->>RL: assertNotLocked(remoteAddr:username)
+    API->>RL: assertNotLocked(clientAddress:username)
     RL-->>API: 429 if 5 failures in the last 15 min
     API->>AM: authenticate (CustomUserDetailsService + BCrypt)
     AM-->>API: success only if account_status = ACTIVE and password matches
@@ -29,7 +29,7 @@ Details:
 
 - **Credential is the username or the e-mail address** (since 2026-10-09). The request field is still called `username`; `AuthService.login` first calls `UserService.resolveLoginIdentifier`, which maps an e-mail address (anything containing `@`, compared case-insensitively) to the account's username, then authenticates as before. A username can never contain `@` (registration forbids it), so the two cannot be confused. The token's subject is always the username. An unknown e-mail falls through to the normal `401 "Invalid username or password"`.
 - **Any failure returns the same message** — `401 Unauthorized`, `"Invalid username or password"` — whether the user does not exist, the password is wrong, or the account is not `ACTIVE`. This does not reveal which accounts exist.
-- **Rate limiting.** `LoginRateLimiter` keeps failure timestamps in memory, keyed `remoteAddr + ":" + <what was typed>`. After **5** failures within **15 minutes** the next attempt returns `429 Too Many Requests` (`"Too many failed login attempts. Try again later."`). A successful login clears the counter. State is lost on restart and not shared between instances.
+- **Rate limiting.** `LoginRateLimiter` keeps failure timestamps in memory, keyed `clientAddress + ":" + <what was typed>` (the address nginx saw, passed in `X-Forwarded-For` and read by Tomcat from a private-network proxy only, since 2026-10-14; before that every client looked like the proxy). After **5** failures within **15 minutes** the next attempt returns `429 Too Many Requests` (`"Too many failed login attempts. Try again later."`). A successful login clears the counter. State is lost on restart and not shared between instances.
 - **Token.** `JwtService` issues an HS512-signed JWT with `sub` = username, `iat`, `exp`, and — only when the user has a global role — a `role` claim. Lifetime is `app.jwt.expiration-ms` (`JWT_EXPIRATION_MS`, default `900000` = 15 minutes; it was 1 hour until 2026-10-14). The signing key is `app.jwt.secret` (`JWT_SECRET`); `JwtSecretGuard` logs a warning at startup if it is still the built-in development value.
 - **Per request.** Spring's OAuth2 resource server validates the signature and expiry. `SecurityConfig` maps the `role` claim to a `ROLE_<name>` authority (so `@PreAuthorize("hasRole('ADMINISTRATOR')")` works). Services then identify the caller by `authentication.getName()` (the `sub` claim).
 - **Public endpoints:** `GET /api/health`, `POST /api/auth/login`, `/register`, `/verify-otp`, `/resend-otp`, and `GET /api/photos/**`. Everything else requires a valid token.
@@ -66,7 +66,7 @@ sequenceDiagram
 | Username / email uniqueness | case-insensitive; `"Username is already taken"` / `"Email is already registered"` (400) | `UserService`, indexes `idx_users_username_lower`, `idx_users_email_lower` |
 | Code | 6 digits (`SecureRandom`), stored only as a bcrypt hash | `OtpService` |
 | Expiry | `app.otp.expiration-minutes` (`OTP_EXPIRATION_MINUTES`), default 10 | `application.properties` |
-| Verify attempts | `app.otp.max-attempts` (`OTP_MAX_ATTEMPTS`), default 5; each wrong code shows how many remain | `OtpService.verify` |
+| Verify attempts | `app.otp.max-attempts` (`OTP_MAX_ATTEMPTS`), default 5; every failure gives the same message, so the attempts left are enforced but not shown (since 2026-10-14, I-08) | `OtpService.verify` |
 | Resend cooldown | `app.otp.resend-cooldown-seconds` (`OTP_RESEND_COOLDOWN_SECONDS`), default 60; too soon → `429` | `OtpService.resendOtp` |
 | Verify/resend on an already-verified account | `400 "This account is already verified"` | `AuthService` |
 | Other verify failures | no code on file, already used, expired, attempts exhausted → `400` with a specific message | `OtpService.verify` |
@@ -74,7 +74,7 @@ sequenceDiagram
 Notes:
 
 - A new account's `fullName` defaults to its username; the user completes the profile later.
-- A `PENDING_VERIFICATION` account cannot log in, **and its username and email stay reserved** — a second registration with the same username fails with "Username is already taken". There is no cleanup job for abandoned registrations (**Unknown / Needs clarification** whether this is intended).
+- A `PENDING_VERIFICATION` account cannot log in, **and its username and email stay reserved** — a second registration with the same username fails with "Username is already taken". An account that is not verified within 24 hours (`PENDING_REGISTRATION_TTL_HOURS`) is deleted by an hourly job (`PendingRegistrationScheduler`), which frees the username and e-mail again (since 2026-10-14, I-14).
 - Resending a code creates a new `otp_verifications` row; verification always checks the **latest** code only.
 - Mail host is `MAIL_HOST` (default `mailpit`). Outside Docker set it to `localhost` — see [setup.md](setup.md).
 

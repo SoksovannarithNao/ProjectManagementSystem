@@ -18,6 +18,9 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     long countByUserIdAndReadFalse(Long userId);
 
+    // The invitation notices of one person for one project (removed when the invitation is cancelled).
+    void deleteByUserIdAndProjectIdAndType(Long userId, Long projectId, String type);
+
     // Idempotency checks for the scheduled deadline / overdue notifications:
     // the same text for the same person and item is never created twice.
     boolean existsByUserIdAndTypeAndTaskIdAndMessage(Long userId, String type, Long taskId, String message);

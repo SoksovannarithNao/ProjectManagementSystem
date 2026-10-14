@@ -27,7 +27,7 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | Feature | Status | UI | API | DB | Tests | Notes / gap |
 |---|---|---|---|---|---|---|
 | Login with JWT, rate limiting | Done | ✓ | ✓ | ✓ | Partial | e2e login tests, the per-request account check and the refresh session (`session.spec.js`, `RefreshTokenServiceTest`, `AuthServiceTest`) are tested; `LoginRateLimiter` untested. Username **or e-mail** since 2026-10-09; auto-logout after 15 idle minutes with a 60-second warning since 2026-10-12 (`idle-and-updates.spec.js`). A deactivated account's token is rejected immediately (fixed 2026-10-06). Since 2026-10-14 a 15-minute access token in memory is renewed from a 7-day httpOnly refresh cookie that sign-out and a password change delete (D-24) |
-| Self-registration with emailed OTP | Done | ✓ | ✓ | ✓ | None | Mailpit locally; no cleanup of unverified accounts |
+| Self-registration with emailed OTP | Done | ✓ | ✓ | ✓ | None | Mailpit locally; an unverified registration is deleted after 24 hours (I-14, 2026-10-14) |
 | Profile, password change, photo, theme, notification preference | Done | ✓ | ✓ | ✓ | None | |
 | Password policy and live checklist | Done | ✓ | ✓ | — | None | UI + backend; manually verified only |
 | Administrator user management | Done (2026-10-13) | create, edit, set status, delete, give a role | ✓ create/update/delete | ✓ | Partial | `user-management.spec.js` and `UserRoleServiceTest` cover edit, deactivate, delete and the guards; creating an account from the UI has no dedicated test |
@@ -42,8 +42,8 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | Project create / edit / delete / status | Done | ✓ | ✓ | ✓ | Partial | Code generation and duplicate handling tested; UI flows manually verified. A completion date (`projects.completed_at`, `V14`) is stamped and cleared by a trigger (2026-10-12, `quick-wins.spec.js`) |
 | Auto-generated project code (`PRJ-####`) | Done | ✓ | ✓ | ✓ | Good | |
 | Project progress (derived) | Done | ✓ | — | ✓ triggers | Partial | Guarded only by `verify_invariants.sql` in CI |
-| Invitations: send, accept, decline | Done | ✓ | ✓ | ✓ | Partial | Sending is tested; accept/decline UI is not. Invisible if the invitee disabled notifications (I-12) |
-| Pending-invitation count | Done | ✓ managers | ✓ | ✓ | Good | No list/cancel UI (I-13) |
+| Invitations: send, accept, decline | Done | ✓ | ✓ | ✓ | Partial | Sending is tested; accept/decline UI is not. The invitation is delivered even if the invitee disabled notifications (I-12, fixed 2026-10-14) |
+| Pending invitations: count, list, cancel | Done | ✓ managers | ✓ | ✓ | Good | The project page lists them with a Cancel button (I-13, 2026-10-14) |
 | Invitable-user search and eligibility rules | Done | ✓ | ✓ | ✓ | Good | |
 | Member removal | Done | ✓ Team page | ✓ | ✓ | None | |
 | Member role assignment | Done (2026-10-09) | ✓ role picker, ownership transfer | ✓ | ✓ | e2e | Both the Team page and (since 2026-10-14) the project page's *Add Member* dialog invite with a chosen role; the role can be changed afterwards |
@@ -63,14 +63,14 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | Task approval workflow | Done (2026-10-09) | ✓ | ✓ | ✓ `V12` | Good | Request, designated approver, Approved / Changes requested / Rejected |
 | Attachments and checklists | Done (2026-10-09) | ✓ | ✓ | ✓ `V13` | Good | 10 MB, 25 per target, type allow-list; checklist items count in progress |
 | Milestones | Done (2026-10-12) | add / edit / delete | ✓ full CRUD | ✓ | Good | Edit form with a warning when completing with open tasks; shown on the calendar; no picker on the task forms |
-| Kanban board | Done (2026-10-13) | ✓ view, drag and drop, *Move to* menu | uses `/tasks` | ✓ | `tasks.test.js` (`checkTaskMove`), `kanban-moves.spec.js` | Cards open the panel; a move goes through the task panel's status rules |
+| Kanban board | Done (2026-10-13) | ✓ view, drag and drop, *Move to* menu | reads each column from `/tasks` (25 at a time, with the column total, `blocked` for the Blocked column) | ✓ | `tasks.test.js` (`checkTaskMove`), `kanban-moves.spec.js` | Cards open the panel; a move goes through the task panel's status rules |
 | Error pages (404, 403, 5xx …) | Done (2026-10-10) | ✓ | — | — | e2e | One `ErrorPage` for every status; a mistyped address no longer shows an empty screen |
 | Help & Support page | Done (2026-10-10) | ✓ page (was a modal) | — | — | e2e | Static FAQ, corrected and extended |
 | Gantt chart prototype | Done (2026-10-10) | ✓ | uses `/tasks`, `/task-dependencies` | ✓ | e2e | Duration bars, dependency arrows, conflict warning, overlap fading; open to every member; no dragging |
 | Calendar (month/week/day) | Done (2026-10-12) | ✓ | uses `/tasks` and `/milestones` | ✓ | Partial | Task due dates and milestones; only the milestones are covered by a test |
 | Task and project search / filter / sort | Done in the browser (2026-10-09) | ✓ | client-side | — | e2e | Tasks: search, filter by priority, status, project, assignee, due date and My Tasks, six sorts, and (2026-10-12) quick views for Today, Upcoming, In Progress, Completed and Overdue plus a *Due soon* flag on tasks due within 3 days. Projects: search incl. manager and status, filters, sort. Since 2026-10-13 the project and task list endpoints take the same search, filter and sort fields as parameters (G-16); the screens still filter in the browser |
 | Overdue detection | Done (notices 2026-10-10) | ✓ badge | ✓ computed | ✓ view | Good | Overdue is computed (`util/Derived`); a daily job sends the overdue notice and the 3- and 1-day reminders (`DeadlineNotificationService`, 16 unit tests); the DB function is no longer used by the app |
-| Dashboard | Done (2026-10-09) | ✓ | `/dashboard/stats`, `/activity-logs/recent`, `/workload` | — | e2e | project counts incl. Delayed, recent activity, manager workload; KPIs are separate |
+| Dashboard | Done (2026-10-09) | ✓ | `/dashboard/stats`, `/dashboard/task-activity`, `/activity-logs/recent`, `/workload` | — | e2e | project counts incl. Delayed, recent activity, manager workload; KPIs are separate |
 
 ### Notifications and reporting
 
@@ -109,7 +109,7 @@ Database tables exist for several of these, but **no entity, API or UI**:
 | Forgot-password | — | Listed as future work in the READMEs (auto-logout was built 2026-10-12) |
 | Administrator audit log | Done (2026-10-13) | `audit_logs` (`V16`), `GET /api/audit-logs`, *Administration → Audit log* | Optional ("may") item; `audit-log.spec.js`, `AuditLogServiceTest` |
 | ~~Server-side report endpoints~~ | Done 2026-10-09 | `GET /api/reports/*` check `REPORT:GENERATE_REPORTS` on the server |
-| Pagination | Partly done (2026-10-14) | Undefined in the specification (B7 item 6); optional `page` / `size` on the project, task and notification lists (D-25), used by the notification bell; the screens that group, chart or count a whole list still read it whole. Server-side search, filter and sort exist on the project and task lists since 2026-10-13 (G-16) |
+| Pagination | Done for the task lists (2026-10-14) | Undefined in the specification (B7 item 6); optional `page` / `size` on the project, task and notification lists (D-25), used by the notification bell and, since the same day, the Tasks page (the server also applies its quick views, assignee filters and project grouping); the Calendar reads only the days on screen and the project cards read their counts (2026-10-14); the Dashboard and Reports Overview read their figures from the server (2026-10-14); the Kanban board reads each column on its own, 25 cards at a time, so no screen reads the whole task list; the assignment list and the project members are still read whole. Server-side search, filter and sort exist on the project and task lists since 2026-10-13 (G-16) |
 
 ## 3. Planned work recorded by the project
 
@@ -123,7 +123,7 @@ From the root `README.md` (*Future Enhancements*), `backend.md` (*Next Steps*), 
 6. Flyway in CI and a production deployment (locally the Compose `migrate` service runs it).
 7. ~~Entities and controllers for `checklist_items`, `attachments`, `work_logs`.~~ Done.
 8. ~~Endpoints over the reporting views~~ — the reports are calculated in Java instead (2026-10-09); `kpi_snapshots` remains, and `report_exports` stays unused (the export is made in the browser, 2026-10-13).
-9. More backend tests (controller and repository). ~~Playwright in CI~~ — done 2026-10-12.
+9. ~~More backend tests (controller and repository).~~ Done 2026-10-15 (standalone `MockMvc` controller tests, `@DataJpaTest` query tests on the real schema). ~~Playwright in CI~~ — done 2026-10-12.
 10. A deploy target for the CD pipeline.
 11. ~~A project-wide activity feed~~ — done 2026-10-09; ~~an administrator audit view~~ — done 2026-10-13.
 12. ~~Closing the CI vs `03-app-role.sh` grant drift~~ (since 2026-10-14 CI runs the script itself and `verify_grants.sql` fails the build for an ungranted table) — the lists match (22 read-write tables plus `audit_logs`, checked 2026-10-14).
@@ -143,14 +143,27 @@ Work needed to bring the application to the model in [ADR-0015](adr/0015-two-lev
 
 ## 4. In progress
 
-**None found.** On 2026-10-12 the work is on branch `feat/complete_requirment` at commit `5990b0e`; change-plan batches 1–3c are committed (`5cda340`) and the working tree holds only the documentation pass. Other local branches exist (`backend/*`, `database/*`, `Project/*`, `fronrtend/updateUI`) but were not reviewed, so work in them is **Unknown**.
+**Nothing that is half-built.** As of 2026-10-15 the work of the last days (the side panels, the server-side lists, the hardening fixes and the tests) is in the working tree of branch `feat/side-panels-calendar-detail-sticky-header`, **not committed**: the project owner commits it. Other local branches exist (`backend/*`, `database/*`, `Project/*`, `fronrtend/updateUI`) but were not reviewed, so work in them is **Unknown**.
 
 ## 5. Blocked
 
-**None recorded.** No document in the repository names a blocker. Dependencies worth knowing before scheduling:
+**What is left at 2026-10-15** (every requirement of the brief is built; see [checklist/not_done.md](checklist/not_done.md)). It is all waiting on the project owner or optional:
+
+| # | Item | Waiting for |
+|---|---|---|
+| 1 | **A deploy target for the CD pipeline** (it only builds and pushes images today) | Where the app should run and which container registry to use |
+| 2 | **Flyway in a production deployment** (CI already checks that every migration is folded into the init scripts, F-84) | Item 1 |
+| 3 | **Decisions D-19 to D-25** ([assignment-brief.md](../assignment-brief.md), “Proposal, not yet approved”): near-deadline and Today / Upcoming, auto-logout timing, @mentions, report export, time logged on unassigned tasks, sign-in lifetime, pagination | The project owner's approval |
+| 4 | **The live demo database was edited by hand** (an extra account, a project and the Project Manager permission grid), so two role e2e specs fail against it; they pass on a freshly seeded database | The owner: keep the edits, or reset the demo database (destructive) |
+| 5 | **The CI workflow has never run on GitHub**; its steps were replayed locally (a second stack for the e2e job, a throw-away PostgreSQL 18 for the database steps) | The first push |
+| 6 | Optional: a test through the security filter chain and `@PreAuthorize`; tests for the controllers not yet covered | Time |
+
+**Accepted limitations** (decided, in [issues.md](issues.md) section 8): document management (#42, optional); unassigning a task notifies nobody; the task assignments and the project members are still read whole by a few screens; a database cannot be built from the migrations alone (X-04).
+
+Dependencies worth knowing:
 
 - PDF/Excel export is made in the browser with `write-excel-file` and `jspdf` + `jspdf-autotable` (2026-10-13, loaded on first use); nothing was added to `pom.xml`.
-- Deployment depends on a target environment that is **Unknown**.
+- Deployment depends on a target environment that is **Unknown** (item 1).
 
 ## 6. Suggested order of work (proposal)
 
@@ -160,6 +173,6 @@ Not a commitment — an ordering derived from the risks and gaps found. Items re
 |---|---|---|---|
 | 1 | ~~Close the data-isolation and permission holes~~ **Done 2026-10-06** | I-01 … I-07 (now F-12 … F-18) | Fixed with tests. Follow-up: extend to a full role × action test for every write endpoint; guard the system roles (I-10) |
 | 2 | **Make the demo flow complete** | ~~named reports~~, ~~dashboard project counts~~, ~~email login~~ (all done 2026-10-09); ~~deadline/overdue notifications~~ (done 2026-10-10); ~~comment notifications~~ (done 2026-10-12) | The requirement flow expects reminders |
-| 3 | **Finish half-built features** | pending-invitation list/cancel, ~~admin user screens (edit / deactivate / delete)~~ (done 2026-10-13), ~~a role picker in the project page's Add Member dialog~~ (done 2026-10-14) (~~role assignment UI~~, ~~comment replies~~, ~~search/filter/sort~~, ~~milestone edit + calendar milestones~~, ~~project completion date~~, ~~"Today / Upcoming" views~~ are done) | Each is a small gap in an otherwise working feature |
-| 4 | **Quality and delivery** | ~~Playwright in CI~~ (done 2026-10-12), service/controller tests, fix migration drift, regenerate OpenAPI (~~CI grants~~ are in step) | Protects everything above |
+| 3 | **Finish half-built features** | ~~pending-invitation list/cancel~~ (done 2026-10-14), ~~admin user screens (edit / deactivate / delete)~~ (done 2026-10-13), ~~a role picker in the project page's Add Member dialog~~ (done 2026-10-14) (~~role assignment UI~~, ~~comment replies~~, ~~search/filter/sort~~, ~~milestone edit + calendar milestones~~, ~~project completion date~~, ~~"Today / Upcoming" views~~ are done) | Each is a small gap in an otherwise working feature |
+| 4 | **Quality and delivery** | ~~Playwright in CI~~ (done 2026-10-12), ~~service/controller tests~~ (done 2026-10-15), ~~Flyway check in CI~~ (done 2026-10-15), fix migration drift, regenerate OpenAPI (~~CI grants~~ are in step) | Protects everything above |
 | 5 | **Optional modules** | ~~report export~~, ~~@mentions~~, ~~audit view~~, ~~Kanban drag-and-drop~~, document management (~~attachments~~, ~~time tracking~~, ~~KPIs~~, ~~Gantt~~ are done) | The requirement documents mark most of these as optional |

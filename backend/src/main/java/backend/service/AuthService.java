@@ -7,6 +7,7 @@ import backend.dto.OtpVerifyRequest;
 import backend.dto.RegisterRequest;
 import backend.dto.RegisterResponse;
 import backend.entity.User;
+import backend.exception.NotFoundException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.AuthenticationException;
@@ -49,23 +50,35 @@ public class AuthService {
                 user.getUsername(), user.getEmail(), "Verification code sent to your email");
     }
 
+    // An unknown username and an account that is already verified answer exactly like a wrong code, and
+    // asking for a new code for either quietly does nothing (issue I-08): these two endpoints must not
+    // tell a caller which usernames exist. Registration still says a username or e-mail is taken: a
+    // person signing up has to be told.
     public void verifyOtp(OtpVerifyRequest request) {
-        User user = userService.getUserEntityByUsername(request.getUsername());
-        assertPendingVerification(user);
+        User user = pendingAccount(request.getUsername());
+        if (user == null) {
+            throw new IllegalArgumentException(OtpService.INVALID_CODE_MESSAGE);
+        }
         otpService.verify(user, request.getOtp());
         userService.activateUser(user.getUsername());
     }
 
     public void resendOtp(OtpResendRequest request) {
-        User user = userService.getUserEntityByUsername(request.getUsername());
-        assertPendingVerification(user);
-        otpService.resendOtp(user);
+        User user = pendingAccount(request.getUsername());
+        if (user != null) {
+            otpService.resendOtp(user);
+        }
     }
 
-    private void assertPendingVerification(User user) {
-        if (!"PENDING_VERIFICATION".equals(user.getAccountStatus())) {
-            throw new IllegalArgumentException("This account is already verified");
+    // The account waiting for its code, or null when there is none (unknown, or already verified).
+    private User pendingAccount(String username) {
+        User user;
+        try {
+            user = userService.getUserEntityByUsername(username);
+        } catch (NotFoundException e) {
+            return null;
         }
+        return "PENDING_VERIFICATION".equals(user.getAccountStatus()) ? user : null;
     }
 
     public LoginResult login(LoginRequest request, String rateLimitKey) {

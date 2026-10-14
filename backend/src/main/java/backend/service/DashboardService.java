@@ -1,6 +1,7 @@
 package backend.service;
 
 import backend.dto.DashboardStatsResponse;
+import backend.dto.TaskActivityResponse;
 import backend.entity.Project;
 import backend.entity.Task;
 import backend.entity.User;
@@ -10,12 +11,15 @@ import backend.repository.ProjectRepository;
 import backend.repository.TaskRepository;
 import backend.repository.UserRepository;
 import backend.util.Derived;
+import backend.util.TaskActivity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DateTimeException;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 
@@ -67,6 +71,48 @@ public class DashboardService {
             tasks = taskRepository.findByProjectIdIn(visible);
         }
         return new DashboardStatsResponse(projectStats(projects, today), taskStats(tasks, today), delayedList(projects, today));
+    }
+
+    // The daily created / completed / overdue figures of the last `days` days over the tasks the caller
+    // may see, or over one project's tasks (404 when the caller is not in it). `zone` is the caller's
+    // time zone (an IANA name such as Asia/Phnom_Penh): it decides which day a timestamp falls on and
+    // what today is; without it the server's zone is used.
+    public List<TaskActivityResponse> getTaskActivity(String username, int days, String zone, Long projectId) {
+        User caller = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+        ZoneId zoneId = zoneOf(zone);
+        return taskActivity(caller, days, zoneId, projectId, LocalDate.now(zoneId));
+    }
+
+    // `today` is a parameter so the figures can be tested on fixed dates.
+    List<TaskActivityResponse> getTaskActivity(String username, int days, ZoneId zone, Long projectId, LocalDate today) {
+        User caller = userRepository.findByUsername(username)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+        return taskActivity(caller, days, zone, projectId, today);
+    }
+
+    private List<TaskActivityResponse> taskActivity(User caller, int days, ZoneId zone, Long projectId, LocalDate today) {
+        List<Task> tasks;
+        if (projectId != null) {
+            projectAccessGuard.assertAccess(caller, projectId);
+            tasks = taskRepository.findByProjectId(projectId);
+        } else if (projectAccessGuard.isAdmin(caller)) {
+            tasks = taskRepository.findAll();
+        } else {
+            tasks = taskRepository.findByProjectIdIn(projectMemberRepository.findProjectIdsByUserId(caller.getId()));
+        }
+        return TaskActivity.lastDays(tasks, today, days, zone);
+    }
+
+    private static ZoneId zoneOf(String zone) {
+        if (zone == null || zone.isBlank()) {
+            return ZoneId.systemDefault();
+        }
+        try {
+            return ZoneId.of(zone);
+        } catch (DateTimeException e) {
+            throw new IllegalArgumentException("Invalid zone: " + zone);
+        }
     }
 
     private static DashboardStatsResponse.ProjectStats projectStats(List<Project> projects, LocalDate today) {

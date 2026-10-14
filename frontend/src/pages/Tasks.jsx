@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus,
   SlidersHorizontal,
@@ -38,11 +38,9 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
-import { getTasks, advanceTaskStatus, canAdvanceStatus, deleteTask } from '../api/tasks'
+import { getTasksPage, getTaskSummary, getTaskById, advanceTaskStatus, canAdvanceStatus, deleteTask } from '../api/tasks'
 import { getSubtasksByTask, updateSubtask } from '../api/subtasks'
-import { getTaskAssignees } from '../api/taskAssignees'
 import { getProjects } from '../api/projects'
-import { buildTaskAssigneeMap } from '../api/relations'
 import { humanizeEnum, formatDate, taskDisplayTitle, blockedReason, timeAgo } from '../api/format'
 import { getPendingApprovals } from '../api/approvals'
 import { canApproveTask } from '../api/permissions'
@@ -63,9 +61,7 @@ const STATUS_GROUPS = [
 ]
 
 const PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
-const PRIORITY_RANK = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
 const STATUS_OPTIONS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
-const STATUS_RANK = { TODO: 0, IN_PROGRESS: 1, IN_REVIEW: 2, COMPLETED: 3, CANCELLED: 4 }
 const DUE_OPTIONS = [
   { id: '', label: 'Any date' },
   { id: 'overdue', label: 'Overdue' },
@@ -75,7 +71,7 @@ const DUE_OPTIONS = [
 ]
 // Quick views over the tasks the other filters leave (brief Part A "My Tasks": Today,
 // Upcoming, In Progress, Completed, Overdue). Today and Upcoming mean open tasks
-// (not Completed or Cancelled) due today / after today.
+// (not Completed or Cancelled) due today / after today. The server applies them and counts them.
 const QUICK_VIEWS = [
   { id: 'all', label: 'All' },
   { id: 'today', label: 'Today' },
@@ -93,52 +89,13 @@ const SORT_OPTIONS = [
   { id: 'status', label: 'Status' },
   { id: 'title', label: 'Title (A–Z)' },
 ]
-const SORTERS = {
-  dueDate: (a, b) => new Date(a.dueDate ?? '9999-12-31') - new Date(b.dueDate ?? '9999-12-31'),
-  latest: (a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0),
-  priority: (a, b) => (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9),
-  progress: (a, b) => Number(b.progress ?? 0) - Number(a.progress ?? 0),
-  status: (a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9),
-  title: (a, b) => (a.title ?? '').localeCompare(b.title ?? ''),
-}
-
-// Due dates are calendar dates (YYYY-MM-DD): compare as strings in local
-// time so a task due today is never "overdue" until tomorrow.
-function localIsoDate(offsetDays = 0) {
-  const d = new Date()
-  d.setDate(d.getDate() + offsetDays)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-function matchesDueFilter(task, filter) {
-  if (!filter) return true
-  const due = task.dueDate
-  if (filter === 'none') return !due
-  if (!due) return false
-  const today = localIsoDate()
-  if (filter === 'today') return due === today
-  if (filter === 'week') return due >= today && due <= localIsoDate(7)
-  // Overdue: past its due date and still open (B1.3).
-  return due < today && task.status !== 'COMPLETED' && task.status !== 'CANCELLED'
-}
-
-function matchesQuickView(task, view) {
-  if (view === 'all') return true
-  const open = task.status !== 'COMPLETED' && task.status !== 'CANCELLED'
-  const today = localIsoDate()
-  if (view === 'today') return open && task.dueDate === today
-  if (view === 'upcoming') return open && !!task.dueDate && task.dueDate > today
-  if (view === 'inprogress') return task.status === 'IN_PROGRESS'
-  if (view === 'completed') return task.status === 'COMPLETED'
-  return !!task.overdue // overdue: the server's own calculation (B1.3)
-}
+// The list is read from the server a page at a time (50 tasks), ordered by project and then by the
+// chosen sort; "Show more" reads the next page.
+const PAGE_SIZE = 50
 
 export function Tasks() {
   const { profile, can, canAny, permissions } = useAuth()
   const notify = useToast()
-  const { data: tasks, loading, refetch } = useApi(getTasks)
-  const { data: taskAssignees, refetch: refetchAssignees } = useApi(getTaskAssignees)
   const { data: projects, refetch: refetchProjects } = useApi(getProjects)
   // Requests waiting for a decision from the signed-in user (empty for most people).
   const { data: pendingApprovals, refetch: refetchPending } = useApi(getPendingApprovals)
@@ -156,6 +113,11 @@ export function Tasks() {
   const [myTasksOnly, setMyTasksOnly] = useState(false)
   const [quickView, setQuickView] = useState('all')
   const [sortBy, setSortBy] = useState('dueDate')
+  const [reloadTick, setReloadTick] = useState(0)
+  const [page, setPage] = useState(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [fetchedTask, setFetchedTask] = useState(null)
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [expandedTaskIds, setExpandedTaskIds] = useState(() => new Set())
   // Empty by default — every project group starts fully expanded, matching
   // the existing design. Collapsing one project is independent of every
@@ -168,8 +130,91 @@ export function Tasks() {
   // instead check that specific task's own project: see the row below.
   const canAddTasks = canAny('TASK', 'CREATE')
 
-  const assigneeMap = useMemo(() => buildTaskAssigneeMap(taskAssignees), [taskAssignees])
-  const list = useMemo(() => tasks ?? [], [tasks])
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 250)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // What the server is asked to search and filter by (My Tasks and the assignee choice both name an
+  // assignee, and a task must then be assigned to both), and with the quick view and the sort.
+  const filters = useMemo(
+    () => ({
+      search: debouncedSearch,
+      statuses: Array.from(statusFilter),
+      priorities: Array.from(priorityFilter),
+      assigneeIds: [
+        ...(myTasksOnly && profile?.id != null ? [profile.id] : []),
+        ...(assigneeFilter && assigneeFilter !== UNASSIGNED ? [Number(assigneeFilter)] : []),
+      ],
+      unassigned: assigneeFilter === UNASSIGNED,
+      projectId: projectFilter,
+      due: dueFilter,
+    }),
+    [debouncedSearch, statusFilter, priorityFilter, myTasksOnly, profile, assigneeFilter, projectFilter, dueFilter]
+  )
+  const query = useMemo(() => ({ ...filters, view: quickView, sort: sortBy }), [filters, quickView, sortBy])
+
+  // Every page read so far for the current query. How many there are is kept, so that reloading
+  // after an edit reads the same number of pages again instead of dropping back to the first.
+  const loaded = useRef({ query: null, pages: 1 })
+  useEffect(() => {
+    if (loaded.current.query !== query) loaded.current = { query, pages: 1 }
+    let cancelled = false
+    Promise.all(Array.from({ length: loaded.current.pages }, (_, p) => getTasksPage(query, p, PAGE_SIZE)))
+      .then((results) => {
+        if (!cancelled) setPage({ items: results.flatMap((r) => r.items), total: results[0].total })
+      })
+      .catch((err) => {
+        if (!cancelled) notify(err.message || 'Failed to load tasks', { tone: 'error' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [query, reloadTick, notify])
+
+  const loadMore = async () => {
+    const snapshot = loaded.current
+    setLoadingMore(true)
+    try {
+      const next = await getTasksPage(query, snapshot.pages, PAGE_SIZE)
+      if (loaded.current !== snapshot) return // the search or a filter changed meanwhile
+      snapshot.pages += 1
+      setPage((prev) => ({ items: [...prev.items, ...next.items], total: next.total }))
+    } catch (err) {
+      notify(err.message || 'Failed to load more tasks', { tone: 'error' })
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  // The quick-view counts and the people to offer in the assignee filter, over the same filters.
+  const summaryFetcher = useCallback(() => getTaskSummary(filters), [filters])
+  const { data: summary, refetch: refetchSummary } = useApi(summaryFetcher)
+  const viewCounts = summary?.viewCounts ?? {}
+  const reload = () => {
+    setReloadTick((t) => t + 1)
+    refetchSummary()
+  }
+
+  const list = useMemo(() => page?.items ?? [], [page])
+  const total = page?.total ?? 0
+  const loading = page == null
+
+  // The open task is read on its own as well, so the panel still shows a task the list does not
+  // hold: one opened from "Awaiting your approval", on a page not read yet, or one an edit has
+  // just moved out of the current filter.
+  useEffect(() => {
+    if (activeTaskId == null) return
+    let cancelled = false
+    getTaskById(activeTaskId)
+      .then((t) => {
+        if (!cancelled) setFetchedTask(t)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [activeTaskId, reloadTick])
 
   // Derived (never copied into its own state) so the open detail panel
   // always reflects the live list — including a backend-side change to
@@ -178,9 +223,9 @@ export function Tasks() {
   // at click-time would never pick up after a refetch.
   const activeTask = useMemo(() => {
     if (activeTaskId == null) return null
-    const t = list.find((task) => task.id === activeTaskId)
-    return t ? { ...t, assigneeIds: assigneeMap.get(t.id) ?? [] } : null
-  }, [activeTaskId, list, assigneeMap])
+    const t = list.find((task) => task.id === activeTaskId) ?? (fetchedTask?.id === activeTaskId ? fetchedTask : null)
+    return t ? { ...t, assigneeIds: t.assigneeIds ?? [] } : null
+  }, [activeTaskId, list, fetchedTask])
   const activeFilterCount =
     priorityFilter.size +
     statusFilter.size +
@@ -188,50 +233,12 @@ export function Tasks() {
     (assigneeFilter ? 1 : 0) +
     (dueFilter ? 1 : 0) +
     (myTasksOnly ? 1 : 0)
+  const filtersActive = activeFilterCount > 0 || search.trim() !== '' || quickView !== 'all'
 
-  // People who hold at least one assignment on a task the caller can see -
-  // built from the (permission-scoped) assignments, not the org directory.
-  const assigneeOptions = useMemo(() => {
-    const byId = new Map()
-    for (const ta of taskAssignees ?? []) {
-      if (ta.user?.id != null) byId.set(ta.user.id, ta.user.fullName || ta.user.username)
-    }
-    return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
-  }, [taskAssignees])
-
-  // Everything except the quick view, so each quick view can show how many tasks it holds.
-  const baseFilteredList = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return list.filter((t) => {
-      if (q) {
-        const assigneeNames = (assigneeMap.get(t.id) ?? [])
-          .map((id) => assigneeOptions.find((a) => a.id === id)?.name ?? '')
-          .join(' ')
-        const haystack = `${t.title ?? ''} ${t.description ?? ''} ${t.project?.name ?? ''} ${assigneeNames} ${humanizeEnum(t.priority)} ${humanizeEnum(t.status)} ${t.dueDate ?? ''}`.toLowerCase()
-        if (!haystack.includes(q)) return false
-      }
-      if (priorityFilter.size > 0 && !priorityFilter.has(t.priority)) return false
-      if (statusFilter.size > 0 && !statusFilter.has(t.status)) return false
-      if (projectFilter && String(t.project?.id) !== projectFilter) return false
-      if (assigneeFilter) {
-        const ids = assigneeMap.get(t.id) ?? []
-        if (assigneeFilter === UNASSIGNED ? ids.length > 0 : !ids.includes(Number(assigneeFilter))) return false
-      }
-      if (!matchesDueFilter(t, dueFilter)) return false
-      // "My Tasks" = the caller is one of the task's actual assignees (the
-      // task-assignees join table, whoever assigned them) — not its creator.
-      if (myTasksOnly && !(assigneeMap.get(t.id) ?? []).includes(profile?.id)) return false
-      return true
-    })
-  }, [list, search, assigneeOptions, priorityFilter, statusFilter, projectFilter, assigneeFilter, dueFilter, myTasksOnly, assigneeMap, profile])
-
-  const quickViewCounts = useMemo(
-    () => Object.fromEntries(QUICK_VIEWS.map((v) => [v.id, baseFilteredList.filter((t) => matchesQuickView(t, v.id)).length])),
-    [baseFilteredList]
-  )
-  const filteredList = useMemo(
-    () => baseFilteredList.filter((t) => matchesQuickView(t, quickView)),
-    [baseFilteredList, quickView]
+  // People who hold at least one assignment on a task the caller can see (from the server's summary).
+  const assigneeOptions = useMemo(
+    () => (summary?.assignees ?? []).map((u) => ({ id: u.id, name: u.fullName || u.username })),
+    [summary]
   )
 
   // Project name -> one group per status -> its tasks (sorted by the current
@@ -240,7 +247,7 @@ export function Tasks() {
   // endpoint, only GET /api/subtasks/task/{taskId}, same as TaskDetailPanel.
   const projectGroups = useMemo(() => {
     const groups = new Map()
-    for (const t of filteredList) {
+    for (const t of list) {
       const key = t.project?.id ?? 'none'
       if (!groups.has(key)) {
         groups.set(key, { id: key, name: t.project?.name || 'No project', tasks: [] })
@@ -254,7 +261,7 @@ export function Tasks() {
         // this filtered task list, so it stays the same regardless of the
         // active search/priority filters.
         g.project = g.id === 'none' ? null : projects?.find((p) => p.id === g.id) ?? null
-        const sorted = [...g.tasks].sort(SORTERS[sortBy])
+        const sorted = g.tasks // already in the chosen order: the server sorts inside each project
         const statusGroups = STATUS_GROUPS.map((sg) => ({
           ...sg,
           tasks: sorted.filter((t) => sg.match(t.status)),
@@ -270,7 +277,7 @@ export function Tasks() {
         if (aDone !== bDone) return aDone - bDone
         return a.name.localeCompare(b.name)
       })
-  }, [filteredList, sortBy, projects])
+  }, [list, projects])
 
   const loadSubtasksFor = async (taskId) => {
     setLoadingSubtasksFor((prev) => new Set(prev).add(taskId))
@@ -302,7 +309,7 @@ export function Tasks() {
       // completedSubtasks/totalSubtasks on the task row (and the quick-advance
       // gating in advanceTask) come from the tasks list itself, not this
       // page's separately-fetched subtask preview.
-      refetch()
+      reload()
       // Mirrors SubtaskService.startTaskIfStillToDo's own silent skip: a
       // blocked task can never legally become IN_PROGRESS (the DB's
       // dependency gate forbids it), so a subtask touch here can't promote
@@ -340,8 +347,7 @@ export function Tasks() {
   }
 
   const refetchAll = () => {
-    refetch()
-    refetchAssignees()
+    reload()
     // Project progress is derived server-side from its tasks (see
     // database/init/01-init.sql's progress triggers) — a task mutation here
     // can change its own project's %, so the group header would show a
@@ -377,7 +383,7 @@ export function Tasks() {
 
   const advanceTask = async (task, e) => {
     e.stopPropagation()
-    const canApproveIt = canApproveTask(permissions, profile?.id, task, (assigneeMap.get(task.id) ?? []).includes(profile?.id))
+    const canApproveIt = canApproveTask(permissions, profile?.id, task, (task.assigneeIds ?? []).includes(profile?.id))
     if (!canAdvanceStatus(task.status, canApproveIt)) return
     // The one step this quick-advance control can attempt that's actually
     // gated: In Progress -> Completed requires every subtask complete (see
@@ -418,7 +424,7 @@ export function Tasks() {
     <div>
       <TopBar
         title="Tasks"
-        subtitle={`${list.length} tasks across all your projects`}
+        subtitle={filtersActive ? `${total} matching ${total === 1 ? 'task' : 'tasks'}` : `${total} tasks across all your projects`}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search tasks"
@@ -607,13 +613,13 @@ export function Tasks() {
                   active
                     ? 'bg-charcoal text-on-charcoal border-transparent'
                     : `bg-card border-border hover:bg-subtle ${
-                        v.id === 'overdue' && quickViewCounts.overdue > 0 ? 'text-danger-ink' : 'text-muted'
+                        v.id === 'overdue' && viewCounts.overdue > 0 ? 'text-danger-ink' : 'text-muted'
                       }`
                 }`}
               >
                 {v.label}
                 <span className={`text-[12px] font-medium ${active ? 'opacity-80' : 'text-faint'}`}>
-                  {quickViewCounts[v.id]}
+                  {viewCounts[v.id] ?? 0}
                 </span>
               </button>
             )
@@ -623,8 +629,8 @@ export function Tasks() {
         {!loading && projectGroups.length === 0 && (
           <EmptyState
             icon={ClipboardList}
-            title={list.length === 0 ? 'No tasks here yet' : 'No tasks match your search/filters'}
-            subtitle={canAddTasks && list.length === 0 ? 'Add one to get started.' : undefined}
+            title={filtersActive ? 'No tasks match your search/filters' : 'No tasks here yet'}
+            subtitle={canAddTasks && !filtersActive ? 'Add one to get started.' : undefined}
           />
         )}
 
@@ -718,7 +724,7 @@ export function Tasks() {
                     {sg.title} · {sg.tasks.length}
                   </span>
                   {sg.tasks.map((t, i) => {
-                const assigneeIds = assigneeMap.get(t.id) ?? []
+                const assigneeIds = t.assigneeIds ?? []
                 const canEditThisTask = can('TASK', 'EDIT', t.project?.id)
                 const canDeleteThisTask = can('TASK', 'DELETE', t.project?.id)
                 const canApproveThisTask = canApproveTask(permissions, profile?.id, t, assigneeIds.includes(profile?.id))
@@ -933,6 +939,18 @@ export function Tasks() {
           </div>
           )
         })}
+
+        {list.length < total && (
+          <button
+            type="button"
+            data-testid="tasks-show-more"
+            className="btn btn-secondary self-center"
+            disabled={loadingMore}
+            onClick={loadMore}
+          >
+            {loadingMore ? 'Loading…' : `Show more (${total - list.length} more)`}
+          </button>
+        )}
       </div>
 
       {activeTask && (

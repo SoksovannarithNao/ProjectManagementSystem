@@ -42,7 +42,7 @@ Details worth knowing:
 
 - Each row records the related **project** (and **task**, for the first two and for comments) so the UI can show names.
 - `TASK_STATUS_CHANGED` goes to the task's assignees plus the project's Owner and Team Leaders, **never to the person who made the change**, and skips people with task notifications off (since 2026-10-14, G-21; before that it went to the assignees only, the actor included).
-- The status-change notification is **not** sent when the status changes through the subtask auto-promotion (`SubtaskService.startTaskIfStillToDo` saves the task directly and does not call the notification service).
+- The subtask auto-promotion (`SubtaskService.startTaskIfStillToDo`) sends it too (since 2026-10-14, I-17), to the same people as any other status change: the assignees, the Owner and the Team Leaders, never the person who touched the subtask.
 - Unassigning a task, deleting a task, creating a project and creating a milestone create **no** notification, and neither does saving a project or a milestone without changing anything.
 - The database function `fn_generate_overdue_notifications()` is no longer used by the application (only the seed script calls it, and it reaches assignees only). The scheduled job in §8 replaced it.
 
@@ -68,9 +68,9 @@ Marking or deleting someone else's notification returns **404** (not 403), so a 
 
 ## 5. The preference switch
 
-`users.task_notifications_enabled` (default `true`; Settings page → Notifications; `PUT /api/users/me/preferences`). **Every producer checks it** (the scheduled ones also skip accounts that are not `ACTIVE`), so a user who turns it off stops receiving task, approval, reminder, overdue *and* invitation notifications.
+`users.task_notifications_enabled` (default `true`; Settings page → Notifications; `PUT /api/users/me/preferences`). **Every producer checks it** (the scheduled ones also skip accounts that are not `ACTIVE`), so a user who turns it off stops receiving task, approval, reminder and overdue notifications. **The invitation notification is the exception** (since 2026-10-14, I-12): it is not a task notification and is the only place to accept or decline, so it is always created.
 
-This has a side effect on invitations: the notification is the only place the UI shows Accept/Decline, so an invitee with the switch off is never shown the invitation (see [users-and-projects.md](users-and-projects.md#43-accepting-or-declining)).
+Because the invitation notification is the only place the UI shows Accept/Decline, it ignores the switch, so an invitee with the switch off still sees it (see [users-and-projects.md](users-and-projects.md#43-accepting-or-declining)).
 
 ## 6. UI behaviour
 
