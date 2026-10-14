@@ -6,7 +6,6 @@ import backend.dto.TaskResponse;
 import backend.entity.ProjectMember;
 import backend.entity.Task;
 import backend.entity.TaskApproval;
-import backend.entity.TaskAssignee;
 import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.ProjectMemberRepository;
@@ -65,6 +64,7 @@ public class TaskApprovalService {
     private final SubtaskRepository subtaskRepository;
     private final ProjectAccessGuard projectAccessGuard;
     private final NotificationService notificationService;
+    private final UpdateNotificationService updateNotificationService;
     private final ActivityLogService activityLogService;
 
     public TaskApprovalService(
@@ -76,6 +76,7 @@ public class TaskApprovalService {
             SubtaskRepository subtaskRepository,
             ProjectAccessGuard projectAccessGuard,
             NotificationService notificationService,
+            UpdateNotificationService updateNotificationService,
             ActivityLogService activityLogService) {
         this.approvalRepository = approvalRepository;
         this.taskRepository = taskRepository;
@@ -85,6 +86,7 @@ public class TaskApprovalService {
         this.subtaskRepository = subtaskRepository;
         this.projectAccessGuard = projectAccessGuard;
         this.notificationService = notificationService;
+        this.updateNotificationService = updateNotificationService;
         this.activityLogService = activityLogService;
     }
 
@@ -370,10 +372,7 @@ public class TaskApprovalService {
             activityLogService.record(actor, task, "TASK_STATUS_CHANGED",
                     "Status changed from " + TextFormat.humanizeEnum(previous)
                             + " to " + TextFormat.humanizeEnum(nextStatus));
-            List<User> assignees = taskAssigneeRepository.findByTaskId(task.getId()).stream()
-                    .map(TaskAssignee::getUser)
-                    .toList();
-            notificationService.notifyTaskStatusChanged(task, assignees);
+            updateNotificationService.notifyTaskStatusChanged(task, actor);
         }
     }
 

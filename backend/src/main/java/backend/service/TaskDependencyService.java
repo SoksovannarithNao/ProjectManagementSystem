@@ -102,7 +102,13 @@ public class TaskDependencyService {
                 .orElseThrow(() -> new NotFoundException("Task not found"));
         Task dependsOnTask = taskRepository.findById(request.getDependsOnTaskId())
                 .orElseThrow(() -> new NotFoundException("Depends-on task not found"));
-        projectAccessGuard.assertCan(requireUser(username), task.getProject().getId(), Resource.TASK, Action.ASSIGN);
+        User caller = requireUser(username);
+        projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.TASK, Action.ASSIGN);
+        // A task of a project the caller cannot see is "not found"; one they can see but is another project is a 400.
+        projectAccessGuard.assertAccess(caller, dependsOnTask.getProject().getId());
+        if (!task.getProject().getId().equals(dependsOnTask.getProject().getId())) {
+            throw new IllegalArgumentException("A task can only depend on a task of the same project");
+        }
 
         TaskDependency dependency = new TaskDependency();
         dependency.setTask(task);

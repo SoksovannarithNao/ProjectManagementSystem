@@ -14,6 +14,8 @@ Differences between the application and the approved specification that are not 
 
 **Still open:** none.
 
+**Resolved on 2026-10-14 (found by reviewing the brief and the workflow against the code; migration `V21`, verified live):** G-20 a task dependency joins two tasks of one project only (workflow A4) · G-21 a status change tells the task's assignees, Owner and Team Leaders, never the person who made it (B9). The created date and the warning message of Part A are shown too.
+
 **Resolved on 2026-10-13 (server-side search, filter and sort, backend only, verified live; recorded in [done.md](done.md) #36):** G-16 `GET /api/projects` and `GET /api/tasks` take the B1.9 search, filter and sort fields as optional parameters, applied after the permission scoping. Pagination stays undefined (B7 item 6).
 
 **Resolved on 2026-10-13 (@mentions and report export, migration `V18`, verified live; moved to [done.md](done.md)):** G-14, the last optional features: @mentions in comments (D-21) and report export to Excel and PDF from every report and the KPIs (D-22). Only document management (#42) stays unbuilt.

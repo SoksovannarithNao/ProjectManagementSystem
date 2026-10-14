@@ -70,7 +70,9 @@ test.describe('session: browser', () => {
     await page.getByRole('button', { name: 'Sign out now' }).click()
     await expect(page).toHaveURL(/\/login/)
 
-    expect((await context.cookies()).find((c) => c.name === COOKIE)).toBeUndefined()
+    // The page reaches /login as soon as the sign-out starts; the server's reply (which clears the
+    // cookie) can arrive a moment later, so wait for it.
+    await expect.poll(async () => (await context.cookies()).find((c) => c.name === COOKIE)).toBeUndefined()
     expect(await page.evaluate(() => localStorage.getItem('taskflow.auth'))).toBeNull()
     expect((await refreshWith(request, before)).status()).toBe(401)
   })

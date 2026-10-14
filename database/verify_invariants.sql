@@ -122,3 +122,10 @@ FROM tasks t
 WHERE t.status = 'COMPLETED' AND t.progress <> 100
   AND NOT EXISTS (SELECT 1 FROM subtasks s WHERE s.task_id = t.id)
   AND NOT EXISTS (SELECT 1 FROM checklist_items c WHERE c.task_id = t.id);
+
+-- 15. A dependency joins two tasks of the same project (trg_task_dependencies_same_project; V21).
+SELECT td.task_id, td.depends_on_task_id
+FROM task_dependencies td
+JOIN tasks a ON a.id = td.task_id
+JOIN tasks b ON b.id = td.depends_on_task_id
+WHERE a.project_id <> b.project_id;

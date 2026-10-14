@@ -37,6 +37,12 @@ export function MilestoneFormModal({ milestone, project, openTaskCount = 0, onCl
         status,
       })
       notify(`Milestone "${title.trim()}" updated`, { tone: 'success' })
+      if (completingWithOpenTasks) {
+        notify(
+          `${openTaskCount} linked task${openTaskCount === 1 ? ' is' : 's are'} still open and ${openTaskCount === 1 ? 'was' : 'were'} not changed`,
+          { tone: 'warning' }
+        )
+      }
       onSaved?.()
       onClose()
     } catch (err) {

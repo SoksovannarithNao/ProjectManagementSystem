@@ -49,7 +49,7 @@ public class TaskService {
     private final TaskAssigneeRepository taskAssigneeRepository;
     private final SubtaskRepository subtaskRepository;
     private final TaskDependencyRepository taskDependencyRepository;
-    private final NotificationService notificationService;
+    private final UpdateNotificationService updateNotificationService;
     private final ActivityLogService activityLogService;
     private final ProjectAccessGuard projectAccessGuard;
     private final WorkLogRepository workLogRepository;
@@ -65,7 +65,7 @@ public class TaskService {
             TaskAssigneeRepository taskAssigneeRepository,
             SubtaskRepository subtaskRepository,
             TaskDependencyRepository taskDependencyRepository,
-            NotificationService notificationService,
+            UpdateNotificationService updateNotificationService,
             ActivityLogService activityLogService,
             ProjectAccessGuard projectAccessGuard,
             WorkLogRepository workLogRepository,
@@ -79,7 +79,7 @@ public class TaskService {
         this.taskAssigneeRepository = taskAssigneeRepository;
         this.subtaskRepository = subtaskRepository;
         this.taskDependencyRepository = taskDependencyRepository;
-        this.notificationService = notificationService;
+        this.updateNotificationService = updateNotificationService;
         this.activityLogService = activityLogService;
         this.projectAccessGuard = projectAccessGuard;
         this.workLogRepository = workLogRepository;
@@ -311,11 +311,7 @@ public class TaskService {
             } else if ("IN_REVIEW".equals(previousStatus)) {
                 approvalService.withdrawPending(saved, caller);
             }
-            List<User> assignees = taskAssigneeRepository.findByTaskId(saved.getId())
-                    .stream()
-                    .map(TaskAssignee::getUser)
-                    .toList();
-            notificationService.notifyTaskStatusChanged(saved, assignees);
+            updateNotificationService.notifyTaskStatusChanged(saved, caller);
         }
 
         TaskResponse response = new TaskResponse(saved);

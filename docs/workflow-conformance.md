@@ -1,8 +1,8 @@
 # Workflow Conformance Test — 2026-10-08
 
-The running application tested against [project-workflow.md](../project-workflow.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). Sections 1–5 record the test **before any change** to the application, so the result could be trusted; section 6 records the re-test after the role-model migration (`V10`) done later the same day; section 7 records the re-test after change-plan batch 1 (2026-10-09); sections 8–11 record the later batches; section 12 the scheduled reminders, section 13 the Gantt prototype and section 14 the error and help pages (all 2026-10-10), section 15 the quick-wins batch and section 16 the auto-logout and notifications batch (both 2026-10-12).
+The running application tested against [project-workflow.md](../project-workflow.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). Sections 1–5 record the test **before any change** to the application, so the result could be trusted; section 6 records the re-test after the role-model migration (`V10`) done later the same day; section 7 records the re-test after change-plan batch 1 (2026-10-09); sections 8–11 record the later batches; section 12 the scheduled reminders, section 13 the Gantt prototype and section 14 the error and help pages (all 2026-10-10), section 15 the quick-wins batch and section 16 the auto-logout and notifications batch (both 2026-10-12); sections 17–26 the later batches up to 2026-10-14 section 27 the created date and the warning toast, and section 28 the dashboard polish.
 
-**Where things stand now (44 flows, derived on 2026-10-12 by applying the "After" columns of §6–§16 to the table in §2): PASS 43 · PARTIAL 0 · MISSING 1, after §20.** The tables in §2–§5 below are the starting point and are kept as the record of that first test; they are not the current state. What is still not a PASS:
+**Where things stand now (44 flows, derived on 2026-10-12 by applying the "After" columns of §6–§16 to the table in §2): PASS 43 · PARTIAL 0 · MISSING 1, after §28.** The tables in §2–§5 below are the starting point and are kept as the record of that first test; they are not the current state. What is still not a PASS:
 
 | § | Flow | Class | Why |
 |---|---|---|---|
@@ -337,3 +337,26 @@ No flow changed state, but one defect turned up while the whole suite was run on
 | 26 Notifications | PASS | **PASS** | the bell shows the newest 20 and loads older ones on request (*Show more*), with the unread count taken from the server, so a long history is not fetched whole (risk R-5, D-25) |
 
 **New totals (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **447/447**; frontend unit tests **172/172**; Playwright **208/208** at 4 workers (twice in a row); ESLint clean.
+
+## 27. Re-test after the created date, the warning toast, same-project dependencies and status notices (2026-10-14)
+
+Found by reading the brief and the workflow against the code; fixed, redeployed (migration `V21`) and checked in the running stack.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| A4 Task dependencies | PASS | **PASS** | flow A4 says "validate: no cycle, same project", but only the cycle was enforced; now the service refuses a task of another project (`400`, or `404` if the caller cannot see that project) and `trg_task_dependencies_same_project` keeps it in the database (checked directly: the insert is rejected; a database built from the init scripts has the trigger; `verify_invariants.sql` no. 15 is empty on both) |
+| 26 Notifications | PASS | **PASS** | a status change reached the assignees, the person who made it included, and not the Owner or Team Leaders; it now reaches the assignees, Owner and Team Leaders and never the actor (brief B9, G-21) |
+| 35 Validation & errors | PASS | **PASS** | a warning message of its own: completing a milestone that still has open tasks keeps its inline warning and raises a warning toast after saving (the toast had success, error and info only) |
+| 7 Create/edit project, 12 Create/edit task | PASS | **PASS** | the project page shows *Created*; the task panel shows *Start date* and *Created* (Part A lists them in the project and task information) |
+
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **453/453**; frontend unit tests **172/172**; Playwright **211/211** in a clean run at 4 workers (two specs that had failed once each under parallel load, `paging.spec.js` and `session.spec.js`, now wait for the state they check); ESLint clean.
+
+## 28. Re-test after the dashboard polish (2026-10-14)
+
+Front end only; deployed and checked in the running stack as a manager and as a Team Member, at 1440, 1024 and 390 px, in light and dark, with no console errors.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 5 Dashboard | PASS | **PASS** | the same figures, laid out in two independent columns (no empty space beside a short card; Delayed projects first on the right, the chart last); the overdue count is a danger-tint pill that opens Tasks; the chart card is *Task activity* with a readable y axis; a failed load now says so and offers *Try again* instead of showing "Nothing due soon"; on a phone the workload card keeps Overdue and Load in view and Due & Overdue titles wrap instead of being cut |
+
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **453/453** (not changed); frontend unit tests **172/172**; Playwright **215/215** in a clean run at 4 workers; ESLint clean; the design detector reports nothing.

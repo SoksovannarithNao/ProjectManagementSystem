@@ -15,6 +15,9 @@ const getJson = async (request, headers, path, params = {}) => {
   expect(res.status(), path).toBe(200)
   return res.json()
 }
+// The specs share one database and run side by side, so a count read a moment ago can already be
+// stale when another spec creates or deletes a project or task. Poll until the two counts agree.
+const agree = (counted, expected) => expect.poll(async () => (await counted()) - (await expected())).toBe(0)
 
 test.describe('paging: API', () => {
   test('projects: a page, its total, the order, and the whole list when nothing is asked', async ({ request }) => {
@@ -26,7 +29,9 @@ test.describe('paging: API', () => {
     const first = await getJson(request, admin, '/api/projects', { page: 0, size: 3 })
     const second = await getJson(request, admin, '/api/projects', { page: 1, size: 3 })
     expect(Object.keys(first).sort()).toEqual(['items', 'page', 'size', 'total'])
-    expect(first).toMatchObject({ total: all.length, page: 0, size: 3 })
+    expect(first).toMatchObject({ page: 0, size: 3 })
+    await agree(async () => (await getJson(request, admin, '/api/projects', { page: 0, size: 3 })).total,
+      async () => (await getJson(request, admin, '/api/projects')).length)
     expect(first.items).toHaveLength(3)
     // pages follow each other without overlap, in id order when no sort is asked for
     const ids = [...first.items, ...second.items].map((p) => p.id)
@@ -37,14 +42,15 @@ test.describe('paging: API', () => {
     expect((await getJson(request, admin, '/api/projects', { size: 2 })).items).toHaveLength(2)
     const beyond = await getJson(request, admin, '/api/projects', { page: 99, size: 3 })
     expect(beyond.items).toEqual([])
-    expect(beyond.total).toBe(all.length)
+    await agree(async () => (await getJson(request, admin, '/api/projects', { page: 99, size: 3 })).total,
+      async () => (await getJson(request, admin, '/api/projects')).length)
 
     // search, filter and sort apply first: the total counts only what matches
     const byName = await getJson(request, admin, '/api/projects', { page: 0, size: 2, sort: 'name' })
     const names = byName.items.map((p) => p.name)
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })))
-    const active = await getJson(request, admin, '/api/projects', { status: 'IN_PROGRESS' })
-    expect((await getJson(request, admin, '/api/projects', { status: 'IN_PROGRESS', size: 1 })).total).toBe(active.length)
+    await agree(async () => (await getJson(request, admin, '/api/projects', { status: 'IN_PROGRESS', size: 1 })).total,
+      async () => (await getJson(request, admin, '/api/projects', { status: 'IN_PROGRESS' })).length)
   })
 
   test('tasks: pages of what the caller may see, filtered first', async ({ request }) => {
@@ -55,14 +61,16 @@ test.describe('paging: API', () => {
     expect(allChen.length).toBeLessThan(allAdmin.length) // a member sees only their projects
 
     const page = await getJson(request, chen, '/api/tasks', { page: 0, size: 5 })
-    expect(page.total).toBe(allChen.length) // the total never counts what the caller cannot see
+    // the total never counts what the caller cannot see
+    await agree(async () => (await getJson(request, chen, '/api/tasks', { page: 0, size: 5 })).total,
+      async () => (await getJson(request, chen, '/api/tasks')).length)
     expect(page.items).toHaveLength(5)
     const chenIds = new Set(allChen.map((t) => t.id))
     expect(page.items.every((t) => chenIds.has(t.id))).toBe(true)
 
-    const open = allChen.filter((t) => t.status === 'IN_PROGRESS')
     const filtered = await getJson(request, chen, '/api/tasks', { status: 'IN_PROGRESS', page: 0, size: 2, sort: 'dueDate' })
-    expect(filtered.total).toBe(open.length)
+    await agree(async () => (await getJson(request, chen, '/api/tasks', { status: 'IN_PROGRESS', size: 1 })).total,
+      async () => (await getJson(request, chen, '/api/tasks')).filter((t) => t.status === 'IN_PROGRESS').length)
     expect(filtered.items.every((t) => t.status === 'IN_PROGRESS')).toBe(true)
     const dues = filtered.items.map((t) => t.dueDate)
     expect(dues).toEqual([...dues].sort())

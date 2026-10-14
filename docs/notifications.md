@@ -9,7 +9,7 @@ The `notifications.type` CHECK constraint allows 12 values and **all twelve are 
 | Type | Produced? | Producer | Recipient |
 |---|---|---|---|
 | `TASK_ASSIGNED` | ✅ | `TaskAssigneeService.createTaskAssignee` → `notifyTaskAssigned` | the person assigned |
-| `TASK_STATUS_CHANGED` | ✅ | `TaskService.updateTask` → `notifyTaskStatusChanged` | every current assignee of the task |
+| `TASK_STATUS_CHANGED` | ✅ | `TaskService.updateTask` and `TaskApprovalService` → `UpdateNotificationService.notifyTaskStatusChanged` | the task's assignees plus the project's Owner and Team Leaders, never the person who made the change (since 2026-10-14) |
 | `TEAM_INVITATION` | ✅ | `ProjectMemberService.inviteMember` → `notifyTeamInvitation` | the invitee |
 | `TEAM_INVITATION_RESPONDED` | ✅ | `ProjectMemberService.respondToInvitation` → `notifyInvitationResponded` | the person who sent the invitation |
 | `APPROVAL_REQUESTED` | ✅ | `TaskApprovalService.openRequest` / `designateApprover` → `notifyApprovalRequested` | the approver named for the task; otherwise every active member of the project who may approve; never the person asking |
@@ -41,8 +41,8 @@ The `notifications.type` CHECK constraint allows 12 values and **all twelve are 
 Details worth knowing:
 
 - Each row records the related **project** (and **task**, for the first two and for comments) so the UI can show names.
-- `TASK_STATUS_CHANGED` goes to **all** assignees, **including the person who made the change** — the actor is not excluded.
-- The status-change notification is **not** sent when the status changes through the subtask auto-promotion (`SubtaskService.startTaskIfStillToDo` saves the task directly and does not call `NotificationService`).
+- `TASK_STATUS_CHANGED` goes to the task's assignees plus the project's Owner and Team Leaders, **never to the person who made the change**, and skips people with task notifications off (since 2026-10-14, G-21; before that it went to the assignees only, the actor included).
+- The status-change notification is **not** sent when the status changes through the subtask auto-promotion (`SubtaskService.startTaskIfStillToDo` saves the task directly and does not call the notification service).
 - Unassigning a task, deleting a task, creating a project and creating a milestone create **no** notification, and neither does saving a project or a milestone without changing anything.
 - The database function `fn_generate_overdue_notifications()` is no longer used by the application (only the seed script calls it, and it reaches assignees only). The scheduled job in §8 replaced it.
 

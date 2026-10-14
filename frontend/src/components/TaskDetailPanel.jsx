@@ -38,7 +38,7 @@ import { getActivityByTask } from '../api/activityLog'
 import { getApprovals, submitForReview, decideApproval, setTaskApprover, DECISION_LABELS } from '../api/approvals'
 import { canApproveTask } from '../api/permissions'
 import { getDependenciesByTask, createTaskDependency, deleteTaskDependency } from '../api/taskDependencies'
-import { formatDate, humanizeEnum, initialsFor, timeAgo, blockedReason } from '../api/format'
+import { formatDate, formatLongDate, humanizeEnum, initialsFor, timeAgo, blockedReason } from '../api/format'
 import { DueSoonBadge } from './DueSoonBadge'
 
 const STATUS_OPTIONS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED']
@@ -712,6 +712,12 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
           <div className="bg-subtle border-border mb-[22px] grid grid-cols-2 gap-4 rounded-md border p-4 max-sm:grid-cols-1">
             <div className="flex flex-col gap-1.5">
               <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
+                <CalendarDays size={14} /> Start date
+              </span>
+              <span data-testid="task-start-date" className="text-ink text-[13px] font-semibold">{formatDate(task.startDate)}</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
                 <CalendarDays size={14} /> Due date
               </span>
               <span className="text-ink text-[13px] font-semibold">{formatDate(task.dueDate)}</span>
@@ -738,6 +744,14 @@ export function TaskDetailPanel({ task, onClose, onChange }) {
               ) : (
                 <span className="text-ink text-[13px] font-semibold">Unassigned</span>
               )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
+                <CalendarDays size={14} /> Created
+              </span>
+              <span data-testid="task-created" className="text-ink text-[13px] font-semibold">
+                {formatLongDate(task.createdAt)}
+              </span>
             </div>
           </div>
 

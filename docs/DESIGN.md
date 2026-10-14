@@ -191,7 +191,7 @@ Canvas `#1c1c1e`, container `#29292c`, card `#232326`, border `#38383c`, ink `#f
 
 An app shell with a fixed 224px left sidebar and a scrolling main area. Main content is centred with a max width of 1440px and horizontal padding of 40px on desktop, 24px below 1024px and 16px below 640px. The sidebar becomes an off-canvas drawer below 1024px.
 
-Pages are built from cards separated by a 24px gap. Card padding is 22px vertical and 24px horizontal. The dashboard opens with a strip of six statistic cards (total, active, completed and delayed projects, average completion, total tasks; six columns, three below 1200px, two below 640px) and then a two-column grid (`1fr 380px`) laid out in rows, so neither column runs long: Task Overview beside Reports, Due & Overdue beside Projects, Recent activity beside Delayed projects, and — only for people who can assign tasks — a full-width Team workload card. Below 1200px it is one column in DOM order (Overview, Due & Overdue, Projects, Reports, then the rest; the actionable list comes before the project cards). Task and board views are horizontally scrolling lanes of 240–268px columns. The scrollbar gutter is reserved so layout never shifts when content grows.
+Pages are built from cards separated by a 24px gap. Card padding is 22px vertical and 24px horizontal. The dashboard opens with a strip of six statistic cards (total, active, completed and delayed projects, average completion, total tasks; six columns, three below 1200px, two below 640px) and then two independent columns (`1fr` and 380px), so a short card never leaves a hole beside a tall one: Task Overview, Due & Overdue and Recent activity on the left; Delayed projects, Projects and Task activity (the chart) on the right; and — only for people who can assign tasks — a full-width Team workload card below both. Below 1200px the columns dissolve into one, in this order: Task Overview, Due & Overdue, Delayed projects, Projects, Task activity, Recent activity, Team workload (what needs action first, then the rest; set with `order`, not by moving the markup). Task and board views are horizontally scrolling lanes of 240–268px columns. The scrollbar gutter is reserved so layout never shifts when content grows.
 
 Density is moderate: working rows are 42–44px tall with 12–14px gaps; body text is 14px on every screen size. Use spacing in multiples of 4px; recurring values are 6, 10, 14, 18, 22 and 24px.
 
@@ -282,10 +282,10 @@ A role list (Card, one button per role; the selected role uses the Charcoal fill
 - Desktop: month grid with one truncated 12px chip per task, tinted by priority, and one per milestone: a neutral Blue-Gray chip with a small flag and a hidden "Milestone:" prefix, struck through once completed. Phones (under 640px): cells are about 40px wide, so a title cannot fit; each day shows up to four dots in the item's colour instead (Charcoal for a milestone), and the Week and Day views list the titles.
 
 ### Dashboard task rows
-- A "Due & Overdue" row is: checkbox, task title (project name stripped from it), a second line of `Overdue · date` (in `danger-ink` with a warning icon) or just the date, then the project name; priority badge; assignee. Overdue is also counted in the Task Overview header as a link to Tasks.
+- A "Due & Overdue" row is: checkbox, task title (project name stripped from it), a second line of `Overdue · date` (in `danger-ink` with a warning icon) or just the date, then the project name; priority badge; assignee. Overdue is also counted in the Task Overview header as a danger-tint pill (*N overdue*, with a warning icon) that links to Tasks. On a phone a title may take two lines instead of being cut, and the meta line wraps.
 
 ### Empty, loading and error states
-- Skeleton blocks with a 1.6s shimmer, empty states with a 60%-opacity icon, title and subtitle, and a "Something went wrong" state with a retry button. Success and error feedback uses toasts.
+- Skeleton blocks with a 1.6s shimmer, empty states with a 60%-opacity icon, title and subtitle, and a "Something went wrong" state with a retry button. Feedback uses toasts in four tones: success, error, warning (the amber accent and a triangle icon, for something that went through but needs attention, such as completing a milestone that still has open tasks) and info.
 
 ### Motion
 - Standard ease `cubic-bezier(0.4, 0, 0.2, 1)`; 150ms for hover and press, 220ms for enter transitions. Entrances: fade, slide-in (24px), scale-in (0.96), toast-in. Kanban cards stagger up to eight items at 30ms steps. Under `prefers-reduced-motion: reduce` all animation and transition durations collapse to ~0 (a global rule in `global.css`).
@@ -348,6 +348,13 @@ Status after the 2026-10-08 frontend pass. Everything marked fixed is in code an
 - Avatars are never drawn smaller than 26px so two initials fit at the 12px text floor; no text on any screen is under 12px.
 - Team Productivity chart: every member is labelled (names over six characters shorten with an ellipsis; the tooltip shows the full name).
 - Checked at 390, 768, 1024 and 1360px in light and dark: no horizontal scroll, no unlabeled controls, no console errors.
+
+**Dashboard polish (2026-10-14)**
+- Layout: two independent columns instead of aligned rows (no dead space beside a short card); Delayed projects leads the right column and the chart moves to its end; the chart card is *Task activity* (it was *Reports*, which is a different page) with a whole-number y axis, and its Overdue legend says what the line counts (open tasks past their due date).
+- Signal: the overdue count is a danger-tint pill; the duplicate *N tasks* in the Task Overview header is gone (Total tasks is in the strip).
+- Failure: a failed load shows a message with *Try again* and the stat cards read — instead of looking like "Nothing due soon".
+- Phone: the workload card keeps Member, Overdue and Load (Assigned and Active return from 640px), stat cards are tighter, Due & Overdue titles wrap to two lines.
+- Numbers use tabular figures (stat values, counts, workload cells).
 
 **Still open**
 - None known. Groups of overlapping avatars still clip the initials of every avatar except the top one; that is the intended stacking look.
