@@ -20,7 +20,7 @@ A task **always belongs to exactly one project** (`tasks.project_id NOT NULL`, `
 | `progress` | 0–100 | Derived when the task has subtasks (see §5); otherwise stored as sent (default 0) |
 | `completedAt` | timestamp | **Set automatically** when status becomes `COMPLETED` and cleared when it leaves it (`trg_tasks_completed_at`); any value in a request is overridden |
 | `createdBy` | user | Always the caller on create (a client-supplied `createdById` is honoured only for a system administrator) |
-| `createdAt`, `updatedAt` | timestamps | database-maintained |
+| `createdAt`, `updatedAt` | timestamps | database-maintained; `createdAt` is shown as *Created* and `startDate` as *Start date* in the task panel (since 2026-10-14) |
 
 Computed in `TaskResponse` (not stored): `overdue` (due date before today and status not `COMPLETED`/`CANCELLED` — the same definition as view `v_overdue_tasks`), `dueSoon` (not `COMPLETED`/`CANCELLED` and due today or within the next 3 days, `Derived.isTaskDueSoon`; the UI shows it as a *Due today / tomorrow / in N days* badge; an overdue task is never also due soon), `totalSubtasks`, `completedSubtasks`, `blocked`, `blockingTaskTitles`.
 
@@ -119,6 +119,7 @@ Table `task_dependencies (task_id, depends_on_task_id)`: "`task` cannot start un
 Database rules:
 
 - a task cannot depend on itself (`CHECK`), and **cycles are rejected** (`trg_task_dependencies_no_cycle`, recursive check);
+- both tasks belong to **the same project** (since 2026-10-14, G-20): `POST /api/task-dependencies` answers `400` "A task can only depend on a task of the same project" (or `404` when the caller cannot see the other task's project), and `trg_task_dependencies_same_project` (`V21`) keeps it true for any other write;
 - a task cannot move to `IN_PROGRESS`, `IN_REVIEW` or `COMPLETED` while any dependency is not `COMPLETED` (`trg_tasks_dependencies_status_gate`); `TODO` and `CANCELLED` are always allowed;
 - a new dependency cannot be added to an already-active task if the prerequisite is not `COMPLETED` (`trg_task_dependencies_status_gate`);
 - the other direction (since `V17`, D-18): a prerequisite cannot be taken back out of `COMPLETED` (reopened or cancelled) while a task that depends on it is `IN_PROGRESS`, `IN_REVIEW` or `COMPLETED` (`trg_tasks_prerequisite_not_reopened`; `TaskService` gives the message naming those tasks). Move the dependants back to `TODO` first, which blocks them again.

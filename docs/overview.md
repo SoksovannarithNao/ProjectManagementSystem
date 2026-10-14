@@ -19,11 +19,11 @@ The application is built to the requirements in [assignment-brief.md](../assignm
 | Accounts | Self-register with an emailed 6-digit code, log in, edit profile, change password, upload a photo, choose a theme | [authentication-authorization.md](authentication-authorization.md) |
 | Projects | Create a project (auto-generated code `PRJ-####`), edit it, change its status, delete it (owners only) | [users-and-projects.md](users-and-projects.md) |
 | Teams | Invite people to a project, accept or decline invitations, remove members, see pending invitations | [users-and-projects.md](users-and-projects.md) |
-| Milestones | Add and delete milestones with due dates; progress is derived from tasks | [tasks.md](tasks.md) |
+| Milestones | Add, edit and delete milestones with due dates; progress is derived from tasks | [tasks.md](tasks.md) |
 | Tasks | Create, edit, delete, assign, set priority/dates, advance status, submit for approval, add subtasks, checklist items, attachments, dependencies, comments and time logs, see activity | [tasks.md](tasks.md) |
 | Views | Dashboard, Tasks (grouped by project, with a *My Tasks* filter), Kanban, Calendar (month/week/day), Reports (KPIs and seven reports), Team, and per project: team tasks, workload, timeline and Gantt | [architecture.md](architecture.md#34-frontend-pages-and-routes) |
 | Administration | Give accounts a system role; edit the role × resource × action permission matrix | [authentication-authorization.md](authentication-authorization.md) |
-| Notifications | A bell with unread count: task assigned, status changed, approval requested / decided, team invitation (with Accept/Decline) and its response, deadline reminders, overdue notices | [notifications.md](notifications.md) |
+| Notifications | A bell with unread count: task assigned, status changed, approval requested / decided, team invitation (with Accept/Decline) and its response, deadline reminders, overdue notices, comments, project and milestone updates, @mentions | [notifications.md](notifications.md) |
 
 ## 3. Technology stack
 
@@ -63,7 +63,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 │   └── e2e/               Playwright specs
 ├── database/
 │   ├── init/              01-init.sql (schema), 02-seed.sql (demo data), 03-app-role.sh, 04-flyway-baseline.sql
-│   ├── taskmanager/       Flyway project (migrations V1–V20) — applied by the Compose `migrate` service, not by the app
+│   ├── taskmanager/       Flyway project (migrations V1–V21) — applied by the Compose `migrate` service, not by the app
 │   ├── verify_invariants.sql
 │   └── verify_grants.sql
 ├── api/                   openapi.yaml (partly out of date — see issues.md)

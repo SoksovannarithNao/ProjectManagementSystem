@@ -6,6 +6,26 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-14 (a review of the brief and the workflow against the code) — migration `V21`
+
+Two differences between the specification and the application were found by reading `assignment-brief.md` and `project-workflow.md` against the code, and closed. Backend, front end and database were redeployed (the `migrate` service applied `V21`) and checked in the running stack.
+
+**Added**
+- **A task dependency joins tasks of one project (G-20, I-15).** `TaskDependencyService` refuses a task of another project (`400`; `404` when the caller cannot see that project) and the trigger `trg_task_dependencies_same_project` (`V21`, mirrored in `01-init.sql`, baseline 21) keeps it true in the database; `verify_invariants.sql` has a 15th query. No existing row crossed projects.
+- **A warning toast.** `Toast.jsx` has a fourth tone, `warning`; completing a milestone with linked tasks still open raises it after the success toast (D-08).
+- **The created and start dates.** The project page shows *Created*; the task panel shows *Start date* and *Created*.
+
+**Changed**
+- **A status change tells the right people (G-21, I-17).** `UpdateNotificationService.notifyTaskStatusChanged` replaces `NotificationService.notifyTaskStatusChanged`: the task's assignees, Owner and Team Leaders are told and the person who made the change is not.
+
+**Dashboard polish (front end only; F-60):** the cards sit in two independent columns (no empty hole beside a short card; Delayed projects first on the right), the overdue count is a danger-tint pill that opens Tasks, the chart card is *Task activity* with a y axis, a failed load shows a message with *Try again* instead of looking like an empty list, and on a phone the workload card keeps Overdue and Load in view and task titles wrap. Details in `DESIGN.md` (Known Drift).
+
+**Fixed (tests only):** the projects case of `paging.spec.js` and the sign-out case of `session.spec.js` each failed once under parallel load because they read a count or a cookie too early; both now wait for the state they check.
+
+**Docs:** the brief (audit-log row of the data model, the duplicate `D-18` — the calendar row is now `D-26`, G-20 and G-21, B1.8, B9, D-10), the workflow (the dashboard step, who may delete attachments and time entries, A4), `database.md` (30 triggers, `V21`, 15 invariants, baseline 21), `setup.md`, `tasks.md`, `notifications.md`, `api-reference.md`, `testing.md` (172 in the unit-test heading, 452 + 1 backend tests), `test-cases.md` (PRJ-10, TSK-19, TSK-20, NTF-08), `overview.md`, `roadmap.md`, `workflow-conformance.md` (§27), `issues.md` (F-56 to F-59, D-13, I-15, I-17), `frontend.md`, `DESIGN.md`, `architecture.md`, ADR-0005, `README.md`, `docs/README.md` and `docs/checklist/*`.
+
+**Tests:** backend 447 → **453** (`TaskDependencyServiceTest` 4, `UpdateNotificationServiceTest` +2); Playwright 208 → **215** (`dependencies-and-notices.spec.js` 2, `dashboard-polish.spec.js` 4; `quick-wins.spec.js` +1 case and an extended one); frontend unit tests 172, unchanged; ESLint clean. 215/215 in a clean run at 4 workers.
+
 ## 2026-10-14 (a full documentation sync)
 
 Documentation only: no code, migration or test changed. Every documented number and name was recomputed from the code and compared with the text, as the documentation rules ask.

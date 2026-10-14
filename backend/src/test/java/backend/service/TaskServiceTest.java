@@ -61,7 +61,7 @@ class TaskServiceTest {
     @Mock
     private TaskDependencyRepository taskDependencyRepository;
     @Mock
-    private NotificationService notificationService;
+    private UpdateNotificationService updateNotificationService;
     @Mock
     private ActivityLogService activityLogService;
     @Mock
@@ -84,7 +84,7 @@ class TaskServiceTest {
     void setUp() {
         service = new TaskService(taskRepository, projectRepository, projectMemberRepository, milestoneRepository,
                 userRepository, taskAssigneeRepository, subtaskRepository, taskDependencyRepository,
-                notificationService, activityLogService, projectAccessGuard, workLogRepository, approvalService, checklistItemRepository);
+                updateNotificationService, activityLogService, projectAccessGuard, workLogRepository, approvalService, checklistItemRepository);
 
         caller = new User();
         ReflectionTestUtils.setField(caller, "id", 1L);
@@ -181,11 +181,12 @@ class TaskServiceTest {
     @Test
     void assignedMember_canChangeOnlyStatusAndProgress() {
         when(taskAssigneeRepository.existsByTaskIdAndUserId(5L, 1L)).thenReturn(true);
-        when(taskAssigneeRepository.findByTaskId(5L)).thenReturn(java.util.List.of());
 
         service.updateTask(5L, request(20L, "Hijacked title", "IN_PROGRESS"), "pm.olivia");
 
         assertThat(task.getStatus()).isEqualTo("IN_PROGRESS");
+        // the status change is announced, with the person who made it so they are not told
+        verify(updateNotificationService).notifyTaskStatusChanged(task, caller);
         assertThat(task.getTitle()).isEqualTo("Original title");
         assertThat(task.getProject().getId()).isEqualTo(10L);
     }
@@ -228,7 +229,6 @@ class TaskServiceTest {
     @Test
     void memberCanStillSubmitATaskForReview() {
         when(taskAssigneeRepository.existsByTaskIdAndUserId(5L, 1L)).thenReturn(true);
-        when(taskAssigneeRepository.findByTaskId(5L)).thenReturn(java.util.List.of());
 
         service.updateTask(5L, request(10L, "Original title", "IN_REVIEW"), "pm.olivia");
 
@@ -241,7 +241,6 @@ class TaskServiceTest {
     @Test
     void movingATaskToReview_opensAnApprovalRequest() {
         when(taskAssigneeRepository.existsByTaskIdAndUserId(5L, 1L)).thenReturn(true);
-        when(taskAssigneeRepository.findByTaskId(5L)).thenReturn(java.util.List.of());
 
         service.updateTask(5L, request(10L, "Original title", "IN_REVIEW"), "pm.olivia");
 

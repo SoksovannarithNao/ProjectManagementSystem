@@ -117,6 +117,34 @@ class UpdateNotificationServiceTest {
         return saved().stream().map(n -> n.getUser().getFullName()).toList();
     }
 
+    // ---- task status --------------------------------------------------------
+
+    @Test
+    void aStatusChange_reachesTheAssigneesTheOwnerAndTheLeaders_butNotThePersonWhoMadeIt() {
+        task.setStatus("IN_PROGRESS");
+        lenient().when(taskAssigneeRepository.findByTaskId(5L)).thenReturn(List.of(assigned(assignee), assigned(actor)));
+
+        int created = service.notifyTaskStatusChanged(task, actor);
+
+        assertThat(created).isEqualTo(3);
+        assertThat(recipients()).containsExactlyInAnyOrder("Mia Park", "Olivia Bennett", "Owen Lead");
+        Notification first = saved().get(0);
+        assertThat(first.getType()).isEqualTo("TASK_STATUS_CHANGED");
+        assertThat(first.getTitle()).isEqualTo("Task status updated");
+        assertThat(first.getMessage()).isEqualTo("\"Draft the homepage\" is now In Progress");
+        assertThat(first.getTask()).isSameAs(task);
+    }
+
+    @Test
+    void anOwner_whoChangesTheStatusOfAnUnassignedTask_tellsTheLeadersButNotThemself() {
+        task.setStatus("IN_REVIEW");
+        lenient().when(taskAssigneeRepository.findByTaskId(5L)).thenReturn(List.of());
+
+        service.notifyTaskStatusChanged(task, owner);
+
+        assertThat(recipients()).containsExactly("Owen Lead");
+    }
+
     // ---- comments -----------------------------------------------------------
 
     @Test

@@ -130,7 +130,7 @@ Login → Dashboard → Load Project Data → Load Task Data → Calculate Stati
 4. Calculate Total, Active, Completed and Delayed projects (Active = In Progress; Delayed = end date passed and not Completed or Cancelled; B1.3).
 5. Calculate Total, **To Do (pending)**, In Progress, **In Review**, **Completed** and Overdue tasks (Overdue overlaps the others; it is not a separate bucket).
 6. Load recent activities.
-7. Generate KPIs and charts; Team Workload and Project Progress are optional extras for managers.
+7. Show the task overview and project statistics as charts and counts; Team Workload is an extra for managers. The five KPIs and Team Performance are on the Reports page (*KPIs* and *Team Performance* tabs, for people who may generate reports), not on the dashboard.
 8. Display the dashboard.
 
 ---
@@ -533,7 +533,7 @@ Project/Task → Attachments → Choose File → Validate File → Upload → Sa
 5. Upload (Owner, Team Leader, Team Member).
 6. Save the file information (name, type, size, who, when).
 7. Display the attachment; an upload failure shows a clear error.
-8. View, download or delete according to permissions (the uploader or the Owner can delete).
+8. View, download or delete according to permissions (the uploader, the Owner or a Team Leader can delete).
 
 ---
 
@@ -606,7 +606,7 @@ Task → Start Timer / Add Work Log → Work on Task → Stop Timer → Calculat
 7. Save the work log (date, user, task, hours, description).
 8. Update the task's actual time.
 
-If built, a Team Member logs time for themselves; the author or the Owner can delete an entry.
+If built, a Team Member logs time for themselves; the author can change or delete an entry, and the Owner or a Team Leader can delete anyone's.
 
 ---
 
@@ -894,7 +894,7 @@ Task B → Add Dependency → Select Task A (must finish first) → Validate (no
 ```
 
 1. Open a task and add a dependency: "Task A blocks Task B".
-2. Validate: no self-dependency, no cycle, both in the same project (needs the Assign permission).
+2. Validate: no self-dependency, no cycle, both in the same project (needs the Assign permission). The service refuses another project's task with a `400`, and a database trigger keeps the rule (brief G-20).
 3. While A is not Completed, B cannot move to In Progress, In Review or Completed (To Do and Cancelled remain allowed); the board and lists show B as *blocked*.
 4. When A is Completed, B is ready.
 A dependency is not a subtask.

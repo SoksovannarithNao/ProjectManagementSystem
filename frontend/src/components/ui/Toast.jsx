@@ -1,11 +1,16 @@
 import { createContext, useCallback, useContext, useState } from 'react'
-import { CheckCircle2, XCircle, Info, X } from 'lucide-react'
+import { CheckCircle2, XCircle, Info, TriangleAlert, X } from 'lucide-react'
 
 const ToastContext = createContext(null)
 
-const ICONS = { success: CheckCircle2, error: XCircle, info: Info }
-const ACCENT = { success: 'bg-success', error: 'bg-danger', info: 'bg-info' }
-const ICON_COLOR = { success: 'text-success-ink', error: 'text-danger-ink', info: 'text-info-ink' }
+const ICONS = { success: CheckCircle2, error: XCircle, warning: TriangleAlert, info: Info }
+const ACCENT = { success: 'bg-success', error: 'bg-danger', warning: 'bg-warning', info: 'bg-info' }
+const ICON_COLOR = {
+  success: 'text-success-ink',
+  error: 'text-danger-ink',
+  warning: 'text-warning-ink',
+  info: 'text-info-ink',
+}
 
 let idCounter = 0
 

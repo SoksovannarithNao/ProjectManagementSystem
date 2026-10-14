@@ -62,6 +62,8 @@ class TaskApprovalServiceTest {
     @Mock
     private NotificationService notificationService;
     @Mock
+    private UpdateNotificationService updateNotificationService;
+    @Mock
     private ActivityLogService activityLogService;
 
     private TaskApprovalService service;
@@ -75,7 +77,7 @@ class TaskApprovalServiceTest {
     @BeforeEach
     void setUp() {
         service = new TaskApprovalService(approvalRepository, taskRepository, userRepository, projectMemberRepository,
-                taskAssigneeRepository, subtaskRepository, projectAccessGuard, notificationService, activityLogService);
+                taskAssigneeRepository, subtaskRepository, projectAccessGuard, notificationService, updateNotificationService, activityLogService);
 
         doer = user(1L, "dev.chen", "Chen Doer");
         leader = user(2L, "lead.owen", "Owen Leader");

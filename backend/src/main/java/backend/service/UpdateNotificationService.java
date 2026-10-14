@@ -23,8 +23,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-// "Something changed around you" notifications: a comment or reply on a task, an edit
-// to a project, an edit to a milestone (brief B9; recipients proposed as D-10).
+// "Something changed around you" notifications: a comment or reply on a task, a task's status,
+// an edit to a project, an edit to a milestone (brief B9; recipients proposed as D-10).
 //
 // Recipients, in every case: the people with work on the item (a task's assignees, the
 // assignees of a project's tasks, the assignees of a milestone's tasks) plus the project's
@@ -38,6 +38,7 @@ public class UpdateNotificationService {
 
     static final String COMMENT_ADDED = "COMMENT_ADDED";
     static final String MENTION = "MENTION";
+    static final String TASK_STATUS_CHANGED = "TASK_STATUS_CHANGED";
     static final String PROJECT_UPDATED = "PROJECT_UPDATED";
     static final String MILESTONE_UPDATED = "MILESTONE_UPDATED";
 
@@ -98,6 +99,16 @@ public class UpdateNotificationService {
         String message = author.getFullName() + " mentioned you on \"" + task.getTitle() + "\" in \""
                 + project.getName() + "\": " + TextFormat.shorten(comment.getMessage(), COMMENT_PREVIEW);
         return deliver(MENTION, "You were mentioned", message, project, task, mentioned, author);
+    }
+
+    /** A task moved to another status (the task already holds the new one); returns how many were told. */
+    public int notifyTaskStatusChanged(Task task, User actor) {
+        List<User> recipients = new ArrayList<>();
+        taskAssigneeRepository.findByTaskId(task.getId()).forEach(a -> recipients.add(a.getUser()));
+        recipients.addAll(leaders(task.getProject()));
+
+        String message = "\"" + task.getTitle() + "\" is now " + TextFormat.humanizeEnum(task.getStatus());
+        return deliver(TASK_STATUS_CHANGED, "Task status updated", message, task.getProject(), task, recipients, actor);
     }
 
     /** A project was edited ({@code changed} names the fields) or completed. */

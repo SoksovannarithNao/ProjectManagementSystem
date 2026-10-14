@@ -1,6 +1,6 @@
 # Test cases
 
-The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-13** against the running stack: backend 447/447, frontend unit tests 172/172, Playwright 208 tests in 31 files (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
+The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-14** against the running stack: backend 453/453, frontend unit tests 172/172, Playwright 215 tests in 33 files (215/215 in a clean run; see [testing.md](testing.md) for the timing-sensitive specs fixed on the way) (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
 
 **Reading the tables**
 
@@ -103,6 +103,7 @@ The formal list of what the application is tested for: one row per case, with th
 | PRJ-07 | Delayed is calculated | A project passes its end date unfinished | It shows *Delayed* and can be filtered; completing it removes the flag; a future one never is | `manager-views.spec.js`; `DerivedTest`; `DashboardServiceTest` |
 | PRJ-08 | Server-side search, filter and sort | `GET /api/projects?status=&priority=&managerId=&search=&sort=` as an Administrator and as a member of two projects; then an unknown value | Only matching projects, within what the caller may see; an unknown status, priority or sort is `400` | `ProjectListQueryTest`; `ProjectServiceTest`; checked by hand against the live stack (2026-10-13) |
 | PRJ-09 | Projects a page at a time | `GET /api/projects?page=0&size=3`, then `page=1`, a page past the end, with a `sort` and a `status` filter | `{ items, total, page, size }`; pages do not overlap and follow id order; the total counts what matches; a page past the end is empty; without parameters the whole list | `paging.spec.js`; `ProjectServiceTest`; `PageParamsTest` |
+| PRJ-10 | Created date | Open a project | The page shows when the project was created (with the year), beside the dates and the manager | `quick-wins.spec.js` |
 
 ## 5. Members, invitations and ownership
 
@@ -140,6 +141,8 @@ The formal list of what the application is tested for: one row per case, with th
 | TSK-16 | The order of the stages | Drag a To Do card to In Review or Completed | Refused ("A task starts in In Progress"); it goes To Do → In Progress → In Review or Completed, and can be taken back | `kanban-integrity.spec.js`; `tasks.test.js` |
 | TSK-17 | Server-side search, filter and sort | `GET /api/tasks?status=&priority=&assigneeId=&projectId=&due=&search=&sort=` as an Administrator and as a member of two projects; then an unknown value | Only matching tasks, within the caller's projects; an unknown status, priority, due or sort is `400` | `TaskListQueryTest`; `TaskServiceTest`; checked by hand against the live stack (2026-10-13) |
 | TSK-18 | Tasks a page at a time | `GET /api/tasks?page=0&size=5` as a member and as an Administrator; with `status` and `sort`; `size=0`, `size=201`, `page=-1` | A member's total counts only their projects; the filter runs first; a bad value is `400` | `paging.spec.js`; `TaskServiceTest`; `PageParamsTest` |
+| TSK-19 | Created date | Open a task | The task panel shows its start date and when the task was created (with the year) | `quick-wins.spec.js` |
+| TSK-20 | A dependency stays inside one project | Link a task to a task of another project; then to a task of its own project | The first is refused (`400`, "same project"; `404` if the caller cannot see the other project), the second is saved | `dependencies-and-notices.spec.js`; `TaskDependencyServiceTest`; `verify_invariants.sql` no. 15 |
 
 ## 7. Task approval
 
@@ -183,7 +186,7 @@ The formal list of what the application is tested for: one row per case, with th
 
 | ID | Case | Steps | Expected result | Automated by |
 |---|---|---|---|---|
-| MIL-01 | Edit a milestone | Edit it from the project page; complete it while a task is open | The edit saves; a warning names the open task; the task is left untouched; the update keeps fields it did not send | `quick-wins.spec.js`; `MilestoneServiceTest` |
+| MIL-01 | Edit a milestone | Edit it from the project page; complete it while a task is open | The edit saves; a warning names the open task (in the form and as a warning toast after saving); the task is left untouched; the update keeps fields it did not send | `quick-wins.spec.js`; `MilestoneServiceTest` |
 | MIL-02 | Calendar | Open *Calendar* | Milestones appear on their due date in month and day views | `quick-wins.spec.js` |
 | MIL-03 | Gantt | Open a project's Gantt tab | A bar per task in date order, dependency arrows, a conflict flag when a task starts before its prerequisite ends, hover fading, zoom to months, a bar opens the task | `gantt.spec.js` |
 | MIL-04 | Timeline | Open the Timeline tab | The project, milestones and tasks are drawn; selecting opens them | `manager-views.spec.js` |
@@ -196,6 +199,9 @@ The formal list of what the application is tested for: one row per case, with th
 | DSH-02 | Team Tasks | Open the Team Tasks tab | Tasks are grouped by member; a Team Leader can reassign; a Team Member gets `403` | `manager-views.spec.js`; `TeamViewsServiceTest` |
 | DSH-03 | Workload | Open the Workload tab | Members are marked overloaded or underloaded against the team average; a member cannot open it | `manager-views.spec.js`; `WorkloadClassifierTest` |
 | DSH-04 | Task overview and charts | Compute the overview and the daily chart | Counts and shares are right; the chart has one point per day ending today | `stats.test.js` |
+| DSH-05 | Overdue pill | Open the dashboard as a manager with overdue tasks; click *N overdue* | The pill is in the Task Overview header and opens the Tasks page | `dashboard-polish.spec.js` |
+| DSH-06 | A failed load is said out loud | Make `GET /api/dashboard/stats` fail, open the dashboard, then let it succeed and press *Try again* | A message says some figures could not be loaded and the stat cards read "—"; after the retry the message is gone and the figures are back | `dashboard-polish.spec.js` |
+| DSH-07 | Phone and desktop layout | Open the dashboard at 390 px and at 1440 px | At 390 px the workload card shows who is overloaded and the page does not scroll sideways; at 1440 px the two columns start level and stacked cards are 24 px apart | `dashboard-polish.spec.js` |
 
 ## 12. Reports and KPIs
 
@@ -220,6 +226,7 @@ The formal list of what the application is tested for: one row per case, with th
 | NTF-05 | Deadline reminders | A task, milestone or project is 3 or 1 days from its end | The assignee and Owner get one reminder; overdue work gets one notice; finished work, switched-off and inactive accounts are skipped | `DeadlineNotificationServiceTest` |
 | NTF-06 | Approvals | Submit and decide | Approvers are told of a request, the requester of the decision | `approvals.spec.js`; `TaskApprovalServiceTest` |
 | NTF-07 | Mentions | @mention a member in a comment; edit it to mention another | The mentioned member gets "You were mentioned" instead of the generic comment notice, the assignee and Owner still get that one, the author and an outsider get nothing; an edit tells only the newly mentioned | `mentions.spec.js`; `UpdateNotificationServiceTest`; `CommentServiceTest` |
+| NTF-08 | Status changes | Move a task to another status as its assignee, then as the Owner | The Owner is told of the assignee's change and the assignee of the Owner's; nobody is told of their own change | `dependencies-and-notices.spec.js`; `UpdateNotificationServiceTest`; `TaskServiceTest` |
 | NTF-08 | The bell loads a page at a time | With more than 20 notifications, open the bell; press *Show more* | The newest 20 are shown with *Show more (N older)*; pressing it loads the rest and the button goes; the unread dot comes from the server's count | `paging.spec.js`; `NotificationServiceTest` |
 
 ## 14. Errors, help and every screen
@@ -248,7 +255,7 @@ The formal list of what the application is tested for: one row per case, with th
 
 | ID | Case | Steps | Expected result | Automated by |
 |---|---|---|---|---|
-| DB-01 | Invariants | Run `database/verify_invariants.sql` on a database built from the init scripts | All fourteen queries return no rows (dates, dependencies, assignees, milestones, progress, one active owner, approvals, completion date, project lead, a completed task at 100%) | CI job `backend`; run by hand against the live and a fresh database |
+| DB-01 | Invariants | Run `database/verify_invariants.sql` on a database built from the init scripts | All fifteen queries return no rows (dates, dependencies, assignees, milestones, progress, one active owner, approvals, completion date, project lead, a completed task at 100%) | CI job `backend`; run by hand against the live and a fresh database |
 | DB-02 | A fresh database starts the whole stack | Build the stack on an empty volume | Init scripts and migrations apply, the backend is healthy, and the full browser suite passes | CI job `e2e` |
 | DB-03 | Each trigger rejects a bad write | Insert or update a row that breaks a rule | An error naming the rule | **Manual** (not automated) |
 | DB-04 | The application role can read every table | Run `database/verify_grants.sql` after the role exists; add a table without a grant and run it again | Nothing is printed; the new table is listed (a table with no entity goes on the script's own list) | CI job `backend` (step *Verify the app role can read every table*); checked by hand 2026-10-14 |

@@ -9,7 +9,6 @@ import backend.entity.User;
 import backend.exception.NotFoundException;
 import backend.repository.NotificationRepository;
 import backend.util.PageParams;
-import backend.util.TextFormat;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -103,24 +102,6 @@ public class NotificationService {
         notification.setProject(task.getProject());
         notification.setTask(task);
         notificationRepository.save(notification);
-    }
-
-    // Called by TaskService after a task's status actually changes.
-    public void notifyTaskStatusChanged(Task task, List<User> assignees) {
-        String humanizedStatus = TextFormat.humanizeEnum(task.getStatus());
-        for (User assignee : assignees) {
-            if (!assignee.isTaskNotificationsEnabled()) {
-                continue;
-            }
-            Notification notification = new Notification();
-            notification.setUser(assignee);
-            notification.setType("TASK_STATUS_CHANGED");
-            notification.setTitle("Task status updated");
-            notification.setMessage("\"" + task.getTitle() + "\" is now " + humanizedStatus);
-            notification.setProject(task.getProject());
-            notification.setTask(task);
-            notificationRepository.save(notification);
-        }
     }
 
     // Called by TaskApprovalService when a task enters In Review (or an approver

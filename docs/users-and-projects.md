@@ -47,7 +47,7 @@ The user directory (`GET /api/users`) is scoped: an administrator sees everyone;
 | `status` | `PLANNING` (default), `IN_PROGRESS`, `ON_HOLD`, `COMPLETED`, `CANCELLED` |
 | `progress` | **Derived** — see below; any value sent is overwritten by the database |
 | `completedAt` | **Derived** — response only; the database sets it when the status becomes `COMPLETED` and clears it otherwise (see below) |
-| `createdAt`, `updatedAt` | maintained by the database |
+| `createdAt`, `updatedAt` | maintained by the database; `createdAt` is shown as *Created* on the project page (since 2026-10-14) |
 
 **Progress** = `100 × completed tasks ÷ non-cancelled tasks` (0 when there are no tasks), recomputed by triggers whenever a task is created, changed, moved or deleted, and on every direct update of the project row (`fn_compute_project_progress`, `trg_tasks_progress_sync`, `trg_projects_progress_derived`).
 

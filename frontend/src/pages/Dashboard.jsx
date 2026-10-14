@@ -5,6 +5,7 @@ import {
   LineChart,
   Line,
   XAxis,
+  YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
@@ -53,14 +54,14 @@ export function Dashboard() {
   const { profile, username, can, canAny } = useAuth()
   const notify = useToast()
   const { getMember } = useMembers()
-  const { data: projects, loading: projectsLoading } = useApi(getProjects)
+  const { data: projects, loading: projectsLoading, error: projectsError, refetch: refetchProjects } = useApi(getProjects)
   const { data: projectMembers } = useApi(getProjectMembers)
-  const { data: tasks, loading: tasksLoading, refetch: refetchTasks } = useApi(getTasks)
+  const { data: tasks, loading: tasksLoading, error: tasksError, refetch: refetchTasks } = useApi(getTasks)
   const { data: taskAssignees } = useApi(getTaskAssignees)
   const [period, setPeriod] = useState(PERIOD_OPTIONS[0])
   // Project and task figures calculated on the server (B1.3, D-06), so every
   // screen shows the same numbers; the lists below still come from the resources.
-  const { data: stats } = useApi(getDashboardStats)
+  const { data: stats, error: statsError, refetch: refetchStats } = useApi(getDashboardStats)
   const recentFetcher = useCallback(() => getRecentActivity(8), [])
   const { data: recent } = useApi(recentFetcher)
   // Team workload is a manager's card: only people who may assign tasks somewhere ask for it.
@@ -97,6 +98,14 @@ export function Dashboard() {
 
   const firstName = (profile?.fullName || username || '').split(' ')[0] || ''
 
+  // A failed request must not look like an empty list ("Nothing due soon"): say so, and offer a retry.
+  const loadFailed = Boolean(projectsError || tasksError || statsError)
+  const retryAll = () => {
+    refetchProjects()
+    refetchTasks()
+    refetchStats()
+  }
+
   const handleToggle = async (task) => {
     try {
       await toggleTaskCompletion(task)
@@ -110,6 +119,20 @@ export function Dashboard() {
     <div>
       <TopBar title={`Hello, ${firstName}`} subtitle="Welcome back!" />
 
+      {loadFailed && (
+        <div
+          role="alert"
+          data-testid="dashboard-load-error"
+          className="bg-danger-soft text-danger-ink mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md px-4 py-3 text-[13px] font-semibold"
+        >
+          <AlertTriangle size={16} className="shrink-0" />
+          <span className="min-w-0 flex-1">Some dashboard figures could not be loaded, so they are left out.</span>
+          <button type="button" className="btn btn-secondary" onClick={retryAll}>
+            Try again
+          </button>
+        </div>
+      )}
+
       <div className="mb-6 grid grid-cols-6 gap-4 max-[1200px]:grid-cols-3 max-[640px]:grid-cols-2" data-testid="dashboard-stats">
         {stats ? (
           <>
@@ -120,26 +143,36 @@ export function Dashboard() {
             <StatCard label="Average completion" value={`${Math.round(Number(stats.projects.averageProgress))}%`} />
             <StatCard label="Total tasks" value={stats.tasks.total} />
           </>
+        ) : statsError ? (
+          <>
+            <StatCard label="Total projects" value="—" />
+            <StatCard label="Active projects" value="—" />
+            <StatCard label="Completed projects" value="—" />
+            <StatCard label="Delayed projects" value="—" />
+            <StatCard label="Average completion" value="—" />
+            <StatCard label="Total tasks" value="—" />
+          </>
         ) : (
           Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[92px] rounded-card" />)
         )}
       </div>
 
-      <div className="grid grid-cols-[1fr_380px] items-start gap-6 max-[1200px]:grid-cols-1">
-        {/* Sections are direct grid items. Phones: Overview, Due, Projects, Reports (DOM order).
-            Desktop: Overview | Reports on row 1, Due | Projects on row 2, so no column runs long. */}
-        <div className="contents">
-          <section className="card min-w-0 px-6 py-[22px] min-[1201px]:col-start-1 min-[1201px]:row-start-1">
-            <div className="mb-[18px] flex items-center justify-between">
+      {/* Two independent columns on desktop, so a short card never leaves a hole beside a tall one.
+          Below 1200px the columns dissolve (`contents`) and `order` puts the cards in reading
+          order: what needs action first (tasks, then delayed projects), the rest after. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_380px] items-start gap-6 max-[1200px]:grid-cols-1">
+        <div className="contents min-[1201px]:flex min-[1201px]:min-w-0 min-[1201px]:flex-col min-[1201px]:gap-6">
+          <section className="card order-1 min-w-0 px-6 py-[22px] min-[1201px]:order-none">
+            <div className="mb-[18px] flex items-center justify-between gap-3">
               <h3 className="section-title">Task Overview</h3>
-              <span className="flex items-center gap-2 text-[12px] font-medium">
-                {overdueCount > 0 && (
-                  <Link to="/tasks" className="text-danger-ink inline-flex items-center gap-1 font-semibold hover:underline">
-                    <AlertTriangle size={13} /> {overdueCount} overdue
-                  </Link>
-                )}
-                <span className="text-faint">{tasks?.length ?? 0} tasks</span>
-              </span>
+              {overdueCount > 0 && (
+                <Link
+                  to="/tasks"
+                  className="bg-danger-soft text-danger-ink hit-area relative inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] leading-none font-semibold whitespace-nowrap hover:underline"
+                >
+                  <AlertTriangle size={12} /> {overdueCount} overdue
+                </Link>
+              )}
             </div>
             <div className="flex flex-col">
               {tasksLoading &&
@@ -163,7 +196,7 @@ export function Dashboard() {
                     className="border-divider flex items-center gap-3.5 border-b py-3 first:pt-0 last:border-b-0 last:pb-0"
                   >
                     <div>
-                      <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90">
+                      <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90" aria-hidden="true">
                         <circle className="stroke-divider fill-none" cx="20" cy="20" r="16" strokeWidth="5" />
                         <circle
                           className="ease-[var(--ease-standard)] fill-none transition-[stroke-dashoffset] duration-700 [stroke-linecap:round]"
@@ -181,13 +214,13 @@ export function Dashboard() {
                       <span className="text-ink text-[13px] font-semibold">{t.label}</span>
                       <span className="text-faint mt-0.5 text-[12px]">{t.percent}% of total</span>
                     </div>
-                    <span className="text-ink text-[17px] font-bold">{t.count}</span>
+                    <span className="text-ink text-[17px] font-bold tabular-nums">{t.count}</span>
                   </div>
                 ))}
             </div>
           </section>
 
-          <section className="card min-w-0 px-6 py-[22px] min-[1201px]:col-start-1 min-[1201px]:row-start-2">
+          <section className="card order-2 min-w-0 px-6 py-[22px] min-[1201px]:order-none">
             <div className="mb-[18px] flex items-center justify-between">
               <h3 className="section-title">Due &amp; Overdue</h3>
               <Link to="/tasks" className="text-muted hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] -my-2.5 py-2.5 text-[12px] font-semibold transition-colors">
@@ -209,7 +242,7 @@ export function Dashboard() {
                     <Skeleton className="h-6 w-16 rounded-full" />
                   </div>
                 ))}
-              {!tasksLoading && upcomingTasks.length === 0 && (
+              {!tasksLoading && !tasksError && upcomingTasks.length === 0 && (
                 <p className="text-faint py-3 text-[12px]">Nothing due soon.</p>
               )}
               {upcomingTasks.map((t) => {
@@ -219,7 +252,7 @@ export function Dashboard() {
                 return (
                   <div
                     key={t.id}
-                    className={`border-divider duration-[var(--duration-med)] ease-[var(--ease-standard)] flex items-center gap-3.5 border-b py-3 transition-opacity first:pt-0 last:border-b-0 last:pb-0 ${
+                    className={`border-divider duration-[var(--duration-med)] ease-[var(--ease-standard)] flex items-center gap-3.5 border-b py-3 transition-opacity first:pt-0 last:border-b-0 last:pb-0 max-sm:gap-3 ${
                       isChecked ? 'opacity-45' : ''
                     }`}
                   >
@@ -243,12 +276,14 @@ export function Dashboard() {
                       </span>
                     )}
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      {/* One line from 640px up; on a phone the title may take two lines instead of
+                          being cut at about twenty characters. */}
                       <span
-                        className={`text-ink truncate text-[13px] font-semibold ${isChecked ? 'line-through' : ''}`}
+                        className={`text-ink text-[13px] font-semibold max-sm:line-clamp-2 sm:truncate ${isChecked ? 'line-through' : ''}`}
                       >
                         {taskDisplayTitle(t.title, t.project?.name)}
                       </span>
-                      <span className="text-faint flex min-w-0 items-center gap-1.5 text-xs">
+                      <span className="text-faint flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs sm:flex-nowrap">
                         <span
                           className={`inline-flex shrink-0 items-center gap-1 ${
                             t.overdue && !isChecked
@@ -263,7 +298,7 @@ export function Dashboard() {
                           {t.dueSoon && !isChecked ? `${dueSoonLabel(t.dueDate)} · ` : ''}
                           {formatDate(t.dueDate)}
                         </span>
-                        <span className="truncate">· {t.project?.name}</span>
+                        <span className="max-w-full truncate">· {t.project?.name}</span>
                       </span>
                     </div>
                     <Badge tone={t.priority}>{humanizeEnum(t.priority)}</Badge>
@@ -273,10 +308,72 @@ export function Dashboard() {
               })}
             </div>
           </section>
+
+          <section
+            className="card order-6 min-w-0 px-6 py-[22px] min-[1201px]:order-none"
+            data-testid="recent-activity"
+          >
+            <div className="mb-[18px] flex items-center justify-between">
+              <h3 className="section-title">Recent activity</h3>
+            </div>
+            {recent && recent.length === 0 && <p className="text-faint text-[12px]">No activity yet.</p>}
+            <div className="flex flex-col gap-3">
+              {(recent ?? []).map((a) => (
+                <div key={a.id} className="flex gap-2.5">
+                  <span className="bg-subtle text-faint mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                    <History size={12} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-ink text-[12px] leading-snug break-words">
+                      {a.taskTitle && <span className="text-muted font-semibold">{a.taskTitle} — </span>}
+                      {a.description}
+                    </p>
+                    <span className="text-faint text-[12px]">
+                      {a.userName}
+                      {a.projectName ? ` · ${a.projectName}` : ''} · {timeAgo(a.createdAt)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
 
-        <div className="contents">
-          <section className="card min-w-0 px-6 py-[22px] min-[1201px]:col-start-2 min-[1201px]:row-start-2">
+        <div className="contents min-[1201px]:flex min-[1201px]:min-w-0 min-[1201px]:flex-col min-[1201px]:gap-6">
+          <section
+            className="card order-3 min-w-0 px-6 py-[22px] min-[1201px]:order-none"
+            data-testid="delayed-projects"
+          >
+            <div className="mb-[18px] flex items-center justify-between">
+              <h3 className="section-title">Delayed projects</h3>
+              <span className="text-faint text-[12px] tabular-nums">{stats?.projects.delayed ?? 0}</span>
+            </div>
+            {stats && stats.delayedProjects.length === 0 && (
+              <p className="text-faint text-[12px]">Nothing is behind schedule.</p>
+            )}
+            <div className="flex flex-col">
+              {(stats?.delayedProjects ?? []).map((p) => (
+                <Link
+                  key={p.id}
+                  to={`/projects/${p.id}`}
+                  className="border-divider hover:bg-subtle -mx-2 flex items-center gap-3 rounded-md border-b px-2 py-2.5 last:border-b-0"
+                >
+                  <Clock size={15} className="text-danger-ink shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="text-ink block truncate text-[13px] font-semibold">{p.name}</span>
+                    <span className="text-faint text-[12px]">
+                      Ended {formatDate(p.endDate)} · {Math.round(Number(p.progress ?? 0))}% done
+                    </span>
+                  </span>
+                  <span className="bg-danger-soft text-danger-ink rounded-full px-2.5 py-1 text-[12px] leading-none font-semibold whitespace-nowrap">
+                    {p.daysDelayed}d late
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          <section className="card order-4 min-w-0 px-6 py-[22px] min-[1201px]:order-none">
             <div className="mb-[18px] flex items-center justify-between">
               <h3 className="section-title">Projects</h3>
               <Link to="/projects" className="text-muted hover:text-ink duration-[var(--duration-fast)] ease-[var(--ease-standard)] -my-2.5 py-2.5 text-[12px] font-semibold transition-colors">
@@ -290,9 +387,9 @@ export function Dashboard() {
             </div>
           </section>
 
-          <section className="card min-w-0 px-6 py-[22px] min-[1201px]:col-start-2 min-[1201px]:row-start-1">
+          <section className="card order-5 min-w-0 px-6 py-[22px] min-[1201px]:order-none" data-testid="task-activity">
             <div className="mb-[18px] flex items-center justify-between">
-              <h3 className="section-title">Reports</h3>
+              <h3 className="section-title">Task activity</h3>
               <Dropdown
                 button={({ toggle }) => (
                   <button className="dash-dropdown" onClick={toggle}>
@@ -325,9 +422,16 @@ export function Dashboard() {
             </div>
             <div className="-mx-1.5">
               <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={periodReport} margin={{ top: 6, right: 4, left: -22, bottom: 0 }}>
+                <LineChart data={periodReport} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke="var(--border-divider)" />
                   <XAxis dataKey="day" hide />
+                  <YAxis
+                    width={30}
+                    allowDecimals={false}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 12, fill: 'var(--text-muted)' }}
+                  />
                   <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-light)' }} />
                   <Line type="monotone" dataKey="completed" name="Completed" stroke="var(--color-charcoal)" strokeWidth={2} dot={{ r: 3, fill: 'var(--color-charcoal)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
                   <Line type="monotone" dataKey="created" name="Created" stroke="var(--accent-lavender)" strokeWidth={2} dot={{ r: 3, fill: 'var(--accent-lavender)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
@@ -335,7 +439,7 @@ export function Dashboard() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="flex justify-between px-0.5 pt-1">
+            <div className="flex justify-between pt-1 pl-[30px]">
               {period.days <= 7 && periodReport.map((d) => (
                 <span
                   key={d.date.toISOString()}
@@ -347,7 +451,7 @@ export function Dashboard() {
                 </span>
               ))}
             </div>
-            <div className="border-divider mt-4 flex gap-4 border-t pt-3.5">
+            <div className="border-divider mt-4 flex flex-wrap gap-x-4 gap-y-1.5 border-t pt-3.5">
               <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
                 <i className="bg-charcoal h-2 w-2 rounded-full" /> Completed
               </span>
@@ -355,88 +459,24 @@ export function Dashboard() {
                 <i className="bg-lavender h-2 w-2 rounded-full" /> Created
               </span>
               <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
-                <i className="bg-danger h-2 w-2 rounded-full" /> Overdue
+                <i className="bg-danger h-2 w-2 rounded-full" /> Overdue (open past their due date)
               </span>
             </div>
           </section>
         </div>
 
-        <div className="contents">
+        {showWorkload && (
           <section
-            className="card min-w-0 px-6 py-[22px] min-[1201px]:col-start-1 min-[1201px]:row-start-3"
-            data-testid="recent-activity"
+            className="card order-7 min-w-0 px-6 py-[22px] min-[1201px]:order-none min-[1201px]:col-span-2"
+            data-testid="dashboard-workload"
           >
-            <div className="mb-[18px] flex items-center justify-between">
-              <h3 className="section-title">Recent activity</h3>
+            <div className="mb-[18px] flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <h3 className="section-title">Team workload</h3>
+              <span className="text-faint text-[12px]">across the projects you manage</span>
             </div>
-            {recent && recent.length === 0 && <p className="text-faint text-[12px]">No activity yet.</p>}
-            <div className="flex flex-col gap-3">
-              {(recent ?? []).map((a) => (
-                <div key={a.id} className="flex gap-2.5">
-                  <span className="bg-subtle text-faint mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
-                    <History size={12} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-ink text-[12px] leading-snug break-words">
-                      {a.taskTitle && <span className="text-muted font-semibold">{a.taskTitle} — </span>}
-                      {a.description}
-                    </p>
-                    <span className="text-faint text-[12px]">
-                      {a.userName}
-                      {a.projectName ? ` · ${a.projectName}` : ''} · {timeAgo(a.createdAt)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {workload ? <WorkloadTable workload={workload} compact /> : <Skeleton className="h-[120px] rounded-card" />}
           </section>
-
-          <section
-            className="card min-w-0 px-6 py-[22px] min-[1201px]:col-start-2 min-[1201px]:row-start-3"
-            data-testid="delayed-projects"
-          >
-            <div className="mb-[18px] flex items-center justify-between">
-              <h3 className="section-title">Delayed projects</h3>
-              <span className="text-faint text-[12px]">{stats?.projects.delayed ?? 0}</span>
-            </div>
-            {stats && stats.delayedProjects.length === 0 && (
-              <p className="text-faint text-[12px]">Nothing is behind schedule.</p>
-            )}
-            <div className="flex flex-col">
-              {(stats?.delayedProjects ?? []).map((p) => (
-                <Link
-                  key={p.id}
-                  to={`/projects/${p.id}`}
-                  className="border-divider hover:bg-subtle flex items-center gap-3 border-b py-2.5 last:border-b-0"
-                >
-                  <Clock size={15} className="text-danger-ink shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="text-ink block truncate text-[13px] font-semibold">{p.name}</span>
-                    <span className="text-faint text-[12px]">
-                      Ended {formatDate(p.endDate)} · {Math.round(Number(p.progress ?? 0))}% done
-                    </span>
-                  </span>
-                  <span className="bg-danger-soft text-danger-ink rounded-full px-2.5 py-1 text-[12px] leading-none font-semibold whitespace-nowrap">
-                    {p.daysDelayed}d late
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </section>
-
-          {showWorkload && (
-            <section
-              className="card min-w-0 px-6 py-[22px] min-[1201px]:col-span-2 min-[1201px]:col-start-1 min-[1201px]:row-start-4"
-              data-testid="dashboard-workload"
-            >
-              <div className="mb-[18px] flex items-center justify-between">
-                <h3 className="section-title">Team workload</h3>
-                <span className="text-faint text-[12px]">across the projects you manage</span>
-              </div>
-              {workload ? <WorkloadTable workload={workload} compact /> : <Skeleton className="h-[120px] rounded-card" />}
-            </section>
-          )}
-        </div>
+        )}
       </div>
     </div>
   )

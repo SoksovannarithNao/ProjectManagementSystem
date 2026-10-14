@@ -719,6 +719,25 @@ CREATE TRIGGER trg_task_dependencies_no_cycle
     BEFORE INSERT OR UPDATE ON task_dependencies
     FOR EACH ROW EXECUTE FUNCTION check_task_dependency_cycle();
 
+-- A dependency joins two tasks of ONE project (workflow A4; V21). The service refuses
+-- it with a 400; this keeps the rule for any other way of writing the table.
+CREATE OR REPLACE FUNCTION check_task_dependency_same_project()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (SELECT project_id FROM tasks WHERE id = NEW.task_id)
+       IS DISTINCT FROM (SELECT project_id FROM tasks WHERE id = NEW.depends_on_task_id) THEN
+        RAISE EXCEPTION 'Task % and task % belong to different projects; a dependency joins tasks of one project',
+            NEW.task_id, NEW.depends_on_task_id
+            USING ERRCODE = '23514'; -- check_violation, like the cycle trigger
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_task_dependencies_same_project
+    BEFORE INSERT OR UPDATE ON task_dependencies
+    FOR EACH ROW EXECUTE FUNCTION check_task_dependency_same_project();
+
 -- "A dependent task should not start until its required previous task has
 -- been completed." Enforced from both directions, since either write path
 -- can create the same invalid state:

@@ -259,7 +259,7 @@ Controller: `TaskDependencyController` · base `/api/task-dependencies`. `TaskDe
 | `GET /api/task-dependencies` | Any user | — | `200[]` | scoped by the dependent task's project |
 | `GET /api/task-dependencies/task/{taskId}` | Member | — | `200[]` | what this task depends on |
 | `GET /api/task-dependencies/depends-on/{taskId}` | Member | — | `200[]` | tasks that depend on this one |
-| `POST /api/task-dependencies` | Manager (dependent task's project) | `{ taskId ★, dependsOnTaskId ★ }` | `201` | `400` for a self-dependency, a cycle, or an active task with an unfinished prerequisite |
+| `POST /api/task-dependencies` | Manager (dependent task's project) | `{ taskId ★, dependsOnTaskId ★ }` | `201` | `400` for a self-dependency, a cycle, a task of another project, or an active task with an unfinished prerequisite; `404` when the other task's project is not visible to the caller |
 | `DELETE /api/task-dependencies?taskId=&dependsOnTaskId=` | Manager | query parameters (both required) | `204` | `400` if a parameter is missing |
 
 ## 12. Subtasks

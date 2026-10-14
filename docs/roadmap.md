@@ -115,7 +115,7 @@ Database tables exist for several of these, but **no entity, API or UI**:
 
 From the root `README.md` (*Future Enhancements*), `backend.md` (*Next Steps*), `database.md`, `frontend.md` and the requirement files. These are the project's own stated intentions, not commitments with dates; **no owners or dates are recorded anywhere in the repository**.
 
-1. Refresh-token flow.
+1. ~~Refresh-token flow~~ — done 2026-10-14 (`RefreshTokenService`, `V20`, D-24).
 2. ~~Server-side report endpoints gated by `REPORT:GENERATE_REPORTS`~~ — done 2026-10-09 (the matrix itself became data-driven on 2026-10-08, [ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md)).
 3. ~~Scheduled job for overdue notices and deadline reminders~~ — done 2026-10-10 (`DeadlineScheduler`).
 4. ~~Remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `MILESTONE_UPDATED`)~~ — done 2026-10-12 (`UpdateNotificationService`).

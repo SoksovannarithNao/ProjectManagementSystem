@@ -466,6 +466,14 @@ export function ProjectDetail() {
                 <span className="text-faint text-[13px] font-semibold">None</span>
               )}
             </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-faint inline-flex items-center gap-1.5 text-[12px] font-semibold">
+                <CalendarDays size={14} /> Created
+              </span>
+              <span data-testid="project-created" className="text-ink text-[13px] font-semibold">
+                {formatLongDate(project.createdAt)}
+              </span>
+            </div>
           </div>
 
           {/* project.progress is computed server-side from this project's

@@ -129,7 +129,7 @@ BrowserRouter
    └─ ThemeProvider        light / dark / system, synced to the saved preference
       └─ UsersProvider     user directory (GET /api/users) for avatars and name lookups
          └─ NotificationsProvider   notification list, unread count, read / delete
-            └─ ToastProvider        transient success/error messages
+            └─ ToastProvider        transient success / error / warning / info messages
                └─ App     routes
 ```
 

@@ -175,6 +175,19 @@ test.describe('quick wins', () => {
     await expect(page.getByTestId('completed-on')).toHaveCount(0)
   })
 
+  test('UI: the project page and the task panel show the created date', async ({ page }) => {
+    const year = String(new Date().getFullYear())
+    await login(page, 'pm.olivia')
+    await page.goto(`/projects/${project.id}`)
+    await expect(page.getByTestId('project-created')).toContainText(year)
+
+    await page.goto('/tasks')
+    await page.getByTestId('task-row').filter({ hasText: task.linked.title }).click()
+    await expect(page.getByTestId('task-created')).toContainText(year)
+    // the start date is shown beside the due date (the helper creates the task with a start ten days back)
+    await expect(page.getByTestId('task-start-date')).not.toHaveText('—')
+  })
+
   test('UI: a milestone can be edited, with a warning when completing it leaves tasks open', async ({ page, request }) => {
     await login(page, 'pm.olivia')
     await page.goto(`/projects/${project.id}`)
@@ -192,6 +205,8 @@ test.describe('quick wins', () => {
     await expect(page.getByTestId('milestone-open-tasks-warning')).toContainText('1 linked task is still open')
     await page.getByRole('button', { name: 'Save', exact: true }).click()
 
+    // the success toast is joined by a warning toast naming the open task
+    await expect(page.getByText('1 linked task is still open and was not changed')).toBeVisible()
     await expect(row.getByText('Signed off by the client')).toBeVisible()
     await expect(row.getByText('Completed', { exact: true })).toBeVisible()
 
