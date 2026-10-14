@@ -40,10 +40,10 @@ import {
   WorkloadReportView,
 } from '../components/reports/ReportViews'
 
-function ChartCard({ title, loading, empty, children }) {
+function ChartCard({ title, loading, empty, className = '', children }) {
   return (
-    <section className="card px-5 pt-5 pb-3">
-      <h3 className="section-title mb-3">{title}</h3>
+    <section className={`card min-w-0 px-6 py-[22px] ${className}`}>
+      <h3 className="section-title mb-[18px]">{title}</h3>
       {loading ? (
         <Skeleton className="h-[220px] rounded-md" />
       ) : empty ? (
@@ -93,7 +93,7 @@ function WorkloadTooltip({ active, payload }) {
   )
 }
 
-function ReportsOverview() {
+function ReportsOverview({ tabs }) {
   const { can, canAny } = useAuth()
   const { members } = useMembers()
   const { data: projects, loading: projectsLoading } = useApi(getProjects)
@@ -186,7 +186,8 @@ function ReportsOverview() {
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      <TopBar title={REPORTS_TITLE} subtitle={REPORTS_SUBTITLE} actions={
+        <>
             <Dropdown
               button={({ toggle }) => (
                 <button className="btn btn-secondary" onClick={toggle}>
@@ -230,8 +231,8 @@ function ReportsOverview() {
 
             <Dropdown
               button={({ toggle }) => (
-                <button className="dash-dropdown" onClick={toggle}>
-                  {period.label} <ChevronDown size={14} />
+                <button className="btn btn-secondary" onClick={toggle}>
+                  {period.label} <ChevronDown size={15} />
                 </button>
               )}
             >
@@ -256,74 +257,81 @@ function ReportsOverview() {
                 </div>
               )}
             </Dropdown>
-      </div>
+          </>
+      } />
+      {tabs}
 
-      <div className="mb-6 grid grid-cols-4 gap-[18px] max-[520px]:gap-3 max-[1100px]:grid-cols-2">
+      <div className="mb-6 grid grid-cols-4 gap-4 max-[1100px]:grid-cols-2">
         {loading &&
-          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[86px] rounded-card" />)}
+          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[92px] rounded-card" />)}
         {!loading && statCards.map((s) => <StatCard key={s.key} label={s.label} value={s.value} tone={s.tone} />)}
       </div>
 
-      <div className="grid grid-cols-2 gap-5 max-[900px]:grid-cols-1">
-        <ChartCard title={`Task Completion — ${period.label}`} loading={loading}>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={periodReport} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid vertical={false} stroke="var(--border-divider)" />
-              <XAxis dataKey="day" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} padding={{ left: 12 }} />
-              <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
-              <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-light)' }} />
-              <Line type="monotone" dataKey="completed" name="Completed" stroke="var(--color-charcoal)" strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="created" name="Created" stroke="var(--accent-lavender)" strokeWidth={2} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Project Progress" loading={loading}>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={projectProgress} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
-              <Bar dataKey="progress" name="Progress %" radius={[0, 6, 6, 0]} barSize={16}>
-                {projectProgress.map((_, i) => (
-                  <Cell key={i} fill="var(--color-charcoal)" fillOpacity={1 - i * 0.12} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Team Productivity" loading={loading} empty={productivityByMember.length === 0}>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={productivityByMember} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid vertical={false} stroke="var(--border-divider)" />
-              <XAxis dataKey="name" interval={0} tickFormatter={(n) => (n.length > 6 ? `${n.slice(0, 5)}…` : n)} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
-              <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
-              <Bar dataKey="completed" name="Tasks Completed" radius={[6, 6, 0, 0]} barSize={26} fill="var(--color-charcoal)" />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        {showWorkload && (
-          <ChartCard title="Workload" loading={workloadLoading} empty={workloadByMember.length === 0}>
-            <div data-testid="workload-chart">
-              <ResponsiveContainer width="100%" height={Math.max(220, workloadByMember.length * 44)}>
-                <BarChart data={workloadByMember} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
-                  <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<WorkloadTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
-                  <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="assigned" name="Assigned" fill="var(--color-charcoal)" radius={[0, 6, 6, 0]} barSize={8} />
-                  <Bar dataKey="active" name="Active" fill="var(--color-info-ink)" radius={[0, 6, 6, 0]} barSize={8} />
-                  <Bar dataKey="overdue" name="Overdue" fill="var(--color-danger-ink)" radius={[0, 6, 6, 0]} barSize={8} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+      {/* Two independent columns, as on the dashboard, so a short chart never sits beside a tall one with a hole
+          under it. Below 900px they become one column in reading order (set with `order`). */}
+      <div className="grid grid-cols-2 items-start gap-6 max-[900px]:grid-cols-1">
+        <div className="contents min-[901px]:flex min-[901px]:min-w-0 min-[901px]:flex-col min-[901px]:gap-6">
+          <ChartCard title={`Task Completion — ${period.label}`} loading={loading} className="order-1 min-[901px]:order-none">
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={periodReport} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="var(--border-divider)" />
+                <XAxis dataKey="day" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} padding={{ left: 12 }} />
+                <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-light)' }} />
+                <Line type="monotone" dataKey="completed" name="Completed" stroke="var(--color-charcoal)" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="created" name="Created" stroke="var(--accent-lavender)" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
           </ChartCard>
-        )}
+
+          <ChartCard title="Team Productivity" loading={loading} empty={productivityByMember.length === 0} className="order-3 min-[901px]:order-none">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={productivityByMember} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="var(--border-divider)" />
+                <XAxis dataKey="name" interval={0} tickFormatter={(n) => (n.length > 6 ? `${n.slice(0, 5)}…` : n)} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
+                <Bar dataKey="completed" name="Tasks Completed" radius={[6, 6, 0, 0]} barSize={26} fill="var(--color-charcoal)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+        </div>
+        <div className="contents min-[901px]:flex min-[901px]:min-w-0 min-[901px]:flex-col min-[901px]:gap-6">
+          <ChartCard title="Project Progress" loading={loading} className="order-2 min-[901px]:order-none">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={projectProgress} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
+                <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
+                <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
+                <Bar dataKey="progress" name="Progress %" radius={[0, 6, 6, 0]} barSize={16}>
+                  {projectProgress.map((_, i) => (
+                    <Cell key={i} fill="var(--color-charcoal)" fillOpacity={1 - i * 0.12} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          {showWorkload && (
+            <ChartCard title="Workload" loading={workloadLoading} empty={workloadByMember.length === 0} className="order-4 min-[901px]:order-none">
+              <div data-testid="workload-chart">
+                <ResponsiveContainer width="100%" height={Math.max(220, workloadByMember.length * 44)}>
+                  <BarChart data={workloadByMember} layout="vertical" margin={{ top: 6, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid horizontal={false} stroke="var(--border-divider)" />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<WorkloadTooltip />} cursor={{ fill: 'var(--bg-secondary)' }} />
+                    <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="assigned" name="Assigned" fill="var(--color-charcoal)" radius={[0, 6, 6, 0]} barSize={8} />
+                    <Bar dataKey="active" name="Active" fill="var(--color-info-ink)" radius={[0, 6, 6, 0]} barSize={8} />
+                    <Bar dataKey="overdue" name="Overdue" fill="var(--color-danger-ink)" radius={[0, 6, 6, 0]} barSize={8} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </ChartCard>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -344,30 +352,46 @@ const TABS = [
   { key: 'workload', label: 'Workload', view: WorkloadReportView },
 ]
 
+const REPORTS_TITLE = 'Reports'
+const REPORTS_SUBTITLE = 'Insights across tasks, projects, and team performance'
+
 export function Reports() {
   const [params, setParams] = useSearchParams()
   const active = TABS.find((t) => t.key === params.get('tab')) ?? TABS[0]
   const View = active.view
 
+  // Same pills as the Tasks quick views (card fill and border, the charcoal fill for the selected one),
+  // in one row that scrolls sideways on a phone instead of wrapping into four rows.
+  const tabs = (
+    <div
+      className="-mx-1 mb-6 flex gap-1.5 overflow-x-auto px-1 pb-0.5"
+      role="tablist"
+      aria-label="Reports"
+    >
+      {TABS.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          role="tab"
+          aria-selected={t.key === active.key}
+          onClick={() => setParams(t.key === TABS[0].key ? {} : { tab: t.key })}
+          className={`duration-[var(--duration-fast)] ease-[var(--ease-standard)] inline-flex shrink-0 items-center rounded-full border px-3.5 py-1.5 text-[13px] font-semibold whitespace-nowrap transition-colors ${
+            t.key === active.key ? 'bg-charcoal text-on-charcoal border-transparent' : 'bg-card border-border text-muted hover:bg-subtle'
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+
+  // The Overview keeps its Filter and period controls in the top bar (like Tasks, Projects and Kanban), so it
+  // draws the bar itself and receives the tab strip; every other tab uses the plain bar.
+  if (active.key === 'overview') return <View tabs={tabs} />
   return (
     <div>
-      <TopBar title="Reports" subtitle="Insights across tasks, projects, and team performance" />
-      <div className="mb-5 flex flex-wrap items-center gap-2" role="tablist" aria-label="Reports">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={t.key === active.key}
-            onClick={() => setParams(t.key === TABS[0].key ? {} : { tab: t.key })}
-            className={`rounded-full px-3.5 py-2 text-[13px] font-semibold transition-colors ${
-              t.key === active.key ? 'bg-charcoal text-on-charcoal' : 'bg-subtle text-muted hover:text-ink'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TopBar title={REPORTS_TITLE} subtitle={REPORTS_SUBTITLE} />
+      {tabs}
       <View />
     </div>
   )

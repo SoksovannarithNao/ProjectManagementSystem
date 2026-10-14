@@ -8,7 +8,7 @@
 // file is asked for, so they are not part of the page everyone downloads.
 
 import { fullDate, hours, pct } from './reportFormat'
-import { formatLongDate, humanizeEnum } from '../../api/format'
+import { formatLongDate, humanizeEnum, projectRoleLabel } from '../../api/format'
 
 const DASH = '—'
 
@@ -69,7 +69,7 @@ export function projectReportTables(r) {
       `Team (${r.team.length})`,
       [
         { head: 'Member', cell: (m) => m.user.fullName },
-        { head: 'Project role', cell: (m) => humanizeEnum(m.projectRole) },
+        { head: 'Project role', cell: (m) => projectRoleLabel(m.projectRole) },
       ],
       r.team
     ),

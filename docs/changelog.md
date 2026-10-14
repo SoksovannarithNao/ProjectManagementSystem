@@ -6,6 +6,82 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-14 (project pages on a phone) — front end only
+
+At 390 px wide a project page was wider than the screen (6 px for most projects, up to 58 px for one with a long name), so it scrolled sideways. Two causes, both fixed: the **role picker in the team list** is a native select that is as wide as its widest option, *Owner (transfer ownership)*, and it no longer shrinks below that, so it now has `min-w-0` and a 9 rem ceiling on a phone; and the **header's title wrapper** (`TopBar`) could not shrink, so a long project name never reached its ellipsis, and it now has `min-w-0` on every page.
+
+**Tests:** Playwright 256 → **257** (`phone-project-page.spec.js`: every project page at 390 px has no sideways scroll); 257/257 in a clean run. **Docs:** `testing.md`, `test-cases.md` (ERR-08), `issues.md` (F-69) and the counts in `README.md`, `frontend.md`, `workflow-conformance.md` and the checklist files.
+
+---
+
+## 2026-10-14 (Reports period box) — front end only
+
+The *This Week* box in the Reports header was smaller than the other header controls. It was the Dashboard's chart dropdown (30px tall, 5px radius, 12px text) while *Filter*, the bell and the theme button are 40px. It is now a standard secondary button (40px, 8px radius, 13.5px text), so every control in the header is the same size. The menu it opens and its options are unchanged; the Dashboard's own dropdown is unchanged.
+
+**Tests:** the header layout case of `reports.spec.js` also checks that the period button is the same height as *Filter* and the bell; Playwright stays at 256 (256/256 in a clean run), unit tests 174/174. **Docs:** `DESIGN.md` (Known Drift, Reports page layout), `issues.md` (F-68).
+
+---
+
+## 2026-10-14 (a sticky page header) — front end only
+
+The page header now stays at the top while a page scrolls, on every page. It is one change in the shared `TopBar` (every page renders it as its first element) plus a scroll-padding rule: `position: sticky; top: 0; z-index: 30` on the Canvas background (so the content does not show through, in either theme), reaching up into the content box's top padding so the spacing above the title is the same stuck or not, and 16px of padding plus 12px of margin under it (the same 28px as before). It sits above the page content and below the sidebar (z-40), its mobile scrim, side panels and dialogs, so dropdowns and overlays still open above or below it correctly. No ancestor sets an overflow, and the app's other sticky elements are horizontal only, so nothing interferes.
+
+A header that wraps onto several rows would pin a large part of a phone (200-276 px of 844), so **only its first row stays pinned**: as the page scrolls, the rows below it are clipped away one pixel per pixel scrolled, the page shows through where they were, and the clipped part takes no clicks; the header keeps its size, so nothing moves, and the whole header is back at the top of the page. The pinned part is 117 px on a desktop, 105 px on a tablet and 88-115 px on a phone. `html { scroll-padding-top: 8rem }` keeps a focused or scrolled-to element out from under it.
+
+**Checked:** 19 page views (every screen and a project's four tabs) at 1440, 820 and 390 px in light and dark: the header at the top with its title uncovered, its background equal to the canvas, the clipped part passing clicks through, the notification and filter dropdowns, a side panel and the mobile menu above the pinned header, and no page with a sideways scroll. **Tests:** Playwright 238 → **256** (`sticky-header.spec.js` 18, stable over three runs); 256/256 in a clean run. **Docs:** `DESIGN.md` (a Layout rule and a Known Drift entry), `frontend.md`, `README.md`, `testing.md`, `test-cases.md` (ERR-07), `workflow-conformance.md` (§35), `issues.md` (F-67) and the counts in `docs/README.md` and `docs/checklist/*`.
+
+## 2026-10-14 (detail on the calendar) — front end only
+
+The calendar could only add a task: a click anywhere on a day opened *New Task*, and the task and milestone chips did nothing. Now a day opens **one drawer in two parts** on the right:
+- **The day** (left): what is due that day (the milestones, then the tasks) with **New task on this day** under it for anyone who may create tasks. Anyone who can see the calendar can open a day; the add button is hidden from those who cannot create tasks.
+- **The detail** (right, once an item is chosen in the list): **the task panel** (the same panel as on Tasks and Kanban, edit and delete included; `TaskDetailPanel` gained an `embedded` mode for this) or **a milestone panel** (`MilestoneDetailPanel`, read-only: status, due date, the project as a link, progress worked out from the linked tasks, the description and the linked tasks, each of which opens in the same place). The list stays in view while another item is chosen; the X of the detail closes only the detail, the X of the list closes the drawer, and Escape closes the drawer unless a field has the focus.
+- A **chip in the grid** opens the drawer on its day with that item chosen; the day number is a button named with the date and the count, and on a phone a tap on a day shows what its dots stand for. Below about 1000 px one part is shown at a time (the detail replaces the list and its X brings it back).
+- The header's *New Event* is unchanged.
+
+**Tests:** Playwright 229 → **238** (`calendar-details.spec.js` 9); the existing calendar cases pass unchanged; 238/238 in a clean run. **Docs:** `DESIGN.md`, `frontend.md`, `project-workflow.md` (flow 20), the brief's feature table, `testing.md`, `test-cases.md` (MIL-05), `workflow-conformance.md` (§34), `issues.md` (F-66) and the counts in `README.md`, `docs/README.md` and `docs/checklist/*`.
+
+## 2026-10-14 (one name for a project role) — front end only
+
+The same two project roles had two names: Roles & Permissions showed *Admin* and *Member*, the pickers and badges elsewhere showed *Team Leader* and *Team Member*. They now share one name from a single helper (`projectRoleLabel`): **Owner**, **Admin (Team Leader)**, **Member (Team Member)**, **Viewer**. It is used by the role picker of every member on the project page, the role badges, the *Add member* panel (project page and Team page), the Team page's invite picker, the Team Tasks tab, Roles & Permissions and the *Project role* column of the project report (screen and Excel / PDF), and a role change now reads *X is now Admin (Team Leader)*. Roles & Permissions uses it too (the role list, the heading of the selected role, the checkbox labels) and keeps its note that maps Admin to Team Leader and Member to Team Member. Display labels only: the stored values, the permissions, the authorization and the API are unchanged (and the server's own messages keep their wording).
+
+**Tests:** frontend unit tests 172 → **174** (`projectRoleLabel`); Playwright 226 → **229** (`role-labels.spec.js` 3); `invite-role.spec.js`, `manager-views.spec.js` and the report export unit test read the new labels; 229/229 in a clean run. **Docs:** `DESIGN.md`, `users-and-projects.md`, `authentication-authorization.md`, the role tables of the brief and the workflow, `testing.md`, `test-cases.md` (MEM-12), `workflow-conformance.md` (§33), `issues.md` (F-65) and the counts in `README.md`, `docs/README.md` and `docs/checklist/*`.
+
+## 2026-10-14 (Add Member on the Team page, and a combo box) — front end only
+
+**Added**
+- **A combo box** (`components/ui/Combobox.jsx`): a searchable select with the ARIA combobox pattern: type to search, arrow keys and Enter to choose, Escape closes only the list, and only a listed item can be chosen.
+- **"Add Member" on the Team page** (next to *Add User*), shown to anyone who manages at least one project: choose a project, then the person, then the role, and send the invitation. The person box stays disabled until a project is chosen.
+
+**Changed**
+- The project page's *Add member* panel picks the person from the same combo box instead of a text box with a browser datalist. The list is the server's answer (each row shows an avatar, the full name and *username · position*), so an inactive account, an existing member or a pending invitee is never offered and a mistyped username can no longer be sent. The invitation is unchanged: the person still accepts or declines. The success message names the person (*Invitation sent to Hana Suzuki*).
+- The Help answer *How do I add someone to my project?* describes both buttons.
+
+**Tests:** Playwright 223 → **226** (`add-member.spec.js` 3); `project-team.spec.js` and `invite-role.spec.js` pick the person from the combo box, and the case about an inactive account now checks that it is never offered; 226/226 in a clean run. **Docs:** `DESIGN.md` (Combo box), `frontend.md`, `users-and-projects.md`, `testing.md`, `test-cases.md` (MEM-11), `workflow-conformance.md` (§32), `issues.md` (F-64) and the counts in `README.md`, `docs/README.md` and `docs/checklist/*`.
+
+## 2026-10-14 (the Team page button is *Add User*) — front end only
+
+On the Team page an administrator's *Invite Member* does not invite anyone: it creates an account directly (`POST /api/users`) with a temporary password the administrator shares. It was named like the project's *Add member* (which invites an existing user and waits for a reply) and its button, panel title and submit button disagreed (*Invite Member*, *Invite Member*, *Add Member*). The button, the panel title and the submit button now all read **Add User**, in line with Administration → Users. *Create account* was not used because that is the wording of a person registering themselves (Login and Register). The Help answer *How do I add a brand-new person?* uses the new name. The component keeps its file name (`AddMemberModal.jsx`).
+
+**Tests:** `side-panels.spec.js` (the Team-page case) and the Help text; 223/223 in the last full run, the affected specs (`side-panels`, `team`, `user-management`, `help-errors`, `project-team`) re-run after the rename. **Docs:** every mention of the old name outside older history.
+
+## 2026-10-14 (forms in the side panel) — front end only
+
+*Add member* (project page), *Add User* (Team page) and *New Task* now open in the shared right-hand `SidePanel`, the frame the task panel and the role form already use (the first two were centred pop-ups; *New Task* was a hand-written copy of the drawer without Escape handling or a dialog role). Same fields, validation and API calls. The "Add New Position / Department" dialogs opened from the invite panel are rendered beside the panel so they still centre on the screen. *Edit Task* stays a centred modal because it opens over the task panel, and *New Project* keeps its own drawer copy.
+
+**Tests:** Playwright 219 → **223** (`side-panels.spec.js`: the three panels at the right edge, Escape and the discard check, the centred nested dialog, a phone); the two Add member cases of `project-team.spec.js` find the panel by role instead of the old pop-up's CSS class; 223/223 in a clean run. **Docs:** `DESIGN.md`, `architecture.md`, `users-and-projects.md`, `testing.md`, `test-cases.md` (TSK-21, MEM-10), `workflow-conformance.md` (§31), `issues.md` (F-63) and the counts in `README.md`, `docs/README.md`, `frontend.md` and `docs/checklist/*`.
+
+## 2026-10-14 (Reports page layout) — front end only
+
+The Reports page now follows the other screens. The tab strip is the Tasks quick-view pill (card fill and border, charcoal when selected) in one row that scrolls sideways on a phone (it wrapped into four rows); the Overview's Filter and period controls are page-header actions like those of Tasks, Projects and Kanban (the Overview draws its own header and receives the tab strip; the other tabs use the plain header); spacing is the dashboard's (16px between stat cards, 24px between sections, the standard card padding); and the four Overview charts sit in two independent columns instead of a stretched grid. Nothing the page calculates, shows or exports changed.
+
+**Tests:** Playwright 217 → **219** (`reports.spec.js`: the layout at 1440 px and the one-row tabs at 390 px); 219/219 in a clean run. **Docs:** `DESIGN.md` (Known Drift), `frontend.md`, `testing.md`, `test-cases.md` (REP-08), `workflow-conformance.md` (§30), `issues.md` (F-62) and the counts in `README.md`, `docs/README.md` and `docs/checklist/*`.
+
+## 2026-10-14 (dashboard layout pass) — front end only
+
+Layout only; nothing the dashboard shows, calculates or is allowed to show changed. The right-hand column is now project health (Delayed projects, then the project previews) followed by Team workload; the wider left column holds Task Overview, Due & Overdue and Recent activity; the Task activity chart spans both columns. The two columns end within about 130px of each other at 1440px (before the pass the right was about 300px longer). The dashboard's project previews are compact (no description, badges in one row, tighter padding) and the workload card is a list of people (name, assigned / active / overdue, the Load pill) that fits 380px with full names. Tablet (640–1200px): one column with the two project previews side by side; phone: one column in reading order. The workload list scrolls inside its card (at most 400px, keyboard-focusable, the footnote below it) so a long team does not lengthen the page. `ProjectCard` and `WorkloadTable` gained an optional `compact` prop (off by default, so the Projects page and the table on the project and Reports pages are unchanged). Measured at 1440, 1280, 1100, 820 and 390px: no page scroll, nothing scrolls inside a card.
+
+**Tests:** Playwright 215 → **217** (`dashboard-polish.spec.js`: the right-hand column order, the full-width chart, one-card-wide previews, the scrolling workload list); 217/217 in a clean run. **Docs:** `DESIGN.md`, `frontend.md`, `testing.md`, `test-cases.md` (DSH-08), `workflow-conformance.md` (§29), `issues.md` (F-61), the counts in `README.md`, `docs/README.md` and `docs/checklist/*`.
+
 ## 2026-10-14 (a review of the brief and the workflow against the code) — migration `V21`
 
 Two differences between the specification and the application were found by reading `assignment-brief.md` and `project-workflow.md` against the code, and closed. Backend, front end and database were redeployed (the `migrate` service applied `V21`) and checked in the running stack.

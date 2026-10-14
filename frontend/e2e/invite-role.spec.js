@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { login, SEED_PASSWORD } from './helpers.js'
 
-// Checklist #14: the project page's Add member dialog offers a role (Team Member, Team Leader,
+// Checklist #14: the project page's Add member panel offers a role (Member (Team Member), Admin (Team Leader),
 // Viewer; never Owner) instead of always inviting a Team Member. Runs on a throw-away project
 // owned by pm.olivia.
 
@@ -25,16 +25,18 @@ test('Add member invites with the chosen role', async ({ page, request }) => {
     await page.getByRole('button', { name: 'Add member' }).click()
     const dialog = page.locator('form').filter({ hasText: 'Role in this project' })
 
-    // the role list has the three roles and no Owner; Team Member is the default
+    // the role list has the three roles and no Owner; Member (Team Member) is the default
     const role = dialog.getByLabel('Role in this project')
     await expect(role).toHaveValue('MEMBER')
-    await expect(role.locator('option')).toHaveText(['Team Member', 'Team Leader', 'Viewer'])
+    await expect(role.locator('option')).toHaveText(['Member (Team Member)', 'Admin (Team Leader)', 'Viewer'])
     await role.selectOption('ADMIN')
-    await expect(dialog.getByText("They'll get an invitation and join as a Team Leader once they accept.")).toBeVisible()
+    await expect(dialog.getByText("They'll get an invitation and join as Admin (Team Leader) once they accept.")).toBeVisible()
 
-    await dialog.getByLabel('Username').fill('dev.hana')
+    // the person is chosen from the combo box (searched by name or username), not typed out in full
+    await dialog.getByRole('combobox', { name: 'Person', exact: true }).fill('dev.hana')
+    await dialog.getByRole('listbox').getByRole('option', { name: /Hana Suzuki/ }).click()
     await dialog.getByRole('button', { name: 'Send Invitation' }).click()
-    await expect(page.getByText('Invitation sent to dev.hana')).toBeVisible()
+    await expect(page.getByText('Invitation sent to Hana Suzuki')).toBeVisible()
 
     // the invitation carries the chosen role, and it is the role the person holds once they accept
     const pending = await (await request.get(`/api/project-members/project/${project.id}/invitations`, { headers: pm })).json()

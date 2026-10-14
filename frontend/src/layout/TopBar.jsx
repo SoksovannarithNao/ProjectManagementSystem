@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Menu, Search, Bell, BellOff, LogOut, User, Settings, X, Sun, Moon, Monitor, Check } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Avatar } from '../components/ui/Avatar'
@@ -22,10 +22,52 @@ const THEME_OPTIONS = [
   { value: 'SYSTEM', label: 'System', icon: Monitor },
 ]
 
+// The header is sticky, but a header that wraps onto a second or third row (the action buttons on a phone, a project's
+// many actions) would pin a third of the screen. So only its FIRST row stays pinned: as the page scrolls, the rows
+// below it are clipped away, one pixel per pixel scrolled (the page content shows through where they were, and the
+// clipped part no longer takes clicks), exactly as if those rows had scrolled off. Scrolled back to the top the whole
+// header is there again. A one-row header stays pinned whole. The header keeps its size, so nothing in the page moves.
+// Measured again whenever the header or one of its blocks resizes (a window resize, a title that changes, buttons
+// that wrap).
+function usePinFirstRow(ref) {
+  useLayoutEffect(() => {
+    const header = ref.current
+    if (!header) return undefined
+    let hidden = 0 // the height of the rows below the first one
+    const clip = () => {
+      const cut = Math.min(hidden, Math.max(0, globalThis.scrollY))
+      header.style.clipPath = cut > 0 ? `inset(0 0 ${cut}px 0)` : ''
+    }
+    const measure = () => {
+      const box = header.getBoundingClientRect()
+      const [first, ...rest] = [...header.children].map((el) => el.getBoundingClientRect())
+      if (!first) return
+      // the first row: the first block, and any other block that sits on the same line
+      let bottom = first.bottom
+      for (const r of rest) if (r.top < first.bottom - 1) bottom = Math.max(bottom, r.bottom)
+      // 16px = the padding under the row (pb-4), so the pinned part ends the way the whole header would
+      hidden = Math.max(0, box.height - Math.min(box.height, bottom - box.top + 16))
+      clip()
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    for (const child of header.children) observer.observe(child)
+    globalThis.addEventListener('scroll', clip, { passive: true })
+    return () => {
+      observer.disconnect()
+      globalThis.removeEventListener('scroll', clip)
+      header.style.clipPath = ''
+    }
+  }, [ref])
+}
+
 // Search only renders when a page actually wires `onSearchChange` — a
 // decorative input that filters nothing is worse than no input at all.
 export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, searchPlaceholder = 'Search' }) {
   const showSearch = Boolean(onSearchChange)
+  const headerRef = useRef(null)
+  usePinFirstRow(headerRef)
   const { openMobileNav } = useLayout()
   const { profile, username, logout, refreshProfile } = useAuth()
   const { theme, setTheme } = useTheme()
@@ -84,7 +126,13 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
   }
 
   return (
-    <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
+    // Sticky: the header stays at the top while the page scrolls under it. It reaches up into the page's top padding
+    // (the -mt / pt pairs equal the padding of AppLayout's content box at each width) so it keeps the same spacing
+    // above the title when stuck, and its bottom gap is split into padding (covered by the canvas background, so
+    // content does not show through) and margin (the same 28px of space as before in total). z-30 is above the
+    // page content and below the sidebar (z-40), its mobile scrim (z-39), side panels and dialogs. Only the first
+    // row stays pinned when the header wraps (see usePinFirstRow).
+    <header ref={headerRef} className="bg-canvas sticky top-0 z-30 -mt-8 mb-3 flex flex-wrap items-center justify-between gap-4 pt-8 pb-4 max-lg:-mt-5 max-lg:pt-5 max-sm:-mt-4 max-sm:pt-4">
       <div className="flex min-w-0 items-center gap-3">
         <button
           className="border-border bg-card text-ink hidden h-[38px] w-[38px] shrink-0 items-center justify-center rounded-md border max-lg:inline-flex"
@@ -93,7 +141,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
         >
           <Menu size={20} />
         </button>
-        <div>
+        <div className="min-w-0">
           <h1 className="text-ink truncate text-[30px] font-bold tracking-[-0.02em] max-sm:text-2xl">
             {title}
           </h1>

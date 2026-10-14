@@ -355,7 +355,7 @@ test.describe('manager views: UI', () => {
       const rajRole = page.getByLabel('Project role of Raj Malhotra')
       await expect(rajRole).toBeVisible()
       await rajRole.selectOption('ADMIN')
-      await expect(page.getByText('Raj Malhotra is now a Team Leader')).toBeVisible()
+      await expect(page.getByText('Raj Malhotra is now Admin (Team Leader)')).toBeVisible()
       expect((await membership(request, pm, project.id, 'dev.raj')).projectRole).toBe('ADMIN')
       // the Owner has no picker on their own row
       await expect(page.getByLabel('Project role of Olivia Bennett')).toHaveCount(0)

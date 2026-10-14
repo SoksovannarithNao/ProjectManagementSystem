@@ -41,6 +41,7 @@ export function Modal({ title, onClose, children, isDirty = false }) {
   return (
     <>
       <div
+        data-overlay="modal"
         className="animate-fade-in fixed inset-0 z-[70] flex items-center justify-center bg-scrim p-4"
         onClick={(e) => {
           e.stopPropagation()

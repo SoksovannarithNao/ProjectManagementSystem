@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { UserPlus, Mail, FolderKanban, ListChecks, Search, UsersRound, X } from 'lucide-react'
+import { UserPlus, Users, Mail, FolderKanban, ListChecks, Search, UsersRound, X } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { Avatar } from '../components/ui/Avatar'
 import { Skeleton } from '../components/ui/Skeleton'
@@ -8,6 +8,7 @@ import { LookupSelect } from '../components/ui/LookupSelect'
 import { AddLookupModal } from '../components/AddLookupModal'
 import { useToast } from '../components/ui/Toast'
 import { AddMemberModal } from '../components/AddMemberModal'
+import { AddProjectMemberModal } from '../components/AddProjectMemberModal'
 import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
@@ -18,6 +19,7 @@ import { getPositions, createPosition } from '../api/positions'
 import { getDepartments, createDepartment } from '../api/departments'
 import { updateMemberPositionDepartment } from '../api/users'
 import { buildProjectMemberMap, buildTaskAssigneeMap, countByValue } from '../api/relations'
+import { projectRoleLabel } from '../api/format'
 
 export function Team() {
   const { profile, canSys, isAdministrator, permissions } = useAuth()
@@ -32,6 +34,7 @@ export function Team() {
   const [selectedId, setSelectedId] = useState(null)
   const [query, setQuery] = useState('')
   const [showInvite, setShowInvite] = useState(false)
+  const [showAddMember, setShowAddMember] = useState(false)
   const [addProjectId, setAddProjectId] = useState('')
   const [addingProject, setAddingProject] = useState(false)
   const [savingAttributes, setSavingAttributes] = useState(false)
@@ -81,6 +84,14 @@ export function Team() {
       (p) => !memberIds.has(p.id) && (administeredProjectIds == null || administeredProjectIds.has(p.id))
     )
   }, [projects, memberProjects, activeId, administeredProjectIds])
+
+  // "Add Member" (an existing user into a project) is offered to anyone who manages at least one project,
+  // and lists only those projects.
+  const manageableProjects = useMemo(
+    () => (projects ?? []).filter((p) => administeredProjectIds == null || administeredProjectIds.has(p.id)),
+    [projects, administeredProjectIds]
+  )
+  const canAddMember = manageableProjects.length > 0
 
   // Whether the caller administers (OWNER/ADMIN of, or system ADMINISTRATOR)
   // at least one project the selected member is also in — gates
@@ -159,11 +170,19 @@ export function Team() {
         title="Team"
         subtitle={`${members.length} members collaborating across projects`}
         actions={
-          canInvite && (
-            <button className="btn btn-primary" onClick={() => setShowInvite(true)}>
-              <UserPlus size={16} /> Invite Member
-            </button>
-          )
+          <>
+            {/* Add User creates an account (administrators); Add Member puts an existing user into a project. */}
+            {canInvite && (
+              <button className="btn btn-secondary" onClick={() => setShowInvite(true)}>
+                <UserPlus size={16} /> Add User
+              </button>
+            )}
+            {canAddMember && (
+              <button className="btn btn-primary" onClick={() => setShowAddMember(true)}>
+                <Users size={16} /> Add Member
+              </button>
+            )}
+          </>
         }
       />
 
@@ -338,9 +357,9 @@ export function Team() {
                     onChange={(e) => setInviteRole(e.target.value)}
                     className="field field-sm w-auto shrink-0"
                   >
-                    <option value="MEMBER">Team Member</option>
-                    <option value="ADMIN">Team Leader</option>
-                    <option value="VIEWER">Viewer</option>
+                    <option value="MEMBER">{projectRoleLabel('MEMBER')}</option>
+                    <option value="ADMIN">{projectRoleLabel('ADMIN')}</option>
+                    <option value="VIEWER">{projectRoleLabel('VIEWER')}</option>
                   </select>
                   <button
                     type="button"
@@ -359,6 +378,14 @@ export function Team() {
 
       {showInvite && (
         <AddMemberModal onClose={() => setShowInvite(false)} onCreated={refetchMembers} />
+      )}
+
+      {showAddMember && (
+        <AddProjectMemberModal
+          projects={manageableProjects}
+          onClose={() => setShowAddMember(false)}
+          onInvited={refetchProjectMembers}
+        />
       )}
 
       {addingPosition && (

@@ -165,7 +165,7 @@ The UI no longer carries its own copy of the rules. After login `AuthContext` lo
 | `/help` | `Help` | Help & Support (static FAQ) |
 | `/error/:status`, any unknown path | `ErrorPage` | One page for every error status (404 for unknown paths, 403 from the permission guard) |
 
-The task detail panel (`components/TaskDetailPanel.jsx`) is a right-hand drawer with subtasks, comments, dependencies and the activity feed. New Task and New Project use the same drawer layout (`TaskFormModal`, `NewProjectModal`); editing uses a centered modal.
+The task detail panel (`components/TaskDetailPanel.jsx`) is a right-hand drawer with subtasks, comments, dependencies and the activity feed. New Task, Add member (project page) and Add User (Team page) open in the shared `SidePanel` (`TaskFormModal`, `AddProjectMemberModal`, `AddMemberModal`); New Project has its own copy of the drawer layout (`NewProjectModal`); editing a task or a project uses a centered modal.
 
 ## 4. API communication
 

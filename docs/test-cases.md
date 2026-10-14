@@ -1,6 +1,6 @@
 # Test cases
 
-The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-14** against the running stack: backend 453/453, frontend unit tests 172/172, Playwright 215 tests in 33 files (215/215 in a clean run; see [testing.md](testing.md) for the timing-sensitive specs fixed on the way) (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
+The formal list of what the application is tested for: one row per case, with the steps, the expected result and the automated test that proves it. [testing.md](testing.md) is the engineering view (tools, counts, how to run, gaps); this page is the checklist a reviewer or tester reads to see **what behaviour is covered**. Last verified **2026-10-14** against the running stack: backend 453/453, frontend unit tests 174/174, Playwright 257 tests in 39 files (257/257 in a clean run; see [testing.md](testing.md) for the timing-sensitive specs fixed on the way) (the first 145 also passed on a freshly built stack with an empty database, started the way the CI `e2e` job starts it).
 
 **Reading the tables**
 
@@ -117,7 +117,10 @@ The formal list of what the application is tested for: one row per case, with th
 | MEM-06 | A membership cannot be re-pointed | Change the project or user of a membership | Refused; its role can change | `ProjectMemberServiceTest`; `permissions.spec.js` |
 | MEM-07 | Name a Team Leader as the project lead | The Owner clicks *Make lead* beside a Team Leader (or `PUT /api/projects/{id}/lead`); clear it again | The Lead field, the project list and the activity feed show it; only a Team Leader of the project can be named; a Team Leader or Team Member cannot name one | `project-lead.spec.js`; `ProjectServiceTest` |
 | MEM-08 | The lead stops being the lead with the role | Demote the lead, remove them from the project, or make them the Owner | The project has no lead afterwards | `project-lead.spec.js`; `ProjectMemberServiceTest` |
-| MEM-09 | Invite with a role | Project page → *Add member*: pick *Team Leader*, type a username, send; the person accepts | The dialog offers Team Member (default), Team Leader and Viewer, never Owner; the invitation and then the membership carry the chosen role | `invite-role.spec.js` |
+| MEM-09 | Invite with a role | Project page → *Add member*: pick *Team Leader*, choose the person from the list, send; the person accepts | The dialog offers Team Member (default), Team Leader and Viewer, never Owner; the invitation and then the membership carry the chosen role | `invite-role.spec.js` |
+| MEM-10 | Add member and Add User are side panels | Project page → *Add member*; Team page → *Add User*, then choose *+ Add New Position* | Each opens as a panel against the right edge; the small *Add New Position* dialog opens centred on the screen above the panel and closing it leaves the panel open | `side-panels.spec.js`; `project-team.spec.js` |
+| MEM-11 | Add Member on the Team page | Team → *Add Member*; choose a project, then a person from the list (type to search, arrow keys and Enter), send | The person box is disabled until a project is chosen; Escape closes only the list; only a listed person can be chosen (an inactive account, an existing member and a pending invitee are not listed); the invitation is sent and shown as pending; a Team Member sees neither *Add Member* nor *Add User* | `add-member.spec.js`; `project-team.spec.js` |
+| MEM-12 | One name for a project role | Open a project's team list, the *Add member* panel (project page and Team page), the Team page's invite picker and Roles & Permissions | Every project-role picker and badge reads *Owner*, *Admin (Team Leader)*, *Member (Team Member)* or *Viewer*; Roles & Permissions lists the same four names and keeps its note of the Team Leader / Team Member business names; a role change reads "X is now Admin (Team Leader)"; the stored values and the permissions are unchanged | `role-labels.spec.js`; `invite-role.spec.js`; `manager-views.spec.js`; `api/format.test.js` |
 
 ## 6. Tasks
 
@@ -143,6 +146,7 @@ The formal list of what the application is tested for: one row per case, with th
 | TSK-18 | Tasks a page at a time | `GET /api/tasks?page=0&size=5` as a member and as an Administrator; with `status` and `sort`; `size=0`, `size=201`, `page=-1` | A member's total counts only their projects; the filter runs first; a bad value is `400` | `paging.spec.js`; `TaskServiceTest`; `PageParamsTest` |
 | TSK-19 | Created date | Open a task | The task panel shows its start date and when the task was created (with the year) | `quick-wins.spec.js` |
 | TSK-20 | A dependency stays inside one project | Link a task to a task of another project; then to a task of its own project | The first is refused (`400`, "same project"; `404` if the caller cannot see the other project), the second is saved | `dependencies-and-notices.spec.js`; `TaskDependencyServiceTest`; `verify_invariants.sql` no. 15 |
+| TSK-21 | New Task is a side panel | Open *New Task* from the Tasks page; press Escape; open it again, type a title and press Escape | The form is a panel against the right edge (full height, 440 px; the whole width on a phone); a pristine panel closes at once, one with typed text asks *Discard changes?* | `side-panels.spec.js` |
 
 ## 7. Task approval
 
@@ -188,6 +192,7 @@ The formal list of what the application is tested for: one row per case, with th
 |---|---|---|---|---|
 | MIL-01 | Edit a milestone | Edit it from the project page; complete it while a task is open | The edit saves; a warning names the open task (in the form and as a warning toast after saving); the task is left untouched; the update keeps fields it did not send | `quick-wins.spec.js`; `MilestoneServiceTest` |
 | MIL-02 | Calendar | Open *Calendar* | Milestones appear on their due date in month and day views | `quick-wins.spec.js` |
+| MIL-05 | Detail on the calendar | Click a day number, then an item in its list; click a task chip and a milestone chip in the grid; use *New task on this day* | A day opens a drawer in two parts: the list of what is due (milestones, then tasks) on the left and, once an item is chosen, its detail on the right (the task panel, or a milestone panel with its linked tasks); the list stays while another item is chosen; the X of the detail closes only the detail, the X of the list closes the drawer; a chip opens the drawer on its day with that item chosen; *New task on this day* opens *New Task* set to that day; a Team Member can open a day and has no add button; on a narrow window or a phone one part is shown at a time | `calendar-details.spec.js` |
 | MIL-03 | Gantt | Open a project's Gantt tab | A bar per task in date order, dependency arrows, a conflict flag when a task starts before its prerequisite ends, hover fading, zoom to months, a bar opens the task | `gantt.spec.js` |
 | MIL-04 | Timeline | Open the Timeline tab | The project, milestones and tasks are drawn; selecting opens them | `manager-views.spec.js` |
 
@@ -202,6 +207,8 @@ The formal list of what the application is tested for: one row per case, with th
 | DSH-05 | Overdue pill | Open the dashboard as a manager with overdue tasks; click *N overdue* | The pill is in the Task Overview header and opens the Tasks page | `dashboard-polish.spec.js` |
 | DSH-06 | A failed load is said out loud | Make `GET /api/dashboard/stats` fail, open the dashboard, then let it succeed and press *Try again* | A message says some figures could not be loaded and the stat cards read "—"; after the retry the message is gone and the figures are back | `dashboard-polish.spec.js` |
 | DSH-07 | Phone and desktop layout | Open the dashboard at 390 px and at 1440 px | At 390 px the workload card shows who is overloaded and the page does not scroll sideways; at 1440 px the two columns start level and stacked cards are 24 px apart | `dashboard-polish.spec.js` |
+| DSH-08 | Project health and team workload share a column | Open the dashboard as a manager at 1440 px | Delayed projects, the project previews and Team workload are one column, in that order, to the right of the wider task column; the chart starts below both and spans them; a project preview is one card wide | `dashboard-polish.spec.js` |
+| DSH-09 | A long team list scrolls inside its card | Open the dashboard as a manager of a team of more than eight people | The list is at most 400 px tall and scrolls (it can be focused and scrolled from the keyboard); the *Team average* footnote stays below it; the page does not get longer | `dashboard-polish.spec.js` |
 
 ## 12. Reports and KPIs
 
@@ -214,6 +221,7 @@ The formal list of what the application is tested for: one row per case, with th
 | REP-05 | Formatting | Display a date, a rate, hours | `Oct 12, 2026`, `50.0%`, `1.5`; a dash when there is nothing | `reportFormat.test.js` |
 | REP-06 | Export | Generate each report (and open the KPIs); press *Excel*, then *PDF*; look at the page before generating | No buttons before *Generate*; an `.xlsx` and a `.pdf` named after the report and the day are saved, holding its title, scope and tables | `report-export.spec.js`; `reportExport.test.js` |
 | REP-07 | Overview workload chart | Open Reports and choose a project in *Filter* | One group of bars per member (assigned, active, overdue); the tooltip adds the estimated and actual hours and the load level; the numbers equal the Workload report's; a person who may not assign tasks has no chart | `reports.spec.js` |
+| REP-08 | Page layout matches the other pages | Open Reports at 1440 px and at 390 px | Filter and the period are in the page header, above the tab strip; the strip uses the Tasks quick-view pills and is one row (scrolling sideways on a phone); the Overview charts sit in two columns, the top two level and the next row 24 px below; the page does not scroll sideways | `reports.spec.js` |
 
 ## 13. Notifications
 
@@ -239,6 +247,8 @@ The formal list of what the application is tested for: one row per case, with th
 | ERR-04 | An unknown API path | Call `/api/does-not-exist` | `404`, not `500` | `batch1.spec.js`; `GlobalExceptionHandlerTest` |
 | ERR-05 | Every screen opens | As an administrator, open the dashboard, tasks, projects, calendar, Kanban, team, reports, the three administration pages (users, roles and permissions, audit log), profile, settings, help, and a project with each of its views | No script error, no `5xx` from the API, no error page | `smoke.spec.js` |
 | ERR-06 | Text helpers | Format a title, a status, a date, "time ago" | Readable output; missing values handled | `format.test.js` |
+| ERR-07 | The page header stays at the top | Open any page, make the window short and scroll down; on a phone scroll a page whose header wraps (Tasks) and use the menu | The header (title, subtitle, and the bell, theme and profile when they are on the first row) stays at the top while the content scrolls beneath it, on a background equal to the page; on a phone only its first row stays and the action buttons are back when you scroll to the top; the notification panel, a side panel and the menu drawer still open above it; no sideways scroll | `sticky-header.spec.js` |
+| ERR-08 | A project page fits a phone | As an administrator, open each project at 390 px wide, including one with a long name | The page is not wider than the screen (no sideways scroll); a long name is cut with an ellipsis in the header; the role picker in the team list stays inside its card | `phone-project-page.spec.js` |
 
 ## 15. Data isolation and security
 
@@ -284,7 +294,7 @@ These were checked by hand during development and are the next candidates for au
 
 | ID | Case | What to check |
 |---|---|---|
-| MAN-01 | Password checklist | The live checklist on Register, Profile and Invite Member ticks as the rules are met; sign-in does not enforce complexity |
+| MAN-01 | Password checklist | The live checklist on Register, Profile and Add User ticks as the rules are met; sign-in does not enforce complexity |
 | MAN-02 | New Project drawer | The code is generated, and is read-only when editing |
 | MAN-03 | Add-member button | Visible only to those allowed to add members |
 | MAN-04 | *My Tasks* filter | Shows exactly the tasks assigned to the signed-in user |

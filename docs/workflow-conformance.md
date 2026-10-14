@@ -1,8 +1,8 @@
 # Workflow Conformance Test — 2026-10-08
 
-The running application tested against [project-workflow.md](../project-workflow.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). Sections 1–5 record the test **before any change** to the application, so the result could be trusted; section 6 records the re-test after the role-model migration (`V10`) done later the same day; section 7 records the re-test after change-plan batch 1 (2026-10-09); sections 8–11 record the later batches; section 12 the scheduled reminders, section 13 the Gantt prototype and section 14 the error and help pages (all 2026-10-10), section 15 the quick-wins batch and section 16 the auto-logout and notifications batch (both 2026-10-12); sections 17–26 the later batches up to 2026-10-14 section 27 the created date and the warning toast, and section 28 the dashboard polish.
+The running application tested against [project-workflow.md](../project-workflow.md) and the approved specification ([assignment-brief.md](../assignment-brief.md) Part B). Sections 1–5 record the test **before any change** to the application, so the result could be trusted; section 6 records the re-test after the role-model migration (`V10`) done later the same day; section 7 records the re-test after change-plan batch 1 (2026-10-09); sections 8–11 record the later batches; section 12 the scheduled reminders, section 13 the Gantt prototype and section 14 the error and help pages (all 2026-10-10), section 15 the quick-wins batch and section 16 the auto-logout and notifications batch (both 2026-10-12); sections 17–26 the later batches up to 2026-10-14 section 27 the created date and the warning toast, section 28 the dashboard polish, section 29 its layout pass section 30 the Reports page layout section 31 the forms in the side panel section 32 Add Member on the Team page section 33 one name for a project role section 34 detail on the calendar and section 35 the sticky page header.
 
-**Where things stand now (44 flows, derived on 2026-10-12 by applying the "After" columns of §6–§16 to the table in §2): PASS 43 · PARTIAL 0 · MISSING 1, after §28.** The tables in §2–§5 below are the starting point and are kept as the record of that first test; they are not the current state. What is still not a PASS:
+**Where things stand now (44 flows, derived on 2026-10-12 by applying the "After" columns of §6–§16 to the table in §2): PASS 43 · PARTIAL 0 · MISSING 1, after §35.** The tables in §2–§5 below are the starting point and are kept as the record of that first test; they are not the current state. What is still not a PASS:
 
 | § | Flow | Class | Why |
 |---|---|---|---|
@@ -359,4 +359,78 @@ Front end only; deployed and checked in the running stack as a manager and as a 
 |---|---|---|---|
 | 5 Dashboard | PASS | **PASS** | the same figures, laid out in two independent columns (no empty space beside a short card; Delayed projects first on the right, the chart last); the overdue count is a danger-tint pill that opens Tasks; the chart card is *Task activity* with a readable y axis; a failed load now says so and offers *Try again* instead of showing "Nothing due soon"; on a phone the workload card keeps Overdue and Load in view and Due & Overdue titles wrap instead of being cut |
 
-**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **453/453** (not changed); frontend unit tests **172/172**; Playwright **215/215** in a clean run at 4 workers; ESLint clean; the design detector reports nothing.
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1** (the missing one is the optional document management). Backend tests **453/453** (not changed); frontend unit tests **172/172**; Playwright **217/217** in a clean run at 4 workers (after the layout pass of section 29); ESLint clean; the design detector reports nothing.
+
+## 29. Re-test after the dashboard layout pass (2026-10-14)
+
+Layout only (a follow-up to section 28), front end only; no figure, permission, calculation or API call changed. Deployed and measured in the running stack as a manager and as a Team Member at 1440, 1280, 1100, 820 and 390 px: no horizontal page scroll, nothing scrolls inside a card, no console errors.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 5 Dashboard | PASS | **PASS** | the right column is project health (Delayed projects, then the two project previews) followed by Team workload; the wider left column holds Task Overview, Due & Overdue and Recent activity; the Task activity chart spans both. The two columns end about 130px apart at 1440px (the right was 300px longer when the chart sat in it). The project previews are compact; the workload card is a list that fits 380px with full names (the table cut them to "Amy …"); between 640 and 1200px the two project previews sit side by side; the list of people scrolls inside the workload card once it passes about eight (400px) |
+| 30 Team workload | PASS | **PASS** | the dashboard card shows each person's assigned, active and overdue counts and the Load pill; the server figures and the overloaded / underloaded levels are unchanged |
+
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1.** Backend tests **453/453** (not changed); frontend unit tests **172/172**; Playwright **217/217** in a clean run at 4 workers; ESLint clean.
+
+## 30. Re-test after the Reports page layout pass (2026-10-14)
+
+Layout only, front end only: the same reports, figures, permissions and exports. Deployed and checked in the running stack as a manager at 1440, 820 and 390 px: no horizontal page scroll, no console errors.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 32 Reports | PASS | **PASS** | the page follows the other screens: the tab strip is the Tasks quick-view pill in one row (it wrapped into four rows on a phone), the Overview's Filter and period are page-header actions, spacing is the dashboard's (16px / 24px), and the four Overview charts sit in two independent columns instead of a stretched grid (Team Productivity no longer has an empty half) |
+
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1.** Backend tests **453/453** (not changed); frontend unit tests **172/172**; Playwright **219/219** in a clean run at 4 workers; ESLint clean.
+
+## 31. Re-test after the forms moved to the side panel (2026-10-14)
+
+Front end only: the same fields, validation and calls. Deployed and checked in the running stack at 1440 and 390 px.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 11 Task management, 12 Create/edit task | PASS | **PASS** | *New Task* uses the shared right-hand `SidePanel` instead of its own copy of the drawer, so it also closes on Escape, announces itself as a dialog and asks *Discard changes?* the same way as the other panels (the copy had no Escape handling). *Edit Task* stays a centred modal (it opens over the task panel) |
+| 8 Project team management, 3 User & role management | PASS | **PASS** | *Add member* (project page) and *Add User* (Team page) were centred pop-ups and are now side panels, in the same frame as the task panel and the role form; the small *Add New Position / Department* dialog opened from the invite panel is rendered beside the panel, so it still centres on the screen |
+
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1.** Backend tests **453/453** (not changed); frontend unit tests **172/172**; Playwright **223/223** in a clean run at 4 workers (`side-panels.spec.js` +4; the two Add member cases of `project-team.spec.js` now find the panel by its role instead of the old pop-up's CSS class); ESLint clean.
+
+## 32. Re-test after "Add Member" on the Team page and the combo box (2026-10-14)
+
+Front end only: the invitation is the same `POST /api/project-members/invite` (the person still accepts or declines), and no permission changed. Deployed and checked in the running stack at 1440 and 390 px.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 8 Project team management | PASS | **PASS** | flow 8 step 4 ("select a user") is now a combo box: the person is searched by name or username and chosen from the people who can really be added (existing, active, not already in the project, no pending invitation), so nothing is typed out in full and an ineligible account cannot be sent from the screen. The Team page has its own *Add Member* button (a project combo box, then the person, then the role) for anyone who manages a project, next to *Add User* (an administrator creating an account); the project page's *Add member* uses the same panel |
+
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1.** Backend tests **453/453** (not changed); frontend unit tests **172/172**; Playwright **226/226** in a clean run at 4 workers (`add-member.spec.js` +3; `project-team.spec.js` and `invite-role.spec.js` now pick the person from the combo box); ESLint clean.
+
+## 33. Re-test after one name for a project role (2026-10-14)
+
+Display labels only: the stored values (`OWNER`, `ADMIN`, `MEMBER`, `VIEWER`), the permissions, the authorization and the API are unchanged. Every selector and badge was read in the running stack (project page, Add member panel on both pages, the Team page's invite picker, Team Tasks, Roles & Permissions).
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 8 Project team management, 4 Role & permission | PASS | **PASS** | the same two project roles had two names: *Admin* / *Member* on Roles & Permissions and *Team Leader* / *Team Member* in the pickers and badges. Now every project role reads *Owner*, *Admin (Team Leader)*, *Member (Team Member)* or *Viewer* (the assignment's names are kept in brackets), including the Roles & Permissions list and headings, which keep their note of the business names |
+
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1.** Backend tests **453/453** (not changed); frontend unit tests **174/174** (`projectRoleLabel` +2); Playwright **229/229** in a clean run at 4 workers (`role-labels.spec.js` +3; `invite-role.spec.js`, `manager-views.spec.js` and the report export test read the new labels); ESLint clean.
+
+## 34. Re-test after detail on the calendar (2026-10-14)
+
+Front end only: the same lists and permissions (the calendar only shows what the caller may already see), nothing is changed by opening an item. Deployed and checked in the running stack at 1440 and 390 px.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 20 Calendar View | PASS | **PASS** | flow 20 steps 5-6 ("click an item, view its details") were only half true: clicking a day opened *New Task*, and a task or milestone chip did nothing (a click on a chip also fell through to *New Task*). Now a day opens a drawer in two parts: the list of what is due that day (with *New task on this day*) and, beside it, the detail of the item chosen in the list (the task panel, or a milestone panel with its due date, project, progress, description and linked tasks), so the list stays in view; a chip in the grid opens the drawer on its day with that item chosen; the header's *New Event* is unchanged. Anyone who can see the calendar can open a day, and the add button is shown only to those who may create tasks |
+
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1.** Backend tests **453/453** (not changed); frontend unit tests **174/174**; Playwright **238/238** in a clean run at 4 workers (`calendar-details.spec.js` +9; the existing calendar cases in `quick-wins.spec.js` pass unchanged); ESLint clean.
+
+## 35. Re-test after the sticky page header (2026-10-14)
+
+Front end only: the shared page header (`TopBar`) is now sticky; nothing it shows or does changed. Checked in the running stack on 19 page views (every screen, a project and its four tabs) at 1440, 820 and 390 px in light and dark.
+
+| § | Before | After | Why |
+|---|---|---|---|
+| 34 State management (the shell), every page flow | PASS | **PASS** | the header (title, subtitle, search, actions, notification bell, theme and profile) scrolled away with the page; it now stays at the top on every page (82 scrollable views checked: header at the top, title uncovered, background equal to the canvas in both themes). A header that wraps onto several rows (the action buttons on a phone: 200-276 px) pins only its first row (88-115 px on a phone, 117 px on a desktop, 105 px on a tablet) instead of a third of the screen. Dropdowns, the notification panel, side panels, dialogs and the mobile menu open above it; no page gained a sideways scroll |
+
+**Totals unchanged (44 flows): PASS 43 · PARTIAL 0 · MISSING 1.** Backend tests **453/453** (not changed); frontend unit tests **174/174**; Playwright **257/257** in a clean run at 4 workers (`phone-project-page.spec.js` +1, `sticky-header.spec.js` +18, three runs in a row); ESLint clean.
+
+Found on the way, not caused by this change and not fixed: on a 390 px phone the project page is 6 px wider than the screen (the status dropdown beside the title is too wide).

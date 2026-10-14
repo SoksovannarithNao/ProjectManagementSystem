@@ -7,6 +7,7 @@ import {
   formatDate,
   formatLongDate,
   humanizeEnum,
+  projectRoleLabel,
   initialsFor,
   taskDisplayTitle,
   timeAgo,
@@ -112,5 +113,19 @@ describe('dates', () => {
     expect(timeAgo(ago(2 * 86400 * 1000))).toBe('2d ago')
     expect(timeAgo(ago(30 * 86400 * 1000))).toBe('Sep 12')
     expect(timeAgo(null)).toBe('')
+  })
+})
+
+describe('projectRoleLabel', () => {
+  it('names the four project roles the way Roles & Permissions does, with the business name for Admin and Member', () => {
+    expect(projectRoleLabel('OWNER')).toBe('Owner')
+    expect(projectRoleLabel('ADMIN')).toBe('Admin (Team Leader)')
+    expect(projectRoleLabel('MEMBER')).toBe('Member (Team Member)')
+    expect(projectRoleLabel('VIEWER')).toBe('Viewer')
+  })
+
+  it('falls back to a readable name for a role it does not know, and to nothing for no role', () => {
+    expect(projectRoleLabel('AUDITOR')).toBe('Auditor')
+    expect(projectRoleLabel(null)).toBe('')
   })
 })

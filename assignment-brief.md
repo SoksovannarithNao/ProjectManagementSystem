@@ -433,7 +433,7 @@ Classification of every feature named in only one source or marked inconsistentl
 | Gantt chart prototype | OPTIONAL | Part A "can"; listed in the Overview and the team-responsibilities file but in no function list | built 2026-10-10 (project *Gantt* tab) |
 | Kanban board (view by status) | REQUIRED | Part A | done |
 | Kanban moving cards between columns | OPTIONAL | Part A "can … as a prototype" | **built 2026-10-13** (drag and drop, and a Move to menu) |
-| Calendar (tasks, due dates, milestones) | REQUIRED | Part A; at least one of day/week/month, all three is the target | done (2026-10-12): month, week and day views of tasks and milestones |
+| Calendar (tasks, due dates, milestones) | REQUIRED | Part A; at least one of day/week/month, all three is the target | done (2026-10-12): month, week and day views of tasks and milestones; since 2026-10-14 a day opens a two-part drawer (what is due, and the detail of the chosen task or milestone beside it), not only a new task |
 | Task List with search/filter/sort | REQUIRED | Part A | done in the browser over the permission-scoped list (2026-10-09); the list endpoints take the same search, filter and sort parameters (2026-10-13; G-16) |
 | Subtasks | REQUIRED | Part A | done |
 | Checklists | REQUIRED | Part A | done (2026-10-09, `V13`) |
@@ -553,7 +553,7 @@ A person has exactly one system role and any number of project roles, one per pr
 |---|---|
 | Administrator | system role `ADMINISTRATOR` |
 | Project Manager | system role `PROJECT_MANAGER` **and normally** project role `OWNER` on the projects they manage |
-| Team Leader | project role `ADMIN` |
+| Team Leader | project role `ADMIN` (shown on screen as *Admin (Team Leader)*) |
 | Team Member | project role `MEMBER` |
 | Viewer / stakeholder | project role `VIEWER` (not named in Part A; kept for read-only participants) |
 | a registered person with no management duty | system role `USER` |

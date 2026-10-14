@@ -180,21 +180,24 @@ test.describe('project team: invitations, eligibility and suggestions', () => {
 
     await page.goto(`/projects/${id}`)
     await page.getByRole('button', { name: /add member/i }).click()
-    const dialog = page.locator('div.animate-scale-in')
+    const dialog = page.getByRole('dialog', { name: 'Add Member', exact: true })
     const input = dialog.getByPlaceholder('Search by name or username')
-    const options = dialog.locator('datalist option')
+    // the people offered (the role dropdown below has native options of its own)
+    const options = dialog.getByRole('listbox').getByRole('option')
 
     await input.fill('new user') // by full name
     await expect(options).toHaveCount(1)
-    await expect(options.first()).toHaveAttribute('value', 'newuser')
+    await expect(options.first()).toContainText('newuser')
 
     await input.fill('felix') // INACTIVE -> never suggested
     await expect(options).toHaveCount(0)
 
     await input.fill('newuser')
-    await expect(options.first()).toHaveAttribute('value', 'newuser')
+    await expect(options.first()).toContainText('newuser')
+    await options.first().click() // only a listed person can be chosen
+    await expect(input).toHaveValue('New User')
     await dialog.getByRole('button', { name: /send invitation/i }).click()
-    await expect(page.getByText('Invitation sent to newuser')).toBeVisible()
+    await expect(page.getByText('Invitation sent to New User')).toBeVisible()
     await expect(page.getByText(`${before + 1} pending invitation${before + 1 === 1 ? '' : 's'}`, { exact: true })).toBeVisible()
 
     const pending = await (await request.get(`/api/project-members/project/${id}/invitations`, { headers })).json()
@@ -203,7 +206,7 @@ test.describe('project team: invitations, eligibility and suggestions', () => {
     sentInvites.push(...pending.filter((p) => p.user.username === 'newuser').map((p) => p.id))
   })
 
-  test('inviting an inactive account from the UI shows the backend message', async ({ page, request }) => {
+  test('an inactive account is never offered, and nobody can be invited without choosing someone from the list', async ({ page, request }) => {
     const headers = await authHeaders(request, 'pm.olivia')
     const id = await projectId(request, headers)
 
@@ -212,10 +215,14 @@ test.describe('project team: invitations, eligibility and suggestions', () => {
 
     await page.goto(`/projects/${id}`)
     await page.getByRole('button', { name: /add member/i }).click()
-    const dialog = page.locator('div.animate-scale-in')
-    await dialog.getByPlaceholder('Search by name or username').fill('contractor.felix')
-    await dialog.getByRole('button', { name: /send invitation/i }).click()
-    await expect(dialog.getByText(/inactive account/)).toBeVisible()
+    const dialog = page.getByRole('dialog', { name: 'Add Member', exact: true })
+    const send = dialog.getByRole('button', { name: /send invitation/i })
+    await expect(send).toBeDisabled() // nobody chosen yet
+
+    await dialog.getByPlaceholder('Search by name or username').fill('contractor.felix') // INACTIVE
+    await expect(dialog.getByRole('listbox').getByRole('option')).toHaveCount(0)
+    await expect(dialog.getByText('No one left to add')).toBeVisible()
+    await expect(send).toBeDisabled() // typing a name that is not in the list does not make it a choice
     expect(await (await request.get(`/api/project-members/project/${id}/invitations/count`, { headers })).json()).toEqual({ count: before })
   })
 })

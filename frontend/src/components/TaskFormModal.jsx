@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
-import { X, FolderKanban, Flag, CalendarDays } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { FolderKanban, Flag, CalendarDays } from 'lucide-react'
 import { Modal } from './ui/Modal'
-import { ConfirmDialog } from './ui/ConfirmDialog'
+import { SidePanel } from './ui/SidePanel'
 import { useToast } from './ui/Toast'
 import { useDirtyForm } from './ui/useDirtyForm'
 import { useApi } from '../api/useApi'
@@ -107,27 +107,6 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
     assigneeId,
     estimatedHours,
   })
-
-  // New Task renders its own right-side drawer chrome (to match
-  // TaskDetailPanel) instead of going through the shared centered <Modal>,
-  // so it needs its own copy of the same dirty-check-before-close guard
-  // Modal already provides for the Edit path below — same isDirty snapshot,
-  // just not routed through that component.
-  const [confirmingClose, setConfirmingClose] = useState(false)
-  const requestClose = () => {
-    if (isDirty) setConfirmingClose(true)
-    else onClose()
-  }
-
-  useEffect(() => {
-    if (isEdit || !isDirty) return
-    const handler = (e) => {
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [isEdit, isDirty])
 
   // Reconcile the task's single assignee against the task-assignees join
   // table — Task itself carries no assignee field, assignment is a separate
@@ -351,29 +330,12 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
     )
   }
 
-  // New Task: a right-side drawer reusing TaskDetailPanel's exact chrome
-  // (backdrop, aside sizing/animation, header row, scrollable body, footer
-  // bar) instead of the centered Modal, per the redesign request — same
-  // fields/validation/API calls as before, just laid out like that panel's
-  // own sections (a bordered "details" box for the short fields, then
-  // labeled sections below for the longer ones).
+  // New Task: the shared right-hand SidePanel (the same frame as the task panel and the role form: scrim, title,
+  // close button, Escape and the "Discard changes?" check come from it).
   return (
-    <>
-      <div
-        className="animate-fade-in fixed inset-0 z-[60] flex justify-end bg-scrim"
-        onClick={requestClose}
-      >
-        <aside
-          className="animate-slide-in bg-card shadow-pop flex h-full w-[440px] max-w-[100vw] flex-col max-sm:w-[100vw]"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="border-divider flex items-center justify-between border-b px-[22px] py-[18px]">
-            <span className="text-ink text-[15px] font-[650]">New Task</span>
-            <button className="icon-btn" onClick={requestClose} aria-label="Close panel">
-              <X size={18} />
-            </button>
-          </div>
-
+    <SidePanel title="New Task" onClose={onClose} isDirty={isDirty}>
+      {({ requestClose }) => (
+        <>
           <form id="new-task-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-[22px] pt-5 pb-6">
             <label className="mb-5 flex flex-col gap-1.5">
               <span className="text-muted text-[12px] font-semibold">Title</span>
@@ -499,7 +461,7 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
             {error && <p className="text-danger-ink mt-4 text-[12px] font-semibold">{error}</p>}
           </form>
 
-          <div className="border-divider flex items-center justify-end gap-2 border-t px-[18px] py-3.5">
+          <div className="border-divider flex items-center justify-end gap-2 border-t px-[22px] py-4">
             <button type="button" className="btn btn-secondary" onClick={requestClose}>
               Cancel
             </button>
@@ -512,18 +474,8 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
               {submitting ? 'Creating…' : 'Create Task'}
             </button>
           </div>
-        </aside>
-      </div>
-
-      {confirmingClose && (
-        <ConfirmDialog
-          title="Discard changes?"
-          message="You have unsaved changes. Closing now will discard them."
-          confirmLabel="Discard"
-          onConfirm={onClose}
-          onClose={() => setConfirmingClose(false)}
-        />
+        </>
       )}
-    </>
+    </SidePanel>
   )
 }

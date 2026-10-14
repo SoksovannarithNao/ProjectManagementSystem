@@ -15,23 +15,72 @@ const hours = (value) => {
 // Per-member workload (assignment-brief.md D-13): assigned, active and overdue
 // tasks, estimated and actual hours, and whether the person carries clearly
 // more or less than the team average. All numbers come from the server.
-//   compact  drops the hour columns (the dashboard card)
+//   compact  the dashboard card: one row per person (name, a line of counts, the Load pill) instead of
+//            a table, because the card sits in a 380px column; the hour columns are left out
 export function WorkloadTable({ workload, compact = false }) {
   const members = workload?.members ?? []
-  // On a phone the compact table keeps the columns that decide something (Overdue, Load) and
-  // drops Assigned and Active, instead of scrolling the Load column out of sight.
-  const phoneHidden = compact ? 'max-sm:hidden' : ''
   if (members.length === 0) {
     return <p className="text-faint text-[12px]">No team members to compare.</p>
   }
+  const footnote = (
+    <p className="text-faint mt-2 text-[12px]">
+      Team average: {Number(workload.averageOpenTasks ?? 0).toFixed(1)} open tasks (active + overdue),{' '}
+      {hours(workload.averageEstimatedHours)} estimated hours. “Overloaded” and “underloaded” are measured against
+      this average.
+    </p>
+  )
+  if (compact) {
+    return (
+      <div data-testid="workload-table">
+        {/* About eight people are visible; the rest scroll inside the card (focusable, so a keyboard can
+            scroll it). The footnote stays below, outside the scrolling area. */}
+        <ul className="scroll-y flex max-h-[400px] flex-col pr-1" tabIndex={0} aria-label="Workload by person">
+          {members.map((m) => {
+            const level = LEVEL[m.level] ?? LEVEL.BALANCED
+            return (
+              <li
+                key={m.user.id}
+                className="border-divider flex items-center gap-2.5 border-b py-2 first:pt-0 last:border-b-0"
+                data-testid="workload-row"
+              >
+                <Avatar
+                  initials={initialsFor(m.user.fullName)}
+                  color={colorForId(m.user.id)}
+                  photoUrl={m.user.profilePhotoUrl}
+                  size={26}
+                />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-ink truncate text-[13px] leading-tight font-semibold">{m.user.fullName}</span>
+                  <span className="text-faint mt-0.5 text-[12px] leading-tight tabular-nums">
+                    <span className="whitespace-nowrap">{m.assigned} assigned</span> ·{' '}
+                    <span className="whitespace-nowrap">{m.active} active</span> ·{' '}
+                    <span className={`whitespace-nowrap ${m.overdue > 0 ? 'text-danger-ink font-semibold' : ''}`}>
+                      {m.overdue} overdue
+                    </span>
+                  </span>
+                </span>
+                <span
+                  data-level={m.level}
+                  className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-[12px] leading-none font-semibold ${level.className}`}
+                >
+                  {level.label}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+        {footnote}
+      </div>
+    )
+  }
   return (
     <div className="overflow-x-auto" data-testid="workload-table">
-      <table className={`w-full text-left text-[13px] ${compact ? 'sm:min-w-[420px]' : 'min-w-[420px]'}`}>
+      <table className="w-full min-w-[420px] text-left text-[13px]">
         <thead>
           <tr className="text-faint border-divider border-b text-[12px] font-semibold">
             <th className="py-2 pr-3 font-semibold">Member</th>
-            <th className={`px-2 py-2 text-right font-semibold ${phoneHidden}`}>Assigned</th>
-            <th className={`px-2 py-2 text-right font-semibold ${phoneHidden}`}>Active</th>
+            <th className="px-2 py-2 text-right font-semibold">Assigned</th>
+            <th className="px-2 py-2 text-right font-semibold">Active</th>
             <th className="px-2 py-2 text-right font-semibold">Overdue</th>
             {!compact && <th className="px-2 py-2 text-right font-semibold">Estimated h</th>}
             {!compact && <th className="px-2 py-2 text-right font-semibold">Actual h</th>}
@@ -43,7 +92,7 @@ export function WorkloadTable({ workload, compact = false }) {
             const level = LEVEL[m.level] ?? LEVEL.BALANCED
             return (
               <tr key={m.user.id} className="border-divider border-b last:border-b-0" data-testid="workload-row">
-                <td className="max-w-0 py-2.5 pr-3 max-sm:w-full sm:max-w-none">
+                <td className="py-2.5 pr-3">
                   <span className="flex items-center gap-2.5">
                     <Avatar
                       initials={initialsFor(m.user.fullName)}
@@ -54,8 +103,8 @@ export function WorkloadTable({ workload, compact = false }) {
                     <span className="text-ink truncate font-semibold">{m.user.fullName}</span>
                   </span>
                 </td>
-                <td className={`px-2 py-2.5 text-right tabular-nums ${phoneHidden}`}>{m.assigned}</td>
-                <td className={`px-2 py-2.5 text-right tabular-nums ${phoneHidden}`}>{m.active}</td>
+                <td className="px-2 py-2.5 text-right tabular-nums">{m.assigned}</td>
+                <td className="px-2 py-2.5 text-right tabular-nums">{m.active}</td>
                 <td className={`px-2 py-2.5 text-right tabular-nums ${m.overdue > 0 ? 'text-danger-ink font-semibold' : ''}`}>
                   {m.overdue}
                 </td>
@@ -74,11 +123,7 @@ export function WorkloadTable({ workload, compact = false }) {
           })}
         </tbody>
       </table>
-      <p className="text-faint mt-2 text-[12px]">
-        Team average: {Number(workload.averageOpenTasks ?? 0).toFixed(1)} open tasks (active + overdue),{' '}
-        {hours(workload.averageEstimatedHours)} estimated hours. “Overloaded” and “underloaded” are measured against
-        this average.
-      </p>
+      {footnote}
     </div>
   )
 }

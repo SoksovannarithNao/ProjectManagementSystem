@@ -31,7 +31,7 @@ import {
   getTeamPerformanceReport,
   getWorkloadReport,
 } from '../../api/reports'
-import { humanizeEnum, formatLongDate } from '../../api/format'
+import { humanizeEnum, projectRoleLabel, formatLongDate } from '../../api/format'
 
 const TASK_STATUS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'CANCELLED'].map((s) => ({ value: s, label: humanizeEnum(s) }))
 const PRIORITY = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((s) => ({ value: s, label: humanizeEnum(s) }))
@@ -194,7 +194,7 @@ export function ProjectReportView() {
             <ReportTable
               columns={[
                 { key: 'name', label: 'Member', render: (m) => m.user.fullName },
-                { key: 'role', label: 'Project role', render: (m) => humanizeEnum(m.projectRole) },
+                { key: 'role', label: 'Project role', render: (m) => projectRoleLabel(m.projectRole) },
               ]}
               rows={r.team.map((m) => ({ ...m, key: m.user.id }))}
             />

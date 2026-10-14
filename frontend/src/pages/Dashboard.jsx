@@ -157,9 +157,9 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* Two independent columns on desktop, so a short card never leaves a hole beside a tall one.
-          Below 1200px the columns dissolve (`contents`) and `order` puts the cards in reading
-          order: what needs action first (tasks, then delayed projects), the rest after. */}
+      {/* Two independent columns on desktop, so a short card never leaves a hole beside a tall one:
+          tasks on the wider left, project health then team workload on the right. Below 1200px the
+          columns dissolve (`contents`) and `order` puts the cards in reading order. */}
       <div className="grid grid-cols-[minmax(0,1fr)_380px] items-start gap-6 max-[1200px]:grid-cols-1">
         <div className="contents min-[1201px]:flex min-[1201px]:min-w-0 min-[1201px]:flex-col min-[1201px]:gap-6">
           <section className="card order-1 min-w-0 px-6 py-[22px] min-[1201px]:order-none">
@@ -380,103 +380,104 @@ export function Dashboard() {
                 View all
               </Link>
             </div>
-            <div className="flex flex-col gap-4">
+            {/* Two across on a tablet, stacked in the narrow desktop column. */}
+            <div className="grid gap-4 sm:max-[1200px]:grid-cols-2">
               {projectsLoading &&
                 Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-[132px] rounded-card" />)}
-              {!projectsLoading && topProjects.map((p) => <ProjectCard key={p.id} project={p} />)}
+              {!projectsLoading && topProjects.map((p) => <ProjectCard key={p.id} project={p} compact />)}
             </div>
           </section>
 
-          <section className="card order-5 min-w-0 px-6 py-[22px] min-[1201px]:order-none" data-testid="task-activity">
-            <div className="mb-[18px] flex items-center justify-between">
-              <h3 className="section-title">Task activity</h3>
-              <Dropdown
-                button={({ toggle }) => (
-                  <button className="dash-dropdown" onClick={toggle}>
-                    {period.label} <ChevronDown size={14} />
-                  </button>
-                )}
-                align="right"
-              >
-                {({ close }) => (
-                  <div className="flex flex-col gap-0.5 p-1">
-                    {PERIOD_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        className={`hover:bg-subtle flex items-center justify-between gap-4 rounded-sm px-2 py-1.5 text-left text-[13px] ${
-                          period.id === opt.id ? 'text-ink font-semibold' : 'text-muted'
-                        }`}
-                        onClick={() => {
-                          setPeriod(opt)
-                          close()
-                        }}
-                      >
-                        {opt.label}
-                        {period.id === opt.id && <Check size={14} />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </Dropdown>
-            </div>
-            <div className="-mx-1.5">
-              <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={periodReport} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
-                  <CartesianGrid vertical={false} stroke="var(--border-divider)" />
-                  <XAxis dataKey="day" hide />
-                  <YAxis
-                    width={30}
-                    allowDecimals={false}
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 12, fill: 'var(--text-muted)' }}
-                  />
-                  <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-light)' }} />
-                  <Line type="monotone" dataKey="completed" name="Completed" stroke="var(--color-charcoal)" strokeWidth={2} dot={{ r: 3, fill: 'var(--color-charcoal)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="created" name="Created" stroke="var(--accent-lavender)" strokeWidth={2} dot={{ r: 3, fill: 'var(--accent-lavender)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="overdue" name="Overdue" stroke="var(--status-danger)" strokeWidth={1.5} strokeDasharray="3 3" dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex justify-between pt-1 pl-[30px]">
-              {period.days <= 7 && periodReport.map((d) => (
-                <span
-                  key={d.date.toISOString()}
-                  className={`rounded-full px-[9px] py-[5px] text-[12px] font-medium ${
-                    d.day === todayLabel ? 'bg-charcoal font-[650] text-on-charcoal' : 'text-faint'
-                  }`}
-                >
-                  {d.day}
-                </span>
-              ))}
-            </div>
-            <div className="border-divider mt-4 flex flex-wrap gap-x-4 gap-y-1.5 border-t pt-3.5">
-              <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
-                <i className="bg-charcoal h-2 w-2 rounded-full" /> Completed
-              </span>
-              <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
-                <i className="bg-lavender h-2 w-2 rounded-full" /> Created
-              </span>
-              <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
-                <i className="bg-danger h-2 w-2 rounded-full" /> Overdue (open past their due date)
-              </span>
-            </div>
-          </section>
+          {showWorkload && (
+            <section
+              className="card order-5 min-w-0 px-6 py-[22px] min-[1201px]:order-none"
+              data-testid="dashboard-workload"
+            >
+              <div className="mb-[18px] flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h3 className="section-title">Team workload</h3>
+                <span className="text-faint text-[12px]">across the projects you manage</span>
+              </div>
+              {workload ? <WorkloadTable workload={workload} compact /> : <Skeleton className="h-[120px] rounded-card" />}
+            </section>
+          )}
         </div>
 
-        {showWorkload && (
-          <section
-            className="card order-7 min-w-0 px-6 py-[22px] min-[1201px]:order-none min-[1201px]:col-span-2"
-            data-testid="dashboard-workload"
-          >
-            <div className="mb-[18px] flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <h3 className="section-title">Team workload</h3>
-              <span className="text-faint text-[12px]">across the projects you manage</span>
-            </div>
-            {workload ? <WorkloadTable workload={workload} compact /> : <Skeleton className="h-[120px] rounded-card" />}
-          </section>
-        )}
+        <section className="card order-7 min-w-0 px-6 py-[22px] min-[1201px]:order-none min-[1201px]:col-span-2" data-testid="task-activity">
+          <div className="mb-[18px] flex items-center justify-between">
+            <h3 className="section-title">Task activity</h3>
+            <Dropdown
+              button={({ toggle }) => (
+                <button className="dash-dropdown" onClick={toggle}>
+                  {period.label} <ChevronDown size={14} />
+                </button>
+              )}
+              align="right"
+            >
+              {({ close }) => (
+                <div className="flex flex-col gap-0.5 p-1">
+                  {PERIOD_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={`hover:bg-subtle flex items-center justify-between gap-4 rounded-sm px-2 py-1.5 text-left text-[13px] ${
+                        period.id === opt.id ? 'text-ink font-semibold' : 'text-muted'
+                      }`}
+                      onClick={() => {
+                        setPeriod(opt)
+                        close()
+                      }}
+                    >
+                      {opt.label}
+                      {period.id === opt.id && <Check size={14} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Dropdown>
+          </div>
+          <div className="-mx-1.5">
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={periodReport} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="var(--border-divider)" />
+                <XAxis dataKey="day" hide />
+                <YAxis
+                  width={30}
+                  allowDecimals={false}
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 12, fill: 'var(--text-muted)' }}
+                />
+                <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-light)' }} />
+                <Line type="monotone" dataKey="completed" name="Completed" stroke="var(--color-charcoal)" strokeWidth={2} dot={{ r: 3, fill: 'var(--color-charcoal)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="created" name="Created" stroke="var(--accent-lavender)" strokeWidth={2} dot={{ r: 3, fill: 'var(--accent-lavender)', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="overdue" name="Overdue" stroke="var(--status-danger)" strokeWidth={1.5} strokeDasharray="3 3" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex justify-between pt-1 pl-[30px]">
+            {period.days <= 7 && periodReport.map((d) => (
+              <span
+                key={d.date.toISOString()}
+                className={`rounded-full px-[9px] py-[5px] text-[12px] font-medium ${
+                  d.day === todayLabel ? 'bg-charcoal font-[650] text-on-charcoal' : 'text-faint'
+                }`}
+              >
+                {d.day}
+              </span>
+            ))}
+          </div>
+          <div className="border-divider mt-4 flex flex-wrap gap-x-4 gap-y-1.5 border-t pt-3.5">
+            <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
+              <i className="bg-charcoal h-2 w-2 rounded-full" /> Completed
+            </span>
+            <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
+              <i className="bg-lavender h-2 w-2 rounded-full" /> Created
+            </span>
+            <span className="text-muted inline-flex items-center gap-1.5 text-[12px]">
+              <i className="bg-danger h-2 w-2 rounded-full" /> Overdue (open past their due date)
+            </span>
+          </div>
+        </section>
       </div>
     </div>
   )
