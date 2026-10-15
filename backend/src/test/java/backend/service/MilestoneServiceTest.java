@@ -19,6 +19,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,6 +69,35 @@ class MilestoneServiceTest {
         lenient().when(milestoneRepository.findById(3L)).thenReturn(Optional.of(milestone));
     }
 
+    private Milestone dueOn(Long id, java.time.LocalDate due) {
+        Milestone m = new Milestone();
+        ReflectionTestUtils.setField(m, "id", id);
+        m.setProject(project(10L));
+        m.setTitle("Milestone " + id);
+        m.setDueDate(due);
+        return m;
+    }
+
+    @Test
+    void getAllMilestones_limitedToAWindow_keepsThoseDueInItBothEndsIncluded() {
+        java.time.LocalDate from = java.time.LocalDate.of(2026, 10, 5);
+        java.time.LocalDate to = java.time.LocalDate.of(2026, 10, 11);
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        when(milestoneRepository.findAll()).thenReturn(List.of(
+                dueOn(1L, from.minusDays(1)), dueOn(2L, from), dueOn(3L, to), dueOn(4L, to.plusDays(1)), dueOn(5L, null)));
+
+        assertThat(service.getAllMilestones("pm.olivia", from, to)).extracting(backend.dto.MilestoneResponse::getId)
+                .containsExactly(2L, 3L);
+        assertThat(service.getAllMilestones("pm.olivia")).hasSize(5);
+    }
+
+    @Test
+    void getAllMilestones_aWindowBackwardsIsRefused() {
+        assertThatThrownBy(() -> service.getAllMilestones("pm.olivia", java.time.LocalDate.of(2026, 10, 11), java.time.LocalDate.of(2026, 10, 5)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private Project project(Long id) {
         Project p = new Project();
         ReflectionTestUtils.setField(p, "id", id);
@@ -105,6 +135,44 @@ class MilestoneServiceTest {
 
         verify(projectAccessGuard).assertCan(caller, 10L, Resource.MILESTONE, Action.EDIT);
         verify(projectAccessGuard, never()).assertCan(caller, 20L, Resource.MILESTONE, Action.EDIT);
+        assertThat(milestone.getTitle()).isEqualTo("Beta renamed");
+    }
+
+    // ---- a completed project takes no new milestones -------------------------
+
+    @Test
+    void creatingAMilestoneInACompletedProject_isRefused_andNothingIsSaved() {
+        milestone.getProject().setStatus("COMPLETED");
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+
+        assertThatThrownBy(() -> service.createMilestone(request(10L, "Launch"), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("completed");
+
+        verify(milestoneRepository, never()).save(any());
+    }
+
+    @Test
+    void movingAMilestoneIntoACompletedProject_isRefused_andItStaysWhereItWas() {
+        Project done = project(20L);
+        done.setStatus("COMPLETED");
+        when(projectRepository.findById(20L)).thenReturn(Optional.of(done));
+
+        assertThatThrownBy(() -> service.updateMilestone(3L, request(20L, "Beta"), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class);
+
+        verify(milestoneRepository, never()).save(any());
+        assertThat(milestone.getProject().getId()).isEqualTo(10L);
+    }
+
+    @Test
+    void editingAMilestoneThatAlreadyLivesInACompletedProject_stillWorks() {
+        milestone.getProject().setStatus("COMPLETED");
+        when(milestoneRepository.save(any(Milestone.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+
+        service.updateMilestone(3L, request(10L, "Beta renamed"), "pm.olivia");
+
         assertThat(milestone.getTitle()).isEqualTo("Beta renamed");
     }
 

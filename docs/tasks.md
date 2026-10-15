@@ -178,6 +178,7 @@ Changes to title, description, dates other than due date, estimated hours, proje
 | Task progress follows subtasks | triggers |
 | Project and milestone progress follow tasks | triggers |
 | Only owners/admins edit everything; assignees change only status/progress | `TaskService.updateTask` |
+| A `COMPLETED` project takes nothing new (task, milestone, subtask, checklist item, comment, time entry, file, dependency) and a `COMPLETED` task no new subtask, checklist item, comment, time entry, file or dependency (`409`); a task or milestone cannot be moved into a completed project (D-27) | `ProjectWorkRules` in the task, milestone, subtask, checklist, comment, work-log, attachment and dependency services; the screens hide the controls |
 | New tasks start as `TODO` with progress 0 | UI forms (`status: 'TODO'`, `progress: 0`); the API accepts any status on create |
 
 

@@ -163,6 +163,59 @@ class TaskServiceTest {
         assertThat(task.getTitle()).isEqualTo("Renamed");
     }
 
+    // ---- a completed project takes no new tasks -------------------------
+
+    @Test
+    void creatingATaskInACompletedProject_isRefused_andNothingIsSaved() {
+        current.setStatus("COMPLETED");
+
+        assertThatThrownBy(() -> service.createTask(request(10L, "New", "TODO"), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("completed");
+
+        verify(taskRepository, never()).save(any());
+    }
+
+    @Test
+    void creatingATaskInAProjectThatIsNotCompleted_works() {
+        current.setStatus("ON_HOLD");
+
+        service.createTask(request(10L, "New", "TODO"), "pm.olivia");
+
+        verify(taskRepository).save(any(Task.class));
+    }
+
+    @Test
+    void aPersonWhoMayNotCreateTasks_isToldThatBeforeTheProjectIsCompletedNotice() {
+        current.setStatus("COMPLETED");
+        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCan(caller, 10L, Resource.TASK, Action.CREATE);
+
+        assertThatThrownBy(() -> service.createTask(request(10L, "New", "TODO"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void movingATaskIntoACompletedProject_isRefused_andTheTaskStaysWhereItWas() {
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+        other.setStatus("COMPLETED");
+
+        assertThatThrownBy(() -> service.updateTask(5L, request(20L, "Original title", "TODO"), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class);
+
+        verify(taskRepository, never()).save(any());
+        assertThat(task.getProject().getId()).isEqualTo(10L);
+    }
+
+    @Test
+    void editingATaskThatAlreadyLivesInACompletedProject_stillWorks() {
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+        current.setStatus("COMPLETED");
+
+        service.updateTask(5L, request(10L, "Renamed", "TODO"), "pm.olivia");
+
+        assertThat(task.getTitle()).isEqualTo("Renamed");
+    }
+
     // ---- assignees and read-only viewers --------------------------------
 
     @Test
@@ -461,5 +514,181 @@ class TaskServiceTest {
 
         assertThat(page.getItems()).extracting(backend.dto.TaskResponse::getId).containsExactly(7L);
         assertThat(page.getTotal()).isEqualTo(2);
+    }
+
+    // ---- the Kanban columns To Do and Blocked: blocked=true / blocked=false (risk R-5) ----
+
+    private TaskDependencyRepository.BlockingTaskRow blockedRow(Long taskId) {
+        return new TaskDependencyRepository.BlockingTaskRow() {
+            public Long getTaskId() { return taskId; }
+            public String getTitle() { return "A prerequisite"; }
+        };
+    }
+
+    private void threeTasksOfWhichSevenIsBlocked() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        when(taskRepository.findByProjectIdIn(List.of(10L)))
+                .thenReturn(List.of(taskWithId(5L, "Five"), taskWithId(7L, "Seven"), taskWithId(9L, "Nine")));
+        when(taskDependencyRepository.findBlockingTasks(any())).thenReturn(List.of(blockedRow(7L)));
+    }
+
+    @Test
+    void getTasksPage_blockedTrue_keepsOnlyTheBlockedTasks_andTheTotalCountsOnlyThose() {
+        threeTasksOfWhichSevenIsBlocked();
+
+        backend.dto.PageResponse<backend.dto.TaskResponse> page = service.getTasksPage("pm.olivia",
+                new TaskListQuery(null, null, null, null, null, null, null).blockedIs(true), PageParams.of(0, 10));
+
+        assertThat(page.getItems()).extracting(backend.dto.TaskResponse::getId).containsExactly(7L);
+        assertThat(page.getItems().get(0).isBlocked()).isTrue();
+        assertThat(page.getTotal()).isEqualTo(1);
+    }
+
+    @Test
+    void getTasksPage_blockedFalse_keepsTheOthers_inTheirOrder_andPagesThem() {
+        threeTasksOfWhichSevenIsBlocked();
+
+        backend.dto.PageResponse<backend.dto.TaskResponse> first = service.getTasksPage("pm.olivia",
+                new TaskListQuery(null, null, null, null, null, null, null).blockedIs(false), PageParams.of(0, 1));
+        backend.dto.PageResponse<backend.dto.TaskResponse> second = service.getTasksPage("pm.olivia",
+                new TaskListQuery(null, null, null, null, null, null, null).blockedIs(false), PageParams.of(1, 1));
+
+        assertThat(first.getItems()).extracting(backend.dto.TaskResponse::getId).containsExactly(5L);
+        assertThat(second.getItems()).extracting(backend.dto.TaskResponse::getId).containsExactly(9L);
+        assertThat(first.getTotal()).isEqualTo(2);
+        assertThat(first.getItems().get(0).isBlocked()).isFalse();
+    }
+
+    @Test
+    void getTasksPage_withoutABlockedFilter_returnsBothKinds() {
+        threeTasksOfWhichSevenIsBlocked();
+
+        backend.dto.PageResponse<backend.dto.TaskResponse> page = service.getTasksPage("pm.olivia",
+                new TaskListQuery(null, null, null, null, null, null, null), PageParams.of(0, 10));
+
+        assertThat(page.getItems()).extracting(backend.dto.TaskResponse::getId).containsExactly(5L, 7L, 9L);
+    }
+
+    private User person(Long id, String fullName) {
+        User u = new User();
+        ReflectionTestUtils.setField(u, "id", id);
+        u.setFullName(fullName);
+        return u;
+    }
+
+    private backend.entity.TaskAssignee assignment(Task t, User u) {
+        backend.entity.TaskAssignee ta = new backend.entity.TaskAssignee();
+        ta.setTask(t);
+        ta.setUser(u);
+        return ta;
+    }
+
+    @Test
+    void aTaskResponseNamesItsAssignees_fromOneBatchedQuery() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        Task five = taskWithId(5L, "Five");
+        Task seven = taskWithId(7L, "Seven");
+        when(taskRepository.findByProjectIdIn(List.of(10L))).thenReturn(List.of(five, seven));
+        when(taskAssigneeRepository.findByTaskIdIn(any())).thenReturn(
+                List.of(assignment(five, person(3L, "Ana")), assignment(five, person(4L, "Ben"))));
+
+        List<backend.dto.TaskResponse> tasks = service.getAllTasks("pm.olivia",
+                new TaskListQuery(null, null, null, null, null, null, null));
+
+        assertThat(tasks.get(0).getAssigneeIds()).containsExactly(3L, 4L);
+        assertThat(tasks.get(1).getAssigneeIds()).isEmpty();
+        verify(taskAssigneeRepository).findByTaskIdIn(any());
+    }
+
+    @Test
+    void getTaskSummary_countsTheQuickViewsAndListsEveryoneHoldingAnAssignment() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        Task open = taskWithId(5L, "Open");
+        open.setDueDate(LocalDate.now().plusDays(4));
+        Task done = taskWithId(6L, "Done");
+        done.setStatus("COMPLETED");
+        when(taskRepository.findByProjectIdIn(List.of(10L))).thenReturn(List.of(open, done));
+        when(taskAssigneeRepository.findByTaskIdIn(any())).thenReturn(List.of(
+                assignment(open, person(4L, "ben")), assignment(done, person(3L, "Ana")), assignment(done, person(4L, "ben"))));
+
+        backend.dto.TaskSummaryResponse summary = service.getTaskSummary("pm.olivia",
+                new TaskListQuery(null, null, null, null, null, null, null));
+
+        assertThat(summary.getViewCounts()).containsEntry("all", 2L).containsEntry("upcoming", 1L)
+                .containsEntry("completed", 1L).containsEntry("overdue", 0L);
+        assertThat(summary.getAssignees()).extracting(backend.dto.UserResponse::getFullName).containsExactly("Ana", "ben");
+    }
+
+    private TaskRepository.ProjectTaskStats stats(Long projectId, long total, long completed, long overdue) {
+        return new TaskRepository.ProjectTaskStats() {
+            public Long getProjectId() { return projectId; }
+            public long getTotal() { return total; }
+            public long getCompleted() { return completed; }
+            public long getOverdue() { return overdue; }
+        };
+    }
+
+    @Test
+    void getProjectTaskStats_returnsOnlyTheProjectsTheCallerIsIn() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        when(taskRepository.statsByProject(any())).thenReturn(List.of(stats(10L, 8, 3, 1), stats(20L, 5, 5, 0)));
+
+        List<backend.dto.ProjectTaskStatsResponse> result = service.getProjectTaskStats("pm.olivia");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getProjectId()).isEqualTo(10L);
+        assertThat(result.get(0).getTotal()).isEqualTo(8);
+        assertThat(result.get(0).getCompleted()).isEqualTo(3);
+        assertThat(result.get(0).getOverdue()).isEqualTo(1);
+    }
+
+    @Test
+    void getProjectTaskStats_forAnAdministratorCoversEveryProject() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(true);
+        when(taskRepository.statsByProject(any())).thenReturn(List.of(stats(10L, 8, 3, 1), stats(20L, 5, 5, 0)));
+
+        assertThat(service.getProjectTaskStats("pm.olivia")).extracting(backend.dto.ProjectTaskStatsResponse::getProjectId)
+                .containsExactly(10L, 20L);
+        verify(projectMemberRepository, never()).findProjectIdsByUserId(any());
+    }
+
+    @Test
+    void getTaskSummary_countsWhatEachPersonHasCompleted() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of(10L));
+        Task open = taskWithId(5L, "Open");
+        Task done = taskWithId(6L, "Done");
+        done.setStatus("COMPLETED");
+        Task alsoDone = taskWithId(7L, "Also done");
+        alsoDone.setStatus("COMPLETED");
+        when(taskRepository.findByProjectIdIn(List.of(10L))).thenReturn(List.of(open, done, alsoDone));
+        User ana = person(3L, "Ana");
+        User ben = person(4L, "Ben");
+        when(taskAssigneeRepository.findByTaskIdIn(any())).thenReturn(List.of(
+                assignment(open, ana), assignment(done, ana), assignment(done, ben), assignment(alsoDone, ana)));
+
+        backend.dto.TaskSummaryResponse summary = service.getTaskSummary("pm.olivia",
+                new TaskListQuery(null, null, null, null, null, null, null));
+
+        // Ana finished two tasks, Ben one; her open task does not count
+        assertThat(summary.getCompletedByAssignee()).containsEntry(3L, 2L).containsEntry(4L, 1L).hasSize(2);
+    }
+
+    @Test
+    void getTaskSummary_neverReachesTasksOfProjectsTheCallerIsNotIn() {
+        when(projectAccessGuard.isAdmin(caller)).thenReturn(false);
+        when(projectMemberRepository.findProjectIdsByUserId(1L)).thenReturn(List.of());
+        when(taskRepository.findByProjectIdIn(List.of())).thenReturn(List.of());
+
+        backend.dto.TaskSummaryResponse summary = service.getTaskSummary("pm.olivia",
+                new TaskListQuery(null, null, null, null, null, null, null));
+
+        assertThat(summary.getViewCounts()).containsEntry("all", 0L);
+        assertThat(summary.getAssignees()).isEmpty();
+        verify(taskRepository, never()).findAll();
     }
 }

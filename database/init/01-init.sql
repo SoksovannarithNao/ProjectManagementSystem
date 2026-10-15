@@ -675,10 +675,12 @@ CREATE TRIGGER trg_task_assignees_not_suspended
     FOR EACH ROW EXECUTE FUNCTION check_assignee_not_suspended();
 
 -- ==================== task_dependencies ==================== --
--- A task cannot start until every task it depends on is COMPLETED. That
--- ordering rule is enforced in application business logic, not here — but
--- cycle prevention (below) is a DB-level invariant, since a cycle would make
--- the rule impossible to satisfy for every task caught in the loop.
+-- A task cannot start until every task it depends on is COMPLETED. The database
+-- enforces that too, from both directions (the status gates below, and the V17
+-- trigger that stops a prerequisite being reopened under a running task), as it
+-- does cycle prevention, since a cycle would make the rule impossible to satisfy
+-- for every task caught in the loop, and that a dependency joins tasks of one
+-- project only (V21).
 
 CREATE TABLE task_dependencies (
     task_id            BIGINT NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,

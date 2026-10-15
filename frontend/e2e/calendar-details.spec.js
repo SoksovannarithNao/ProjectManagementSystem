@@ -140,18 +140,18 @@ test.describe('calendar details', () => {
     await expect(page.getByTestId('calendar-drawer')).toHaveCount(0)
   })
 
-  test('the edit form of a task opened in the drawer is a pop-up over the whole screen', async ({ page }) => {
+  test('the edit form of a task opened in the drawer is a right-hand side panel over the whole screen', async ({ page }) => {
     await login(page, 'pm.olivia')
     await page.goto('/calendar')
     await page.getByTestId('calendar-task').filter({ hasText: alone.title }).click()
     await page.getByTestId('calendar-detail-pane').getByRole('button', { name: 'Edit task' }).click()
-    const form = page.getByText('Edit Task', { exact: true })
+    const form = page.getByRole('dialog', { name: 'Edit Task', exact: true })
     await expect(form).toBeVisible()
-    // centred on the screen, not pinned inside the sliding drawer
+    // a side panel against the right edge of the screen, not pinned inside the sliding drawer
     await expect
       .poll(async () => {
         const box = await form.boundingBox()
-        return Math.abs(box.x + box.width / 2 - 1440 / 2) < 200
+        return Math.abs(box.x + box.width - page.viewportSize().width) < 16 // the page scrollbar may take a few pixels
       })
       .toBe(true)
     await page.getByRole('button', { name: 'Cancel' }).click()

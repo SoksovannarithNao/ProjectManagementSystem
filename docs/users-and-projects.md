@@ -22,7 +22,7 @@ stateDiagram-v2
 | Create (administrator) | `POST /api/users` (UI: Team → *Add User*) | The administrator sets a temporary password that must satisfy the [password policy](authentication-authorization.md#4-password-policy); optional system role (default `USER`; project-only roles are refused), position, department, status (default `ACTIVE`). The success message says to "share their temporary password to sign in" — no email is sent to the new user |
 | Profile | `PUT /api/users/me` | Editable by the user: full name, email, gender, date of birth, phone, position and department (chosen from the managed lists; `null` clears). **Not** editable by the user: username, role, status |
 | Photo | `PUT /api/users/me/photo` (multipart `file`), `DELETE /api/users/me/photo` | JPEG, PNG, WEBP or GIF only; max 5 MB (`spring.servlet.multipart`); stored as bytes in `users.profile_photo`; served publicly at `/api/photos/{token}` (see [ADR-0009](adr/0009-profile-photos-in-database.md)) |
-| Preferences | `PUT /api/users/me/preferences` | `themePreference` (`LIGHT`/`DARK`/`SYSTEM`) and `taskNotificationsEnabled`. **Turning notifications off also stops invitation notifications** — see [notifications.md](notifications.md#5-the-preference-switch) |
+| Preferences | `PUT /api/users/me/preferences` | `themePreference` (`LIGHT`/`DARK`/`SYSTEM`) and `taskNotificationsEnabled`. Turning notifications off does **not** stop invitation notifications (they are the only place to accept) — see [notifications.md](notifications.md#5-the-preference-switch) |
 | Position / department | `PUT /api/users/{id}/position-department` | A user sets their own on the **Profile** page (`PUT /api/users/me`, chosen from the lists); a "team admin" can set them for someone else here, never for themselves. Lists are org-wide (`positions`, `departments`; names unique case-insensitively) |
 | Change status / edit | `PUT /api/users/{id}` (administrator) | Full replace of the fields in `UserUpdateRequest` including `username`. Setting a non-`ACTIVE` status is refused while the user is the **sole active owner** of any project |
 | Give a system role | `PUT /api/users/{id}/role` `{ "roleId" }` (`USER:ASSIGN`, administrator) | UI: Administration → Users. `VIEWER` (project-only) is refused; the last Administrator cannot be demoted |
@@ -121,7 +121,7 @@ Rules, in order (`ProjectMemberService.inviteMember`):
 3. You cannot invite yourself (`400 "You cannot invite yourself"`).
 4. The target account must be `ACTIVE` (`400 "<username> has an inactive account and can't be added to a project"`) — this covers `INACTIVE`, `SUSPENDED` and `PENDING_VERIFICATION`.
 5. If a row already exists: `ACTIVE` → `400 "…is already a member of this team"`; `PENDING` → `400 "An invitation is already pending for …"`; `DECLINED` → the row is reused and set back to `PENDING`.
-6. A `TEAM_INVITATION` notification is created for the invitee (unless they turned notifications off).
+6. A `TEAM_INVITATION` notification is created for the invitee, whatever their notification switch says (since 2026-10-14, I-12).
 
 The API default is `MEMBER`. The Team page and the project page's *Add Member* dialog (since 2026-10-14) both send the chosen role; the dialog offers Team Member (the default), Team Leader and Viewer, never Owner, and the Owner or a Team Leader can change the role afterwards (section 3).
 
@@ -133,7 +133,7 @@ The API default is `MEMBER`. The Team page and the project page's *Add Member* d
 
 Consequences:
 
-- The invitation is surfaced to the invitee **only through that notification**. If the invitee has turned task notifications off, no notification is created and the UI offers no other way to accept — the row stays `PENDING` until someone uses the API. *(Derived from `NotificationService.notifyTeamInvitation` and the UI code.)*
+- The invitation is surfaced to the invitee **only through that notification**, which is created even when the invitee has turned task notifications off (since 2026-10-14, I-12; before that the row stayed `PENDING` with no way to accept). *(`NotificationService.notifyTeamInvitation`.)*
 - Notifications are fetched at page load and after the user's own actions; a freshly sent invitation appears after the invitee's next reload.
 - A `PENDING` or `DECLINED` row grants no access, no task assignment, and does not appear in member lists.
 
@@ -144,7 +144,7 @@ Consequences:
 | Count | `GET /api/project-members/project/{id}/invitations/count` → `{ "count": n }` | `MEMBER:CREATE` holders |
 | List | `GET /api/project-members/project/{id}/invitations` → `ProjectMemberResponse[]` (status `PENDING`) | same |
 
-The count comes from a database count of `PENDING` rows (`ProjectMemberRepository.countByProjectIdAndStatus`), not from the (active-only) members list. The project page shows "**N pending invitation(s)**" under the member list **to managers only**. Nothing in the UI lists or cancels pending invitations — cancelling would need `DELETE /api/project-members/{id}` with the row id from the list endpoint. The seed data contains pending invitations (for example `dev.tomas` on `PRJ-2001`).
+The count comes from a database count of `PENDING` rows (`ProjectMemberRepository.countByProjectIdAndStatus`), not from the (active-only) members list. The project page shows "**N pending invitation(s)**" under the member list **to managers only**. Since 2026-10-14 the project page also **lists** the pending invitations to managers (the person, the role offered, who invited them) with a **Cancel** button, which calls `DELETE /api/project-members/{id}` on that row and removes the invitee's *Team invitation* notification with it (I-13). The seed data contains pending invitations (for example `dev.tomas` on `PRJ-2001`).
 
 ## 5. Entry points in the UI
 

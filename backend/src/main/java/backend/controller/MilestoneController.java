@@ -4,10 +4,12 @@ import backend.dto.MilestoneRequest;
 import backend.dto.MilestoneResponse;
 import backend.service.MilestoneService;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -20,9 +22,13 @@ public class MilestoneController {
         this.milestoneService = milestoneService;
     }
 
+    // dueFrom / dueTo (YYYY-MM-DD, both included) keep the milestones due in that window (the calendar).
     @GetMapping
-    public List<MilestoneResponse> getAllMilestones(Authentication authentication) {
-        return milestoneService.getAllMilestones(authentication.getName());
+    public List<MilestoneResponse> getAllMilestones(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dueFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dueTo,
+            Authentication authentication) {
+        return milestoneService.getAllMilestones(authentication.getName(), dueFrom, dueTo);
     }
 
     @GetMapping("/{id}")

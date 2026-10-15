@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Plus, CalendarX2, Flag } from 'lucide-react'
 import { TopBar } from '../layout/TopBar'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -9,8 +9,10 @@ import { CalendarDayPanel } from '../components/CalendarDayPanel'
 import { MilestoneDetailPanel } from '../components/MilestoneDetailPanel'
 import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
-import { getTasks } from '../api/tasks'
+import { getTasksDueBetween, getTaskById, getTasksByMilestoneId } from '../api/tasks'
 import { getMilestones } from '../api/milestones'
+import { getProjects } from '../api/projects'
+import { calendarRange, monthGridStart, startOfWeek, toISODate } from '../api/calendarRange'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const VIEWS = ['Month', 'Week', 'Day']
@@ -19,6 +21,7 @@ const eventTones = {
   success: 'bg-success-soft text-success-ink',
   warning: 'bg-warning-soft text-warning-ink',
   danger: 'bg-danger-soft text-danger-ink',
+  critical: 'bg-critical-soft text-critical-ink',
   info: 'bg-info-soft text-info-ink',
   // Milestones are not coloured by priority: a neutral chip with a flag marks them.
   milestone: 'bg-blue-gray text-ink',
@@ -28,11 +31,12 @@ const eventDots = {
   success: 'bg-success',
   warning: 'bg-warning',
   danger: 'bg-danger',
+  critical: 'bg-critical',
   info: 'bg-info',
   milestone: 'bg-charcoal',
 }
 
-const PRIORITY_TONE = { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', URGENT: 'danger' }
+const PRIORITY_TONE = { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', URGENT: 'critical' }
 
 const eventClass = (tone) =>
   `truncate rounded-[2px] px-1.5 py-[3px] text-[12px] font-semibold ${eventTones[tone] ?? eventTones.info}`
@@ -65,9 +69,7 @@ function EventChip({ ev, onOpen }) {
 }
 
 function buildMonthGrid(year, month) {
-  const firstOfMonth = new Date(year, month, 1)
-  const startOffset = (firstOfMonth.getDay() + 6) % 7 // Monday = 0
-  const start = new Date(year, month, 1 - startOffset)
+  const start = monthGridStart(year, month)
   const days = []
   for (let i = 0; i < 42; i++) {
     const d = new Date(start)
@@ -77,13 +79,6 @@ function buildMonthGrid(year, month) {
   return days
 }
 
-function startOfWeek(date) {
-  const d = new Date(date)
-  const offset = (d.getDay() + 6) % 7 // Monday = 0
-  d.setDate(d.getDate() - offset)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
 
 // A due date is a calendar date ("2026-10-12"): read it as that day in local time.
 // new Date("2026-10-12") is midnight UTC, which lands on the previous day west of UTC.
@@ -95,26 +90,28 @@ function dateKey(d) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
-function toISODate(d) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
 export function Calendar() {
-  const { canAny } = useAuth()
+  const { canAny, can } = useAuth()
+  const { data: projects } = useApi(getProjects)
   // Whether there's at least one project the caller can add tasks to —
   // TaskFormModal itself only offers projects the caller can actually
   // create tasks in.
-  const canAdd = canAny('TASK', 'CREATE')
-  const { data: tasks, loading, refetch } = useApi(getTasks)
-  // Milestones of every project the caller can see; if they fail to load the calendar
-  // still shows the tasks.
-  const { data: milestones } = useApi(getMilestones)
+  // A completed project takes no new tasks (D-27), so it does not count.
+  const canAdd =
+    projects == null
+      ? canAny('TASK', 'CREATE')
+      : projects.some((p) => p.status !== 'COMPLETED' && can('TASK', 'CREATE', p.id))
   const today = useMemo(() => new Date(), [])
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()))
   const [view, setView] = useState('Month')
+  // Only the days on screen are read from the server (tasks and milestones due in that window),
+  // and a new window is read when the month, week or day changes.
+  const range = useMemo(() => calendarRange(view, cursor), [view, cursor])
+  const tasksFetcher = useCallback(() => getTasksDueBetween(range.from, range.to), [range])
+  const { data: tasks, loading, refetch } = useApi(tasksFetcher)
+  // Milestones due in the same window; if they fail to load the calendar still shows the tasks.
+  const milestonesFetcher = useCallback(() => getMilestones(range), [range])
+  const { data: milestones } = useApi(milestonesFetcher)
   const [newTaskDate, setNewTaskDate] = useState(null)
   // The day drawer: the day it shows, and the item chosen in it ({ kind: 'task' | 'milestone', id }) whose detail
   // is the drawer's second part.
@@ -208,18 +205,51 @@ export function Calendar() {
 
   // Looked up in the lists on every render, so a task or milestone that is edited or deleted
   // while its panel is open shows the new values (or closes the panel).
+  // A task opened from a milestone's linked tasks, or one an edit has just moved out of the window on
+  // screen, is not in the list: it is read by id as well.
+  const selectedTaskId = selected?.kind === 'task' ? selected.id : null
+  const [fetchedTask, setFetchedTask] = useState(null)
+  useEffect(() => {
+    if (selectedTaskId == null) return
+    let cancelled = false
+    getTaskById(selectedTaskId)
+      .then((t) => {
+        if (!cancelled) setFetchedTask(t)
+      })
+      .catch(() => {
+        if (!cancelled) setFetchedTask(null) // deleted meanwhile
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedTaskId, tasks])
   const activeTask = useMemo(
-    () => (selected?.kind === 'task' ? (tasks ?? []).find((t) => t.id === selected.id) ?? null : null),
-    [tasks, selected]
+    () =>
+      selectedTaskId == null
+        ? null
+        : (tasks ?? []).find((t) => t.id === selectedTaskId) ?? (fetchedTask?.id === selectedTaskId ? fetchedTask : null),
+    [tasks, selectedTaskId, fetchedTask]
   )
   const activeMilestone = useMemo(
     () => (selected?.kind === 'milestone' ? (milestones ?? []).find((m) => m.id === selected.id) ?? null : null),
     [milestones, selected]
   )
-  const linkedTasks = useMemo(
-    () => (activeMilestone ? (tasks ?? []).filter((t) => t.milestone?.id === activeMilestone.id) : []),
-    [tasks, activeMilestone]
-  )
+  // The tasks linked to the open milestone are read for it: they can be due on any day, not only in the window.
+  const [milestoneTasks, setMilestoneTasks] = useState({ id: null, tasks: [] })
+  const activeMilestoneId = activeMilestone?.id ?? null
+  useEffect(() => {
+    if (activeMilestoneId == null) return
+    let cancelled = false
+    getTasksByMilestoneId(activeMilestoneId)
+      .then((list) => {
+        if (!cancelled) setMilestoneTasks({ id: activeMilestoneId, tasks: list })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [activeMilestoneId, tasks])
+  const linkedTasks = milestoneTasks.id === activeMilestoneId ? milestoneTasks.tasks : []
 
   // A chip opens the drawer on its own day with that item chosen; a row of the list only chooses it.
   const openItem = (ev) => {

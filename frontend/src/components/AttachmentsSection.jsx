@@ -111,7 +111,7 @@ export function AttachmentsSection({ taskId, projectId, canUpload, canDelete, cu
 
       {files.length === 0 && <p className="text-faint text-[12px]">No files attached.</p>}
 
-      <div className="flex flex-col gap-0.5">
+      <div className="scroll-y flex max-h-[260px] flex-col gap-0.5 pr-1">
         {files.map((file) => {
           const mine = currentUserId != null && file.uploadedById === currentUserId
           return (

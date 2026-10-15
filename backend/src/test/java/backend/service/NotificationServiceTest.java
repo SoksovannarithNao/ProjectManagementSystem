@@ -80,6 +80,42 @@ class NotificationServiceTest {
     }
 
     @Test
+    void notifyTeamInvitation_isSentEvenWhenTheInviteeTurnedTaskNotificationsOff() {
+        NotificationService service = new NotificationService(notificationRepository, userService);
+        User invitee = user("Dana Dev");
+        invitee.setTaskNotificationsEnabled(false);
+        Project project = new Project();
+        project.setName("Website Redesign");
+        backend.entity.ProjectMember member = new backend.entity.ProjectMember();
+        member.setUser(invitee);
+        member.setProject(project);
+
+        service.notifyTeamInvitation(member, user("Mara Manager"));
+
+        ArgumentCaptor<Notification> saved = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository).save(saved.capture());
+        assertThat(saved.getValue().getType()).isEqualTo("TEAM_INVITATION");
+        assertThat(saved.getValue().getUser()).isSameAs(invitee);
+        assertThat(saved.getValue().getMessage()).contains("Mara Manager").contains("Website Redesign");
+    }
+
+    @Test
+    void cancelInvitationNotice_removesTheInviteesInvitationNoticeForThatProject() {
+        NotificationService service = new NotificationService(notificationRepository, userService);
+        User invitee = user("Dana Dev");
+        org.springframework.test.util.ReflectionTestUtils.setField(invitee, "id", 4L);
+        Project project = new Project();
+        org.springframework.test.util.ReflectionTestUtils.setField(project, "id", 10L);
+        backend.entity.ProjectMember member = new backend.entity.ProjectMember();
+        member.setUser(invitee);
+        member.setProject(project);
+
+        service.cancelInvitationNotice(member);
+
+        verify(notificationRepository).deleteByUserIdAndProjectIdAndType(4L, 10L, "TEAM_INVITATION");
+    }
+
+    @Test
     void notifyTaskAssigned_respectsTheAssigneesNotificationPreference() {
         NotificationService service = new NotificationService(notificationRepository, userService);
         User assignee = user("Owen Lead");

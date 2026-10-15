@@ -547,6 +547,34 @@ class ProjectMemberServiceTest {
     }
 
     @Test
+    void cancellingAPendingInvitation_alsoRemovesTheInviteesNotice() {
+        Project project = new Project();
+        ReflectionTestUtils.setField(project, "id", 10L);
+        ProjectMember pending = row(8L, project, user(4L, "dev.raj", "ACTIVE"), "PENDING");
+        pending.setProjectRole("MEMBER");
+        when(projectMemberRepository.findById(8L)).thenReturn(Optional.of(pending));
+
+        service.deleteProjectMember(8L, "pm.olivia");
+
+        verify(projectMemberRepository).delete(pending);
+        verify(notificationService).cancelInvitationNotice(pending);
+    }
+
+    @Test
+    void removingAnActiveMember_leavesNoticesAlone() {
+        Project project = new Project();
+        ReflectionTestUtils.setField(project, "id", 10L);
+        ProjectMember active = row(9L, project, user(4L, "dev.raj", "ACTIVE"), "ACTIVE");
+        active.setProjectRole("MEMBER");
+        when(projectMemberRepository.findById(9L)).thenReturn(Optional.of(active));
+
+        service.deleteProjectMember(9L, "pm.olivia");
+
+        verify(projectMemberRepository).delete(active);
+        verify(notificationService, never()).cancelInvitationNotice(any());
+    }
+
+    @Test
     void removingTheLeadFromTheProject_clearsTheLead() {
         ProjectMember row = teamLeaderWhoIsTheLead();
 

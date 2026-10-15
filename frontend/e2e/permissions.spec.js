@@ -207,7 +207,8 @@ test.describe('permissions and data isolation', () => {
     await page.evaluate(() => localStorage.clear())
     await login(page, 'pm.olivia')
     await page.goto(`/projects/${await projectIdByCode(request, await auth(request, 'pm.olivia'), 'PRJ-2001')}`)
-    await page.getByTestId('task-row').first().click()
+    // a completed task takes no new subtask (D-27), so open one that is not completed
+    await page.getByTestId('task-row').filter({ hasNotText: 'Completed' }).first().click()
     await expect(page.getByPlaceholder('Add a comment...')).toBeVisible()
     await expect(page.getByPlaceholder('Add a subtask...')).toBeVisible()
   })

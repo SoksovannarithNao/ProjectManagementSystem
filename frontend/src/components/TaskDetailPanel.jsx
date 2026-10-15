@@ -31,7 +31,7 @@ import { useMembers } from '../data/UsersContext'
 import { useAuth } from '../auth/AuthContext'
 import { getActiveProjectMembers } from '../api/relations'
 import { getProjectMembers } from '../api/projectMembers'
-import { setTaskStatus, deleteTask, getTasks } from '../api/tasks'
+import { setTaskStatus, deleteTask, getTasksByProjectId } from '../api/tasks'
 import { useApi } from '../api/useApi'
 import { getSubtasksByTask, createSubtask, updateSubtask, deleteSubtask } from '../api/subtasks'
 import { getCommentsByTask, createComment, updateComment, deleteComment } from '../api/comments'
@@ -74,16 +74,26 @@ export function TaskDetailPanel({ task, onClose, onChange, embedded = false }) {
   // project), a review you asked for, or one that names someone else as approver.
   const canApprove = canApproveTask(permissions, profile?.id, task, isAssignee)
   const canChangeStatus = canEditTask || (can('TASK_STATUS', 'EDIT', projectId) && isAssignee)
-  const canCreateSubtask = can('SUBTASK', 'CREATE', projectId)
+  // The server refuses all of these too, with a 409, until the project or task is reopened.
+  const projectCompleted = task?.project?.status === 'COMPLETED'
+  const mayCreateSubtask = can('SUBTASK', 'CREATE', projectId)
+  const taskCompleted = task?.status === 'COMPLETED'
+  // Nothing new can be added under a completed project or task: subtasks, checklist items, comments, time
+  // entries, files and dependencies (existing ones stay editable). One notice at the top says so.
+  const locked = projectCompleted || taskCompleted
+  const canCreateSubtask = mayCreateSubtask && !locked
   const canEditSubtask = can('SUBTASK', 'EDIT', projectId)
   const canDeleteSubtask = can('SUBTASK', 'DELETE', projectId)
-  const canComment = can('COMMENT', 'CREATE', projectId)
+  const mayComment = can('COMMENT', 'CREATE', projectId)
+  const canComment = mayComment && !locked
   const canModerateComments = can('COMMENT', 'DELETE', projectId)
-  const canAddChecklist = can('CHECKLIST_ITEM', 'CREATE', projectId)
+  const mayAddChecklist = can('CHECKLIST_ITEM', 'CREATE', projectId)
+  const canAddChecklist = mayAddChecklist && !locked
   // Like subtasks: a Team Member only ticks items on a task assigned to them.
   const canTickChecklist = can('CHECKLIST_ITEM', 'EDIT', projectId) && (canEditTask || isAssignee)
   const canDeleteChecklist = can('CHECKLIST_ITEM', 'DELETE', projectId)
-  const canUploadFiles = can('ATTACHMENT', 'CREATE', projectId)
+  const mayUploadFiles = can('ATTACHMENT', 'CREATE', projectId)
+  const canUploadFiles = mayUploadFiles && !locked
   const canDeleteAnyFile = can('ATTACHMENT', 'DELETE', projectId)
   const canLogTime = can('WORK_LOG', 'CREATE', projectId)
   const canDeleteAnyTimeEntry = can('WORK_LOG', 'DELETE', projectId)
@@ -132,10 +142,13 @@ export function TaskDetailPanel({ task, onClose, onChange, embedded = false }) {
   const dependencies = useMemo(() => dependenciesData ?? [], [dependenciesData])
 
   // Used only to populate the "add a dependency" picker with other tasks in
-  // the same project — not shared with the caller's own already-fetched
-  // task list (Tasks.jsx/Kanban.jsx), so this is its own independent fetch,
-  // same as TaskFormModal's own separate getProjects/getProjectMembers calls.
-  const { data: allTasksData } = useApi(getTasks)
+  // the same project (a dependency joins tasks of one project only) — so only
+  // that project's tasks are read, not every task the caller can see. Not shared
+  // with the caller's own already-fetched task list (Tasks.jsx/Kanban.jsx), so
+  // this is its own independent fetch, same as TaskFormModal's own separate
+  // getProjects/getProjectMembers calls.
+  const projectTasksFetcher = useCallback(() => getTasksByProjectId(task.project?.id), [task.project?.id])
+  const { data: allTasksData } = useApi(projectTasksFetcher)
   const availableToDepend = useMemo(() => {
     const dependsOnIds = new Set(dependencies.map((d) => d.dependsOnTask.id))
     return (allTasksData ?? []).filter(
@@ -611,6 +624,12 @@ export function TaskDetailPanel({ task, onClose, onChange, embedded = false }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-[22px] pt-5 pb-6">
+          {locked && (mayCreateSubtask || mayAddChecklist || mayComment || mayUploadFiles || canLogTime || canAssignTask) && (
+            <p data-testid="completed-notice" className="bg-subtle text-muted mb-3.5 rounded-md px-3 py-2 text-[12px]">
+              This {projectCompleted ? 'project' : 'task'} is completed, so nothing new can be added to it (subtasks,
+              checklist items, comments, time entries, files, dependencies). Reopen it to add more.
+            </p>
+          )}
           <h2 className="mb-3.5 text-xl font-bold tracking-[-0.015em]">{task.title}</h2>
 
           <div className={`flex flex-wrap items-center gap-2 ${hasIncompleteSubtasks ? 'mb-1.5' : 'mb-5'}`}>
@@ -978,7 +997,7 @@ export function TaskDetailPanel({ task, onClose, onChange, embedded = false }) {
                 </div>
               ))}
             </div>
-            {canAssignTask && availableToDepend.length > 0 && (
+            {canAssignTask && !locked && availableToDepend.length > 0 && (
               <div className="mt-1 flex items-center gap-2">
                 <select
                   value={newDependencyId}
@@ -1007,6 +1026,7 @@ export function TaskDetailPanel({ task, onClose, onChange, embedded = false }) {
           <TimeTracking
             task={task}
             canLog={canLogTime}
+            locked={locked}
             canManage={canDeleteAnyTimeEntry}
             currentUserId={profile?.id}
             onChange={onChange}

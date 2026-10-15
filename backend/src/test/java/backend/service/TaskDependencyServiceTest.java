@@ -95,6 +95,32 @@ class TaskDependencyServiceTest {
     }
 
     @Test
+    void aCompletedTaskTakesNoNewDependency_andNeitherDoesATaskOfACompletedProject() {
+        blocked.setStatus("COMPLETED");
+        assertThatThrownBy(() -> service.createTaskDependency(request(1L, 2L), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("task is completed");
+
+        blocked.setStatus("IN_PROGRESS");
+        blocked.getProject().setStatus("COMPLETED");
+        assertThatThrownBy(() -> service.createTaskDependency(request(1L, 2L), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("project is completed");
+
+        verify(taskDependencyRepository, never()).save(any());
+    }
+
+    @Test
+    void aTaskCanStillDependOnACompletedPrerequisite() {
+        sameProjectBlocker.setStatus("COMPLETED");
+        when(taskDependencyRepository.save(any(TaskDependency.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.createTaskDependency(request(1L, 2L), "pm.olivia");
+
+        verify(taskDependencyRepository).save(any(TaskDependency.class));
+    }
+
+    @Test
     void twoTasksOfTheSameProject_canBeLinked() {
         when(taskDependencyRepository.save(any(TaskDependency.class))).thenAnswer(inv -> inv.getArgument(0));
 

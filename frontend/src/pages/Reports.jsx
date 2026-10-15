@@ -23,11 +23,10 @@ import { useAuth } from '../auth/AuthContext'
 import { useMembers } from '../data/UsersContext'
 import { useApi } from '../api/useApi'
 import { getProjects } from '../api/projects'
-import { getTasks } from '../api/tasks'
-import { getTaskAssignees } from '../api/taskAssignees'
+import { getTaskSummary } from '../api/tasks'
+import { getTaskActivity } from '../api/dashboard'
 import { getManagedWorkload, getProjectWorkload } from '../api/teamViews'
-import { buildTaskAssigneeMap, filterTasksByProject } from '../api/relations'
-import { computePeriodTaskStats, PERIOD_OPTIONS } from '../api/stats'
+import { activityToPeriodPoints, PERIOD_OPTIONS } from '../api/stats'
 import { humanizeEnum } from '../api/format'
 import {
   KpiView,
@@ -97,27 +96,24 @@ function ReportsOverview({ tabs }) {
   const { can, canAny } = useAuth()
   const { members } = useMembers()
   const { data: projects, loading: projectsLoading } = useApi(getProjects)
-  const { data: tasks, loading: tasksLoading } = useApi(getTasks)
-  const { data: taskAssignees } = useApi(getTaskAssignees)
-  const loading = projectsLoading || tasksLoading
   const [period, setPeriod] = useState(PERIOD_OPTIONS[0])
   const [projectFilter, setProjectFilter] = useState('')
 
-  const scopedTasks = useMemo(() => filterTasksByProject(tasks, projectFilter), [tasks, projectFilter])
+  // The task figures come from the server for the chosen project (or for every project the caller may
+  // see): the counts and the tasks each person has completed from the task summary, the daily chart
+  // from the activity endpoint. The page no longer reads every task or every assignment.
+  const summaryFetcher = useCallback(() => getTaskSummary({ projectId: projectFilter }), [projectFilter])
+  const { data: summary, loading: summaryLoading } = useApi(summaryFetcher)
+  const activityFetcher = useCallback(() => getTaskActivity(period.days, { projectId: projectFilter }), [period, projectFilter])
+  const { data: activity, loading: activityLoading } = useApi(activityFetcher)
+  const loading = projectsLoading || summaryLoading || activityLoading
+
   const scopedProjects = useMemo(
     () => (projectFilter ? (projects ?? []).filter((p) => String(p.id) === projectFilter) : projects ?? []),
     [projects, projectFilter]
   )
-  const scopedTaskAssignees = useMemo(
-    () =>
-      projectFilter
-        ? (taskAssignees ?? []).filter((ta) => String(ta.task?.project?.id) === projectFilter)
-        : taskAssignees,
-    [taskAssignees, projectFilter]
-  )
 
-  const periodReport = useMemo(() => computePeriodTaskStats(scopedTasks, period.days), [scopedTasks, period])
-  const assigneeMap = useMemo(() => buildTaskAssigneeMap(scopedTaskAssignees), [scopedTaskAssignees])
+  const periodReport = useMemo(() => activityToPeriodPoints(activity, period.days), [activity, period])
 
   // Team workload comes from the server (assigned, active and overdue tasks, estimated and
   // actual hours, D-13), the same figures as the Workload page and the dashboard card. Only
@@ -130,43 +126,26 @@ function ReportsOverview({ tabs }) {
   const { data: workload, loading: workloadLoading } = useApi(workloadFetcher)
 
   const statCards = useMemo(() => {
-    const list = scopedTasks
-    const total = list.length
-    const inProgress = list.filter((t) => t.status === 'IN_PROGRESS').length
-    const completed = list.filter((t) => t.status === 'COMPLETED').length
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const overdue = list.filter(
-      (t) => t.dueDate && new Date(t.dueDate) < today && t.status !== 'COMPLETED' && t.status !== 'CANCELLED'
-    ).length
+    const counts = summary?.viewCounts ?? {}
     return [
-      { key: 'total', label: 'Total Tasks', value: total, tone: 'neutral' },
-      { key: 'progress', label: 'In Progress', value: inProgress, tone: 'info' },
-      { key: 'completed', label: 'Completed', value: completed, tone: 'success' },
-      { key: 'overdue', label: 'Overdue', value: overdue, tone: 'danger' },
+      { key: 'total', label: 'Total Tasks', value: counts.all ?? 0, tone: 'neutral' },
+      { key: 'progress', label: 'In Progress', value: counts.inprogress ?? 0, tone: 'info' },
+      { key: 'completed', label: 'Completed', value: counts.completed ?? 0, tone: 'success' },
+      { key: 'overdue', label: 'Overdue', value: counts.overdue ?? 0, tone: 'danger' },
     ]
-  }, [scopedTasks])
+  }, [summary])
 
   const projectProgress = useMemo(
     () => scopedProjects.map((p) => ({ name: p.name, progress: Math.round(Number(p.progress ?? 0)) })),
     [scopedProjects]
   )
 
-  const completedCountByUser = useMemo(() => {
-    const counts = new Map()
-    for (const t of scopedTasks) {
-      if (t.status !== 'COMPLETED') continue
-      for (const id of assigneeMap.get(t.id) ?? []) counts.set(id, (counts.get(id) ?? 0) + 1)
-    }
-    return counts
-  }, [scopedTasks, assigneeMap])
-
   const productivityByMember = useMemo(
     () =>
       members
-        .map((m) => ({ name: m.name?.split(' ')[0], completed: completedCountByUser.get(m.id) ?? 0 }))
+        .map((m) => ({ name: m.name?.split(' ')[0], completed: summary?.completedByAssignee?.[m.id] ?? 0 }))
         .filter((m) => m.completed > 0),
-    [members, completedCountByUser]
+    [members, summary]
   )
 
   const workloadByMember = useMemo(

@@ -6,6 +6,155 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-15 (a completed project takes no new work; owner rights right after creating a project; the top priority colour)
+
+**Docs (how they display on GitHub)**
+- **README.** A *Documentation* table (where to read what) and a *Screenshots* section (dashboard, project page, Kanban board, calendar, in `docs/images/`, taken from the seeded demo data) at the top, a feature bullet for the completed-work rule (D-27), and a longer table of contents.
+- **Rendering fixes found by an audit of every `.md` file** (anchors, table columns, links to files git would not publish): six table rows had more or fewer cells than their header, which GitHub shows cut off (`checklist/done.md` #59, #65, #67; `roadmap.md` refresh tokens and audit log; `api-reference.md` task-activity), one link pointed at a heading whose text had changed (`frontend.md` → `testing.md#41-frontend-unit-tests-196`), and `pages_docs/help.md` matched the `HELP.md` rule of `.gitignore` (Windows ignores case) so it would never have been committed: it is now `pages_docs/help-and-support.md`.
+
+**Changed (dashboard cards)**
+- **The six figure cards on the dashboard say more.** Each has an icon chip beside the number (tinted by meaning: info for Active, success for Completed, danger for Delayed while it is above zero) and one line of context from the same `GET /api/dashboard/stats` figures: how many projects are planning, on hold or cancelled; the share of all projects that are active or completed; "Past their end date" / "Nothing behind schedule"; a thin progress bar and "across N projects" for Average completion; and "N done · M overdue" for Total tasks. `StatCard` takes optional `icon`, `hint` and `progress` (the Reports page, which passes none, looks as before). `dashboard-cards.spec.js` (3) checks the figures against the server (reloading until the two agree, since other specs change the data), the icons and bar, and equal card height.
+
+**Changed (project page layout)**
+- **The pills in a project's Overview are one size.** The status, priority, Delayed, "Completed on" and overdue pills now share one class (`STATUS_ROW_BADGE_CLASS`): 28px high (36px under 640px, where only the status dropdown used to grow to 40px) with the same 5px gap between the dot or icon and the label. The Delayed badge had been 20px high and the read-only status pill had no gap at all. `DelayedBadge` uses the same 5px gap as `Badge`. `projects.spec.js` measures the row on a throw-away delayed project at both widths.
+- **The project page no longer grows without limit.** The task list, Members, Milestones, Activity and Attachments each scroll inside their card (caps of about 440, 340, 340, 420 and 260px), with the header, filters, counts and add forms outside the scrolling part. For the seeded *Website Redesign* the page went from 3793px to 2212px tall. The lower cards are two columns in reading order (Members | Milestones, then Attachments | Activity) that stretch to the same height per row, so **Members and Milestones are always the same size**; they stack below 1024px, and a member row wraps on a phone so its role picker is not cut off. `projects.spec.js` checks that the task list scrolls and that the two cards are the same size.
+
+**Added**
+- **A `COMPLETED` project takes nothing new, and a `COMPLETED` task no new subtask, checklist item, comment, time entry, file or dependency (D-27).** The server answers `409` after the permission check (`ProjectWorkRules`, used by the task, milestone, subtask, checklist, comment, work-log and attachment services, and by the project switch of a task or milestone). The project page hides *Add Task*, the milestone form and the file upload and shows one notice; the task panel does the same for subtasks, checklist items, comments and replies, the timer and *Log time*, files and the "Depends on" picker (a timer already running on a task that has since been completed can only be discarded); *New Task* / *New Event* on the Tasks, Kanban and Calendar pages are hidden while only completed projects are in view, and the new-task form does not list a completed project (a task being edited may stay in its own). Existing work stays editable; changing the status reopens it. Cancelled and On Hold are not restricted. `permissions.spec.js` now opens a task that is not completed when it checks the subtask box.
+
+**Fixed**
+- **A Project Manager did not see *Add member* / *Edit* on a project they had just created until they reloaded.** The permission list is read at sign-in, so a new project was missing from it; `NewProjectModal` now reads it again after a create.
+
+**Changed**
+- **Edit Task and Edit Project open in the shared right-hand `SidePanel`**, like New Task and New Project, instead of a centred pop-up. `NewProjectModal` drops its own copy of the drawer and uses `SidePanel` for both modes (the project code is shown read-only on edit; the manager picker stays administrator-only); `TaskFormModal` renders its edit form in `SidePanel`. `calendar-details.spec.js` now expects a side panel.
+- **The top priority (Urgent for tasks, Critical for projects) has its own colour**, a rose-crimson tint (`critical`, `critical-ink`, `critical-soft` tokens), instead of sharing High's red. `Badge` and the calendar chips and dots use it; `DESIGN.md` is updated.
+
+**Tests:** backend 569 → **591** (`TaskServiceTest` +5, `SubtaskServiceTest` +5, `MilestoneServiceTest` +3, `ChecklistItemServiceTest` +3, `CommentServiceTest` +2, `WorkLogServiceTest` +1, `AttachmentServiceTest` +1, `TaskDependencyServiceTest` +2); frontend unit tests **196**; Playwright 291 → **308** (`completed-project.spec.js` 8, `edit-side-panels.spec.js` 2, `dashboard-cards.spec.js` 3, `projects.spec.js` +4). `permissions.spec.js` and `time-tracking.spec.js` now open a task that is not completed, all green on the live stack. **Docs:** `assignment-brief.md` (D-18, D-27), `tasks.md`, `testing.md`, `test-cases.md` (PRJ-13), `pages_docs/project-detail.md`, `DESIGN.md`, counts in `README.md`, `backend.md`, `frontend.md`, `checklist/done.md`.
+
+## 2026-10-15 (documents removed)
+
+**Docs only.** Six files that had nothing left to say were deleted: `checklist/not_done.md`, `checklist/partially_done.md` and `checklist/unclear.md` (all empty; the S-1 to S-8 fixes and the unbuilt optional document management, #42, moved to `checklist/done.md`), `change-plan.md` (every batch done; this log and the brief's G-table keep the history), `workflow-conformance.md` (a point-in-time test whose results all became PASS) and the root `Role_Requirment.md` (a short team-areas list; the requirements are in `assignment-brief.md`). Links to them in the other documents were removed or turned into plain text, and the index in `docs/README.md` was renumbered. Older entries below and the ADRs still name these files as they were at the time; the original long `Role_Requirment.md` is in the git history.
+
+## 2026-10-15 (decisions D-19 to D-25 approved)
+
+**Docs only.** The project owner approved the seven proposals D-19 (near deadline, Today, Upcoming), D-20 (auto-logout timing), D-21 (@mentions), D-22 (report export in the browser), D-23 (time logged on any task of the project), D-24 (sign-in lifetime and refresh cookie) and D-25 (optional paging), all as built, with no change to the rules or the code. `assignment-brief.md` (B13.2 and the notification table), `checklist/not_fully_satisfy.md` (R-2, R-4, R-5), `change-plan.md` and `roadmap.md` (item 3 closed) say so. No decision is open. Earlier entries below still call them proposals, as they were when written.
+
+## 2026-10-15 (controller and repository tests, and a Flyway check in CI)
+
+**Added**
+- **Controller tests (standalone `MockMvc`, 45 tests).** The auth, task, dashboard, milestone, team, project and notification endpoints: which URL and parameters, which status, which JSON, the refresh cookie (`HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, `Secure` over HTTPS, never in the body), the limiter's key, every filter of `GET /api/tasks` reaching the query (checked by running the captured query over three tasks), wrong values as `400` before any service is asked, and the error JSON.
+- **Repository query tests (`QueryRepositoriesTest`, 11 tests, `@DataJpaTest` on the real schema).** Each custom query is compared with the same question asked in plain SQL over the same rows, inside a rolled-back transaction, so the tests hold whatever the data is: the project task counts, the entity-graph loading, the subtask, checklist and hours groupings, the unfinished prerequisites, the visible and administered projects, the sole owner, the co-members, the invitable users, the user lookups, the project codes and the code lock. Both kinds were shown to fail when the code is broken on purpose, then restored.
+- **CI step: every migration must be folded into the init scripts.** `database/check_migrations_folded.sh` runs `flyway migrate` against the database the CI job has just built from `database/init/`; Flyway must have nothing to apply. Checked locally in three cases (nothing pending: exit 0; a migration not in the init scripts: exit 1; no baseline: exit 1). An attempt to also catch an edited old migration did not work, because an init-built database has no checksum for V1 to the baseline, and the script says so.
+
+**Changed:** a stale "version 14" in a `docker-compose.yml` comment now says 21. The docs' future-work lists drop what is now done (controller and repository tests, the Flyway check).
+
+**Not done (still open):** a test through the security filter chain and `@PreAuthorize`, tests for the controllers not covered, Flyway in a production deployment, and a deploy target.
+
+**Tests:** backend 513 → **569** (56 new), all also run against PostgreSQL 18 built the way the CI builds it, with the app role; frontend unit tests 196 and Playwright 291, unchanged. **Docs:** `testing.md`, `backend.md`, `database.md`, `issues.md` (F-83, F-84), `roadmap.md`, README.
+
+## 2026-10-14 (the Kanban board reads each column) — checklist R-5 closed for the task lists
+
+**Changed**
+- **Each Kanban column is read from the server on its own, 25 cards at a time.** The board fetched every task and every assignment and sorted the cards into columns, searched and filtered, in the browser. Now every column asks `GET /api/tasks` for its own status, the Blocked column through the new **`blocked`** filter (`blocked=true` keeps only tasks waiting on an unfinished prerequisite, `blocked=false` the others, applied before the paging), under the board's search, priority and project filters. The column badge shows the column's real total, a *Show more (N more)* button reads the next 25, and a reload after a move reads as many pages as the column showed. Cards carry their `assigneeIds`. Dragging and the *Move to* menu are unchanged.
+- **The board says when it is busy.** It is `aria-busy` until it shows the data for the current search, filters and reload (the search is sent a moment after typing). The Kanban specs wait for it: with server-side search a test could pick a card on the unfiltered board and have the filtered one land mid-drag, which showed up as a flaky drop (found with a probe, fixed, then 36 of 36 over three repeats).
+- `getTasks`, `groupTasksByStatus` and its three tests were removed: nothing reads the whole task list any more.
+
+**R-5 is closed for the task lists.** What still reads a whole collection: the task assignments (the task form, Team and the project pages) and the project members, two small relation tables, recorded under the known limitations. The README's future-work list drops the items that were already built (the refresh-token flow, the report export, the extra system roles).
+
+**Tests:** backend 509 → **513** (`TaskServiceTest` +3, `TaskListQueryTest` +1); frontend unit tests **196** (3 added, 3 removed with the grouping helper); Playwright 286 → **291** (`kanban-server.spec.js` 5), the whole suite 291/291 on a freshly seeded second copy of the stack with the CI's settings. **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `architecture.md`, `roadmap.md`, `issues.md` (F-82), `testing.md`, `test-cases.md` (TSK-25), README.
+
+## 2026-10-14 (Reports Overview reads less) — checklist R-5, Reports Overview
+
+**Changed**
+- **The four stat cards, Task Completion and Team Productivity come from the server.** The Overview fetched every task and every assignment and counted in the browser, filtering by the chosen project there too. It now reads `GET /api/tasks/summary` (with `projectId` for a chosen project) for the counts and the new `completedByAssignee` (user id to completed tasks among those the filters leave) and `GET /api/dashboard/task-activity` (with the same `projectId`) for the chart. The page reads no task list and no assignment list.
+- Three helpers that only this page used (`computePeriodTaskStats`, `computeWeeklyTaskStats`, `filterTasksByProject`) and their four tests were removed.
+- `.env.example` lists the two optional registration-cleanup settings.
+
+**Still reading every task:** the Kanban board alone (it groups the whole list into columns).
+
+**Tests:** backend 506 → **509** (`TaskListQueryTest` +2, `TaskServiceTest` +1); frontend unit tests 200 → **196** (four removed with the helper they tested); Playwright 282 → **286** (`reports-overview-server.spec.js` 4), the whole suite 286/286 on a freshly seeded second copy of the stack with the CI's settings. **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `roadmap.md`, `issues.md` (F-81), `testing.md`, `test-cases.md` (REP-09), README.
+
+## 2026-10-14 (the Dashboard reads less) — checklist R-5, the Dashboard
+
+**Changed**
+- **The chart's daily figures come from the server.** New `GET /api/dashboard/task-activity` (`days` 1 to 366, the caller's time zone as `zone`, optional `projectId`) returns one row per day, oldest first, ending today: the tasks created and completed that day and the open tasks due before it, worked out in `util/TaskActivity` over what the caller may see. The browser used to work this out over every task. That makes **128 endpoints**.
+- **"Due & Overdue" reads a page of seven tasks** (open, with a due date, earliest first: `GET /api/tasks` with `dueFrom`, `sort=dueDate`, `size=7`), each with its assignees, instead of every task and every assignment. Completing a task from the card refreshes the card, the counts and the chart.
+- The Dashboard no longer fetches `GET /api/tasks` whole or `GET /api/task-assignees`. The same activity endpoint, with `projectId`, is what Reports Overview needs next.
+
+**Still reading every task:** Kanban and Reports Overview.
+
+**About the live database:** the live database had been edited by hand during testing (a registered account promoted to Project Manager, the Project Manager permission grid changed, a project created), so two role specs that assert on the seeded permissions failed against it. They pass on a freshly seeded database: the whole suite, **282/282**, was run on a second copy of the stack with the CI's settings (2 workers, no retries needed) and the copy removed afterwards. The live database was left as it was.
+
+**Tests:** backend 497 → **506** (`TaskActivityTest` 5, `DashboardServiceTest` +4); frontend unit tests 194 → **200** (`stats.test.js` +3, `tasks.test.js` +1, `dashboard.test.js` 2); Playwright 276 → **282** (`dashboard-server.spec.js` 6). **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `architecture.md`, `roadmap.md`, `issues.md` (F-80), `testing.md`, `test-cases.md` (DSH-10), README.
+
+## 2026-10-14 (the cross-layer inconsistencies closed) — X-04, X-05, X-06
+
+**Fixed**
+- **X-05, CI on PostgreSQL 16 while everything else runs 18.** The backend job of `.github/workflows/ci.yml` now uses `postgres:18`. The CI's database steps (load the init files, invariants, app role, grants) and the backend tests were replayed on a throw-away PostgreSQL 18.6 with the CI's credentials: 24 seeded users, no invariant or grant output, 30 triggers like the live database, 497/497 tests. It has not run on GitHub itself.
+- **X-06, the last stale comment in `01-init.sql`** (dependency ordering "enforced in application business logic, not here") now says the database enforces it. Comment only: the init script is applied once to an empty volume and has no checksum. The same sentence in the applied `V1` migration is left alone.
+
+**Settled without a code change (X-04):** I first wrote a `V22` migration to add the task/subtask consistency objects, then built an empty database from the migrations alone to prove it, and found the chain **fails at `V13`** (it refers to a trigger function that only the init scripts create). A migrations-only build has never worked, `V22` would never have been reached and would have done nothing on the supported routes, so it was removed (and the one row it left in the live `flyway_schema_history` deleted; the live database is at version 21 and validates). The supported routes are unchanged and the limit is now written down in `issues.md` and `database.md`.
+
+**Register:** no open defects and no open inconsistencies remain.
+
+**Tests:** none added (comment, CI image and docs only). 497/497 backend (also against PostgreSQL 18 with the CI settings), 194/194 frontend unit tests, 276/276 end-to-end. **Docs:** `issues.md` (X-04 to X-06, D-09, the summary, known limitations), `database.md`, README.
+
+## 2026-10-14 (the Low defects closed) — I-08, I-13, I-14, I-17, I-18, I-23
+
+**Fixed**
+- **I-23, `npm audit`:** `npm audit fix` raised `brace-expansion` to 5.0.12 and `source-map-js` to 1.2.2 (two patch bumps in the lockfile); 0 vulnerabilities, lint, unit tests and the build unchanged.
+- **I-08, the code endpoints revealed which usernames exist.** `verify-otp` now gives one message for every failure (unknown name, already verified, no code, used, expired, too many attempts, wrong), and `resend-otp` answers `200` for an unknown or verified account. Registration still says a name is taken (accepted: a person signing up has to be told). The attempts left are no longer shown.
+- **I-14, abandoned registrations kept their name for ever.** An hourly job (`PendingRegistrationScheduler` → `PendingRegistrationCleanup`) deletes a registration not verified within 24 hours (`PENDING_REGISTRATION_TTL_HOURS`, `PENDING_REGISTRATION_CLEANUP_CRON`, both passed through `docker-compose.yml`). Verified live with a 10-second schedule: a 25-hour-old account was deleted, a fresh one kept, no code rows left behind. Needs the backend image rebuilt.
+- **I-13, pending invitations could not be listed or cancelled.** The project page lists them to managers (person, role offered, who invited them) with a *Cancel* button; cancelling deletes the row and the invitee's *Team invitation* notification.
+- **I-17, the subtask auto-promotion told nobody.** It now notifies the assignees, the Owner and the Team Leaders (never the person who touched the subtask) like any other status change. Unassigning someone still notifies nobody; the specification does not ask for it.
+
+**Closed without a code change (I-18):** a project may be marked Completed with unfinished tasks on purpose (the brief does not forbid closing early), the project-code race was already fixed (F-39), and `kpi_snapshots` is not used by any code. The three are listed under the known limitations.
+
+**Register:** no open defects remain (I-01 to I-23 are all fixed or closed); the "Fixed" count is 79 (F-76 to F-79 added).
+
+**Tests:** backend 481 → **497** (`OtpServiceTest` 4, `PendingRegistrationCleanupTest` 2, `SubtaskServiceTest` 3, `AuthServiceTest` +4, `ProjectMemberServiceTest` +2, `NotificationServiceTest` +1); Playwright 274 → **276** (`hardening.spec.js` +2); frontend unit tests 194, unchanged. All green: 497/497, 194/194, 276/276 at 4 workers; the user count is still 24. **Docs:** `issues.md` (I-08 to I-23, F-76 to F-79, known limitations), `api-reference.md`, `backend.md`, `security.md`, `authentication-authorization.md`, `users-and-projects.md`, `notifications.md`, `roadmap.md`, `setup.md`, ADRs 0003, 0007 and 0013, `testing.md`, `test-cases.md` (REG-06, REG-07, PRJ-12, NTF-10), `frontend.md`, README.
+
+## 2026-10-14 (the Calendar and the project cards read less) — checklist R-5, Calendar and Projects
+
+**Changed**
+- **The Calendar reads only the days on screen.** It used to fetch every task and every milestone and pick the month out in the browser. `GET /api/tasks` and `GET /api/milestones` now take `dueFrom` / `dueTo` (both days included, undated items left out, a bad date or a backwards range is `400`), and the Calendar asks for the six-week month grid, the Monday-to-Sunday week or the day, and reads a new window when you move on. A task opened from a milestone's linked tasks (now read by milestone), or one an edit moved out of the window, is read by id.
+- **The project cards read their counts.** New `GET /api/tasks/project-stats` (one grouped query; cancelled tasks left out, overdue means past due and still open) replaces fetching every task to count them per project. That makes **127 endpoints**.
+- **The task panel's dependency picker reads only its own project's tasks** instead of every task, which every screen that opens a task panel was doing.
+
+**Corrected record:** the earlier R-5 lists named the Gantt chart and the project pages as whole-list readers. They read one project's tasks. The screens that still read every task are the Dashboard, Kanban and Reports Overview; the whole assignment list is still read by the task form, Dashboard, Kanban, Reports, Team and the project pages.
+
+**Tests:** backend 474 → **481** (`TaskListQueryTest` +3, `TaskServiceTest` +2, `MilestoneServiceTest` +2); frontend unit tests 178 → **194** (`calendarRange.test.js` 8, `tasks.test.js` +3, `milestones.test.js` 3, `relations.test.js` 2); Playwright 268 → **274** (`calendar-projects-server.spec.js` 5, `tasks-server-list.spec.js` +1). All green: 481/481, 194/194, 274/274 at 4 workers; the user count is still 24. **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `roadmap.md`, `issues.md` (F-75), `testing.md`, `test-cases.md` (MIL-06, PRJ-11), README.
+
+## 2026-10-14 (three Medium issues closed, and the register tidied) — I-09, I-11, I-12
+
+**Fixed**
+- **I-09, the sign-in lockout was not per client behind nginx.** Reproduced first: after one client was locked on a name, a second client at another address was locked too, because the backend saw only the proxy's address. `frontend/nginx.conf` now sends `X-Forwarded-For: $remote_addr` (a header from the client is replaced, not extended) and `application.properties` sets `server.forward-headers-strategy=native`, so `getRemoteAddr()` is the real client (Tomcat trusts the header from a private-network proxy only). Verified live: the locked client stays locked even with a spoofed header, another client is not locked. Needs the frontend image rebuilt.
+- **I-11, raw database text in error answers.** New `DatabaseMessages` turns a CHECK, UNIQUE, foreign-key or NOT NULL violation into a plain sentence (`The task due date cannot be before its start date.`, `That username is already taken.`, a general sentence for the rest); a trigger's own sentence still passes through. The status stays `400`.
+- **I-12, an invitation vanished for someone with task notifications off.** The invitation notification is now created whatever the switch says, since it is the only place to accept or decline.
+
+**Register and docs.** I-20 (no required feature is missing) and I-21 (the live-data rows are gone; all 15 invariant queries return nothing) are closed; three planned-list entries that were already built (refresh tokens, PDF / Excel export, the administrator audit view) are struck. Open defects: 11 → 6 (I-08, I-13, I-14, I-17, I-18, I-23); the "Fixed" count said 67 when 69 rows were recorded and is now 74. `api-reference.md`, `security.md`, `authentication-authorization.md`, `backend.md`, `notifications.md`, `users-and-projects.md`, `roadmap.md` and ADRs 0003, 0005, 0007 and 0010 no longer describe the three as open.
+
+**Tests:** backend 463 → **474** (`DatabaseMessagesTest` 9, `GlobalExceptionHandlerTest` +1, `NotificationServiceTest` +1); Playwright 265 → **268** (`hardening.spec.js` 3); frontend unit tests 178, unchanged. 474/474, 178/178 and 268/268 at 4 workers; the user count is still 24 after the run.
+
+## 2026-10-14 (the Tasks page reads from the server) — checklist R-5, the Tasks page
+
+**Changed**
+- **The Tasks page loads 50 tasks at a time.** It used to fetch every task and every assignment and then search, filter, sort, group and count the quick views in the browser. It now asks `GET /api/tasks` for a page (with `groupBy=project`, so the tasks of a project stay together, finished projects last, and the chosen sort orders each project) and a *Show more (N more)* button reads the next page; the search (after a short pause), the filters, the quick view and the sort are all applied by the server. The project and status groups look as before; they are built from the pages loaded so far.
+- **Quick-view counts and the assignee choices come from the server.** New `GET /api/tasks/summary` answers `{ viewCounts, assignees }` over the same search and filters (the view itself is ignored, so every count shows).
+- **A task carries its assignees.** `TaskResponse` has `assigneeIds`, filled from one batched query, so the page no longer needs `GET /api/task-assignees`.
+
+**Added (API)**
+- On `GET /api/tasks`: `view` (`all`, `today`, `upcoming`, `inprogress`, `completed`, `overdue`), `unassigned=true`, `groupBy=project`, sort by `title`, and a repeated `assigneeId` (the task must be assigned to all of them: *My Tasks* together with a chosen person). A bad `view` or `groupBy` is `400`. That makes **126 endpoints**.
+- The open task panel is read by id as well, so it stays open when an edit moves the task out of the current filter, and it opens a task from *Awaiting your approval* that is on a page not loaded yet.
+
+**Not changed (R-5 stays open in part):** the Dashboard, Kanban, Calendar, Gantt, Projects and Reports Overview still read every task, as do the task panel's dependency picker and the task form's assignee list.
+
+**Tests:** backend 453 → **463** (`TaskListQueryTest` +7, `TaskServiceTest` +3); frontend unit tests 174 → **178** (`tasks.test.js` +4); Playwright 257 → **265** (`tasks-server-list.spec.js` 8; `batch1.spec.js` waits for the server's list in the assignee case). All green: 463/463, 178/178, 265/265 at 4 workers; checked against the live stack. **Docs:** `checklist/not_fully_satisfy.md` (R-5, R-6, R-7), `checklist/done.md`, `assignment-brief.md` (D-25), `api-reference.md`, `backend.md`, `frontend.md`, `roadmap.md`, `issues.md` (F-70, F-71), `testing.md`, `test-cases.md` (TSK-22, TSK-23), README.
+
+## 2026-10-14 (registration spec cleans up after itself) — tests only
+
+`registration.spec.js` registers real accounts through the form and never removed them, so every run of the suite left a verified `new.*` account on the Team page and unverified `pending.*` and `wrong.*` accounts in the database (3 per run). The spec now records each username it registers and deletes it through the API in `afterEach` (as administrator; the seeded `admin.system`, which the "name already taken" test types in, is skipped). Verified: the spec alone leaves the user count unchanged, and a full run (257/257, 4 workers) ends with the same 24 users it started with.
+
 ## 2026-10-14 (project pages on a phone) — front end only
 
 At 390 px wide a project page was wider than the screen (6 px for most projects, up to 58 px for one with a long name), so it scrolled sideways. Two causes, both fixed: the **role picker in the team list** is a native select that is as wide as its widest option, *Owner (transfer ownership)*, and it no longer shrinks below that, so it now has `min-w-0` and a 9 rem ceiling on a phone; and the **header's title wrapper** (`TopBar`) could not shrink, so a long project name never reached its ellipsis, and it now has `min-w-0` on every page.
@@ -270,7 +419,7 @@ Checking the Kanban moves against every rule that applies to a task and a projec
 
 ## 2026-10-13 (Kanban moves) — Checklist #35 closed; front end only
 
-Last row of [checklist/partially_done.md](checklist/partially_done.md) (1 → 0). Front end redeployed to the running stack and verified there.
+Last row of checklist/partially_done.md (1 → 0). Front end redeployed to the running stack and verified there.
 
 **Added**
 - **Drag and drop on the Kanban board** (HTML5, no new dependency): the dragged card dims, the column under it lights up (blue when the drop is accepted, a dashed red edge when it is not), and a refused drop shows the reason and leaves the card.
@@ -297,7 +446,7 @@ Last row of [checklist/partially_done.md](checklist/partially_done.md) (1 → 0)
 
 ## 2026-10-13 (audit log) — Checklist #44 closed; migration `V16`
 
-Seventh batch from [checklist/partially_done.md](checklist/partially_done.md) (2 rows → 1). Backend, front end and database redeployed to the running stack (a `pg_dump` was taken first) and verified there.
+Seventh batch from checklist/partially_done.md (2 rows → 1). Backend, front end and database redeployed to the running stack (a `pg_dump` was taken first) and verified there.
 
 **Database**
 - `V16__audit_log.sql`: table `audit_logs` (no foreign keys; indexes on `created_at`, `action`, `project_id`), the trigger `trg_audit_logs_append_only` (refuses `UPDATE` and `DELETE`), and `SELECT, INSERT` for `taskmanager_app`. Idempotent (run twice); same end state in `01-init.sql`; the grant added to `03-app-role.sh` and `ci.yml`. Checked in PostgreSQL: the owner cannot update or delete an entry, the application role cannot update, delete or truncate.
@@ -315,7 +464,7 @@ Seventh batch from [checklist/partially_done.md](checklist/partially_done.md) (2
 
 ## 2026-10-13 (project lead) — Checklist #18 closed; migration `V15`
 
-Sixth batch from [checklist/partially_done.md](checklist/partially_done.md) (3 rows → 2). Backend, front end and database redeployed to the running stack (a `pg_dump` was taken first) and verified there.
+Sixth batch from checklist/partially_done.md (3 rows → 2). Backend, front end and database redeployed to the running stack (a `pg_dump` was taken first) and verified there.
 
 **Database**
 - `V15__project_lead.sql`: `projects.lead_id` (FK `users`, `SET NULL`), `trg_projects_lead_is_team_leader` (the lead must be an active Team Leader of the project) and `trg_project_members_clear_lead` (cleared when that member is demoted, set aside or removed), and `PROJECT_LEAD_CHANGED` in the `activity_logs.action` check. Idempotent (run twice); same end state in `01-init.sql`; new invariant 13 in `verify_invariants.sql`.
@@ -337,7 +486,7 @@ Sixth batch from [checklist/partially_done.md](checklist/partially_done.md) (3 r
 
 ## 2026-10-13 (extra system roles) — Checklist #7b and G-06 closed; no schema change
 
-Fifth batch from [checklist/partially_done.md](checklist/partially_done.md) (4 rows → 3). Backend and front end redeployed to the running stack and verified there.
+Fifth batch from checklist/partially_done.md (4 rows → 3). Backend and front end redeployed to the running stack and verified there.
 
 **Added**
 - **Extra system roles (D-14).** *Administration → Roles & Permissions* has a *New role* button (`RoleFormModal`), and an extra role has Edit (rename) and Delete (with a confirmation) beside its permission grid. A new role is a system role with no project role and no grants; the permissions are ticked on the grid afterwards.
@@ -354,7 +503,7 @@ Fifth batch from [checklist/partially_done.md](checklist/partially_done.md) (4 r
 
 ## 2026-10-13 (user management) — Checklist #7 and #59 closed; no schema change
 
-Fourth batch from [checklist/partially_done.md](checklist/partially_done.md) (6 rows → 4). Backend and front end redeployed to the running stack and verified there.
+Fourth batch from checklist/partially_done.md (6 rows → 4). Backend and front end redeployed to the running stack and verified there.
 
 **Added**
 - **Edit and delete users** in *Administration → Users*: an Edit dialog (`EditUserModal`: name, username, e-mail, gender, date of birth, phone, position, department, account status, optional new password) and a Delete button with a confirmation, shown only to holders of `USER:EDIT` / `USER:DELETE`. Delete is hidden on your own row and your own status is locked.
@@ -370,7 +519,7 @@ Fourth batch from [checklist/partially_done.md](checklist/partially_done.md) (6 
 
 ## 2026-10-12 (testing and CI) — Checklist #65 and #67 closed; no schema change
 
-Third batch from [checklist/partially_done.md](checklist/partially_done.md) (8 rows → 6). Backend redeployed to the running stack and verified there.
+Third batch from checklist/partially_done.md (8 rows → 6). Backend redeployed to the running stack and verified there.
 
 **Fixed**
 - **Two simultaneous project creations could pick the same `PRJ-####`** and one failed with a `409 Project code already exists` the user never caused. Found while chasing an unexplained e2e flake (R-6) and reproduced (2 of 8 parallel `POST /api/projects` failed). `ProjectRepository.lockProjectCodeGeneration` takes a transaction-scoped PostgreSQL advisory lock before `ProjectService.generateProjectCode` reads the codes in use, so creates take turns; 30 of 30 parallel creates succeeded afterwards. A code the user chose is still checked by the pre-check and the unique constraint. Issue F-39.
@@ -395,7 +544,7 @@ Third batch from [checklist/partially_done.md](checklist/partially_done.md) (8 r
 
 ## 2026-10-12 (auto-logout and notifications) — Checklist #8 and #45 closed; no schema change
 
-Second batch from [checklist/partially_done.md](checklist/partially_done.md) (10 rows → 8). Deployed to the running stack and verified there.
+Second batch from checklist/partially_done.md (10 rows → 8). Deployed to the running stack and verified there.
 
 **Added**
 - **Auto-logout.** `auth/IdleLogout.jsx`, mounted in `AppLayout` (so never on the public pages): after 15 minutes without mouse, keyboard, wheel, scroll or touch activity, in this or any other tab (the last activity is shared through `localStorage`), a *Still there?* dialog counts down 60 seconds with *Stay signed in* and *Sign out now*. While it shows only its own button counts. When the minute runs out the session is cleared, the app goes to `/login` and the page says "You were signed out because there was no activity for a while". Limits in `auth/idleTimeout.js`; proposal D-20 in the brief. Browser-side only: the token stays valid on the server until it expires.
@@ -409,7 +558,7 @@ Second batch from [checklist/partially_done.md](checklist/partially_done.md) (10
 
 ## 2026-10-12 (quick wins) — Six partly-done checklist rows closed; migration V14
 
-First batch from [checklist/partially_done.md](checklist/partially_done.md) (17 rows → 10): #34, #37, #31, #30b and the project completion date (#23, #60, #69). Deployed to the running stack; the live database was backed up first (`pg_dump`), `V14` applied by the Compose `migrate` service and verified.
+First batch from checklist/partially_done.md (17 rows → 10): #34, #37, #31, #30b and the project completion date (#23, #60, #69). Deployed to the running stack; the live database was backed up first (`pg_dump`), `V14` applied by the Compose `migrate` service and verified.
 
 **Added**
 - **Project completion date.** `projects.completed_at` (`V14`) with the trigger `trg_projects_completed_at`: stamped when the status becomes Completed, kept while a completed project is edited, cleared when it is reopened. Projects that were already Completed (one on the development data) got their last update time, with the user triggers off so `updated_at` did not move. `Project` reads it as a database-generated column (`@Generated`), `ProjectService` flushes after saving so the same `PUT` returns it, and `ProjectResponse.completedAt`, the report `ProjectRow.completedAt`, a *Completed on <date>* chip on the project page and a *Completed on* column in the Project Status Report show it. `verify_invariants.sql` has a 12th check (status and date agree); `init/01-init.sql` mirrors the end state and `init/04-flyway-baseline.sql` baselines at version 14.
@@ -519,7 +668,7 @@ A re-check of every document against the code found the checklist and several de
 
 ## 2026-10-09 (batch 3c) — Change-plan batch 3c: the five KPIs and the seven named reports
 
-Implements sub-batch 3c of [change-plan.md](change-plan.md) ([assignment-brief.md](../assignment-brief.md) B8, D-12; workflow flows 31 and 32). No schema change. Deployed and verified live.
+Implements sub-batch 3c of change-plan.md ([assignment-brief.md](../assignment-brief.md) B8, D-12; workflow flows 31 and 32). No schema change. Deployed and verified live.
 
 **Added**
 - **Server-side reports, gated by `REPORT:GENERATE_REPORTS`:** `GET /api/reports/kpis`, `/project`, `/tasks`, `/project-status`, `/task-completion`, `/overdue`, `/team-performance`, `/workload`. Until now only the Reports page was hidden from people without the permission; the data endpoints were not. An Administrator reports on every project; anyone else on the projects where they hold the permission (Owner, Team Leader, and the Project Manager as Owner); everyone else gets `403`; a project outside that set is `404` for a stranger.
@@ -540,7 +689,7 @@ Implements sub-batch 3c of [change-plan.md](change-plan.md) ([assignment-brief.m
 
 ## 2026-10-09 (batch 3b) — Change-plan batch 3b: manager views
 
-Implements sub-batch 3b of [change-plan.md](change-plan.md) (assignment-brief.md Part A, B1.3, B3.7, B3.9, D-06, D-13; workflow flows 5, 22, 30, A5). No schema change. Deployed and verified live.
+Implements sub-batch 3b of change-plan.md (assignment-brief.md Part A, B1.3, B3.7, B3.9, D-06, D-13; workflow flows 5, 22, 30, A5). No schema change. Deployed and verified live.
 
 **Added**
 - **Dashboard statistics** from the server: `GET /api/dashboard/stats` (projects by status, Delayed, average completion, tasks by status, overdue, the five most-delayed projects) and `GET /api/activity-logs/recent`. The dashboard shows a statistics strip, a *Delayed projects* card, *Recent activity*, and — for people who may assign tasks — a *Team workload* card.
@@ -562,7 +711,7 @@ Implements sub-batch 3b of [change-plan.md](change-plan.md) (assignment-brief.md
 
 ## 2026-10-09 (batch 3a) — Change-plan batch 3a: attachments, checklists, comment replies, project activity
 
-Implements sub-batch 3a of [change-plan.md](change-plan.md) ([assignment-brief.md](../assignment-brief.md) B1.5/B1.6, B3.4, B10, D-07, D-17). Deployed after a `pg_dump`; `V13` tried and re-run on a restored copy, and a fresh database built from `01-init.sql` + `02-seed.sql` matched the migrated copy.
+Implements sub-batch 3a of change-plan.md ([assignment-brief.md](../assignment-brief.md) B1.5/B1.6, B3.4, B10, D-07, D-17). Deployed after a `pg_dump`; `V13` tried and re-run on a restored copy, and a fresh database built from `01-init.sql` + `02-seed.sql` matched the migrated copy.
 
 **Added**
 - **File attachments** on tasks and projects: `POST /api/attachments` (multipart, `file` + `taskId` or `projectId`), `GET /api/attachments/task/{id}`, `/project/{id}`, `GET /api/attachments/{id}/download`, `DELETE /api/attachments/{id}`. **10 MB per file, 25 files per task or project, an allow-list of types** (images, PDF, text, CSV, JSON, Office / OpenDocument, ZIP), content checked against the type, file names cleaned, bytes stored in the database (`attachment_contents`), downloads always `Content-Disposition: attachment` with `nosniff` and a sandboxing CSP, available only to members. The uploader may always delete their own file; the Owner and Team Leader may delete any.
@@ -584,7 +733,7 @@ Implements sub-batch 3a of [change-plan.md](change-plan.md) ([assignment-brief.m
 
 ## 2026-10-09 (batch 2) — Change-plan batch 2: the task approval workflow
 
-Implements Batch 2 of [change-plan.md](change-plan.md) ([assignment-brief.md](../assignment-brief.md) B3.8, project-workflow A6, D-05). Deployed after a `pg_dump`, with `V12` first tried (and re-run) on a restored copy of the live database; verified live.
+Implements Batch 2 of change-plan.md ([assignment-brief.md](../assignment-brief.md) B3.8, project-workflow A6, D-05). Deployed after a `pg_dump`, with `V12` first tried (and re-run) on a restored copy of the live database; verified live.
 
 **Added**
 - **Approval records and a designated approver.** A task in review has an open request; an approver decides **Approved** (the task is completed, progress 100), **Changes requested** (back to In Progress) or **Rejected** (In Progress or Cancelled, the approver's choice). Changes and rejection need a comment. A task may name its approver (needs `ASSIGN`); then only that person, the project Owner or an Administrator decides. Nobody decides their own work (asked for the review, or assigned to the task) except the Owner and Administrators.
@@ -608,7 +757,7 @@ Implements Batch 2 of [change-plan.md](change-plan.md) ([assignment-brief.md](..
 
 ## 2026-10-09 (batch 1) — Change-plan batch 1: seven quick fixes, `TODO` rename
 
-Implements Batch 1 of [change-plan.md](change-plan.md). Deployed to the running stack after a `pg_dump`, with `V11` first tried (and re-run) on a copy of the live database; verified live.
+Implements Batch 1 of change-plan.md. Deployed to the running stack after a `pg_dump`, with `V11` first tried (and re-run) on a copy of the live database; verified live.
 
 **Fixed / Changed**
 - **Unknown API paths answer `404 "Resource not found"`**, not `500` with a stack trace (`GlobalExceptionHandler.handleNoResource`) — closes I-22.
@@ -649,13 +798,13 @@ Implements [ADR-0015](adr/0015-two-level-roles-system-and-project.md) and the ap
 
 **Data repair:** my earlier test clean-up had left orphaned rows (activity-log entries, notifications, tasks of deleted test projects); they were removed and every foreign key re-scanned clean.
 
-**Not done yet:** the approval workflow, creating extra system roles, own position/department, the `TO_DO` → `TODO` rename, and the missing required features ([workflow-conformance.md](workflow-conformance.md)).
+**Not done yet:** the approval workflow, creating extra system roles, own position/department, the `TO_DO` → `TODO` rename, and the missing required features (workflow-conformance.md).
 
 ---
 
 ## 2026-10-08 (test) — Live workflow conformance test; no code changed
 
-The running application was tested against [project-workflow.md](../project-workflow.md) and the approved specification: 79 API checks, a UI sweep of 10 screens and a source check. Result: of 44 application flows **12 pass, 22 are partial, 10 are missing**. Full table and the ranked differences: [workflow-conformance.md](workflow-conformance.md). Also found: unknown API paths return `500` instead of `404`; the UI says "Done"/"Review" where the specification says Completed/In Review. One clean-up mistake of mine (orphaned test rows) was repaired; two older orphaned test notifications still break `GET /api/notifications` for two seed users and await permission to delete.
+The running application was tested against [project-workflow.md](../project-workflow.md) and the approved specification: 79 API checks, a UI sweep of 10 screens and a source check. Result: of 44 application flows **12 pass, 22 are partial, 10 are missing**. Full table and the ranked differences: workflow-conformance.md. Also found: unknown API paths return `500` instead of `404`; the UI says "Done"/"Review" where the specification says Completed/In Review. One clean-up mistake of mine (orphaned test rows) was repaired; two older orphaned test notifications still break `GET /api/notifications` for two seed users and await permission to delete.
 
 ---
 

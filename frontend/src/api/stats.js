@@ -1,53 +1,17 @@
-const DAY_MS = 24 * 60 * 60 * 1000
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-const OPEN_STATUSES = new Set(['TODO', 'IN_PROGRESS', 'IN_REVIEW'])
-
-function startOfDay(value) {
-  const d = new Date(value)
-  d.setHours(0, 0, 0, 0)
-  return d
+// "Mon" for a week, "10/12" for anything longer, so the points do not collide.
+function periodDayLabel(date, days) {
+  return days <= 7 ? WEEKDAY_LABELS[date.getDay()] : `${date.getMonth() + 1}/${date.getDate()}`
 }
 
-// Derives completed/created/overdue counts per day, over the last N days,
-// straight from real task timestamps — replaces the fully-fake `weeklyReport`
-// mock array. Weekday names only stay legible for a 7-day window; anything
-// longer switches to M/D labels so points don't collide.
-export function computePeriodTaskStats(tasks, days = 7) {
-  const today = startOfDay(new Date())
-  const useWeekdayLabel = days <= 7
-  const points = []
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(today.getTime() - i * DAY_MS)
-    const label = useWeekdayLabel ? WEEKDAY_LABELS[date.getDay()] : `${date.getMonth() + 1}/${date.getDate()}`
-    points.push({ date, day: label, completed: 0, created: 0, overdue: 0 })
-  }
-
-  for (const t of tasks ?? []) {
-    if (t.createdAt) {
-      const created = startOfDay(t.createdAt)
-      const match = points.find((p) => p.date.getTime() === created.getTime())
-      if (match) match.created += 1
-    }
-    if (t.completedAt) {
-      const completed = startOfDay(t.completedAt)
-      const match = points.find((p) => p.date.getTime() === completed.getTime())
-      if (match) match.completed += 1
-    }
-  }
-
-  for (const point of points) {
-    point.overdue = (tasks ?? []).filter((t) => {
-      if (!t.dueDate || !OPEN_STATUSES.has(t.status)) return false
-      return startOfDay(t.dueDate).getTime() < point.date.getTime()
-    }).length
-  }
-
-  return points
-}
-
-export function computeWeeklyTaskStats(tasks) {
-  return computePeriodTaskStats(tasks, 7)
+// The chart's points from the server's daily rows (GET /api/dashboard/task-activity):
+// [{ date: Date, day: label, completed, created, overdue }], oldest first.
+export function activityToPeriodPoints(rows, days = 7) {
+  return (rows ?? []).map((r) => {
+    const date = new Date(`${r.date}T00:00:00`) // a calendar date, read in local time
+    return { date, day: periodDayLabel(date, days), completed: r.completed, created: r.created, overdue: r.overdue }
+  })
 }
 
 export const PERIOD_OPTIONS = [
@@ -70,43 +34,6 @@ export function computeTaskOverview(tasks) {
     const percent = total ? Math.round((count / total) * 100) : 0
     return { key: status.toLowerCase(), label, count, percent, color }
   })
-}
-
-const KANBAN_COLUMNS = [
-  { id: 'todo', title: 'To Do', status: 'TODO' },
-  { id: 'inprogress', title: 'In Progress', status: 'IN_PROGRESS' },
-  { id: 'review', title: 'In Review', status: 'IN_REVIEW' },
-  { id: 'done', title: 'Completed', status: 'COMPLETED' },
-]
-
-// "Blocked" is never a status a task actually holds — a task with an
-// incomplete dependency can only ever be TODO (or CANCELLED); see
-// trg_tasks_dependencies_status_gate in database/init/01-init.sql, which
-// refuses to let it become IN_PROGRESS/IN_REVIEW/COMPLETED at all. So this
-// is a filtered view over TODO tasks whose real, already-computed
-// `blocked` field (from task_dependencies via TaskResponse) is true, not a
-// 5th status. Opt-in only (`includeBlocked`) so Dashboard's own mini-board,
-// which calls this with no options, keeps its original 4 columns exactly
-// as before.
-const BLOCKED_COLUMN = { id: 'blocked', title: 'Blocked', status: 'TODO' }
-
-export function groupTasksByStatus(tasks, { includeBlocked = false } = {}) {
-  const list = tasks ?? []
-  const columns = includeBlocked
-    ? [KANBAN_COLUMNS[0], KANBAN_COLUMNS[1], KANBAN_COLUMNS[2], BLOCKED_COLUMN, KANBAN_COLUMNS[3]]
-    : KANBAN_COLUMNS
-  return columns.map((col) => ({
-    ...col,
-    tasks: list.filter((t) => {
-      if (t.status !== col.status) return false
-      if (!includeBlocked) return true
-      // TODO is split two ways between the 'todo' and 'blocked' columns so
-      // a task appears in exactly one of them, never both.
-      if (col.id === 'todo') return !t.blocked
-      if (col.id === 'blocked') return Boolean(t.blocked)
-      return true
-    }),
-  }))
 }
 
 // The same rows as computeTaskOverview, but from the counts the server

@@ -45,6 +45,8 @@ public class TaskResponse {
     private String approvalStatus;
     private UserResponse approvalRequestedBy;
     private OffsetDateTime approvalRequestedAt;
+    // Who the task is assigned to; set from one batched query (TaskService.toResponses).
+    private List<Long> assigneeIds = List.of();
 
     public TaskResponse(Task task) {
         this.id = task.getId();
@@ -217,6 +219,14 @@ public class TaskResponse {
         this.approvalRequestedBy = approval != null && approval.getRequestedBy() != null
                 ? new UserResponse(approval.getRequestedBy()) : null;
         this.approvalRequestedAt = approval != null ? approval.getRequestedAt() : null;
+    }
+
+    public List<Long> getAssigneeIds() {
+        return assigneeIds;
+    }
+
+    public void setAssigneeIds(List<Long> assigneeIds) {
+        this.assigneeIds = assigneeIds;
     }
 
     public List<String> getBlockingTaskTitles() {

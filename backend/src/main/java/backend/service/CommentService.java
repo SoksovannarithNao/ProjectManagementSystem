@@ -70,6 +70,7 @@ public class CommentService {
         Task task = requireTask(request.getTaskId());
         // Commenting is a content write — a VIEWER can read the discussion but not add to it.
         projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.COMMENT, Action.CREATE);
+        ProjectWorkRules.assertTaskAcceptsNew(task, "comments");
 
         Comment comment = new Comment();
         comment.setTask(task);

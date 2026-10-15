@@ -61,6 +61,7 @@ public class WorkLogService {
         User caller = requireUser(username);
         Task task = requireTask(request.getTaskId());
         projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.WORK_LOG, Action.CREATE);
+        ProjectWorkRules.assertTaskAcceptsNew(task, "time entries");
 
         if (isInTheFuture(request.getWorkDate())) {
             throw new IllegalArgumentException("Work date cannot be in the future");

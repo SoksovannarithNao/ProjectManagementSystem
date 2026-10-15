@@ -68,7 +68,7 @@ class ViewerWriteAccessTest {
     void setUp() {
         subtaskService = new SubtaskService(
                 subtaskRepository, taskRepository, taskDependencyRepository, userRepository,
-                activityLogService, projectAccessGuard, taskAssigneeRepository);
+                activityLogService, projectAccessGuard, taskAssigneeRepository, updateNotificationService);
         commentService = new CommentService(commentRepository, taskRepository, userRepository, projectAccessGuard, activityLogService, updateNotificationService, org.mockito.Mockito.mock(backend.repository.ProjectMemberRepository.class));
 
         viewer = new User();

@@ -140,7 +140,7 @@ BrowserRouter
 - `api/client.js` — `apiFetch(path, { method, body, skipAuth })` adds `Authorization: Bearer <token>` (the access token is kept in memory only; `localStorage` key `taskflow.auth` holds just the username and role), sends JSON, and throws an `ApiError(status, message, fieldErrors)`. A `401` on an authenticated call first asks `POST /api/auth/refresh` (the httpOnly cookie is the credential) for a new token, once, and repeats the request; only a failed refresh clears the stored auth and triggers logout. `apiUpload` does the same for multipart uploads and `apiDownload` fetches a file with the token (attachments).
 - `api/<resource>.js` — one small module per backend resource (`projects.js`, `tasks.js`, `projectMembers.js`, …). They are thin wrappers over `apiFetch`.
 - `api/useApi.js` — a minimal fetch-on-mount hook returning `{ data, loading, error, refetch }`. It refetches when the `fetcher` function identity changes, so callers wrap fetchers in `useCallback`. There is no React Query/SWR; mutations call `refetch()` afterwards.
-- Derived data helpers: `api/stats.js` (dashboard/report/Kanban grouping), `api/relations.js` (id → users maps, the caller's role per project), `api/format.js`, `api/validation.js` (password rules, mirrored from the backend), `api/permissions.js`.
+- Derived data helpers: `api/stats.js` (dashboard and report figures), `api/relations.js` (id → users maps, the caller's role per project), `api/format.js`, `api/validation.js` (password rules, mirrored from the backend), `api/permissions.js`.
 
 ### 3.3 Permissions in the UI
 
@@ -151,11 +151,11 @@ The UI no longer carries its own copy of the rules. After login `AuthContext` lo
 | Route | Page | Purpose |
 |---|---|---|
 | `/login`, `/register`, `/verify-otp` | `Login`, `Register`, `VerifyOtp` | Public. Registration shows a live password checklist; OTP page has a 60 s resend cooldown |
-| `/` | `Dashboard` | Project and task statistics (from `GET /api/dashboard/stats`), due and overdue tasks, project cards, *Delayed projects*, recent activity and, for people who can assign tasks, team workload |
+| `/` | `Dashboard` | Project and task statistics (from `GET /api/dashboard/stats`), the activity chart (`GET /api/dashboard/task-activity`), due and overdue tasks, project cards, *Delayed projects*, recent activity and, for people who can assign tasks, team workload |
 | `/tasks` | `Tasks` | Tasks grouped by project then status; search, filter (status, priority, assignee, due date, project, *My Tasks*), sort, quick views (Today, Upcoming, In Progress, Completed, Overdue); create/edit/delete; expandable subtasks; *Awaiting your approval* at the top |
 | `/projects`, `/projects/:id` | `Projects`, `ProjectDetail` | Project cards; detail with status/priority, completion date, tasks, members (role picker, ownership transfer), milestones (add, edit, delete), attachments, activity |
 | `/projects/:id/:view` | `ProjectViews` | `team`, `workload`, `timeline` or `gantt` for one project |
-| `/kanban` | `Kanban` | Columns To Do, In Progress, In Review, a computed Blocked column, and Completed |
+| `/kanban` | `Kanban` | Columns To Do, In Progress, In Review, Blocked (To Do tasks waiting on an unfinished prerequisite) and Completed, each read from the server on its own, 25 cards at a time with its total |
 | `/calendar` | `Calendar` | Month / Week / Day views of task due dates and milestones |
 | `/team` | `Team` | Directory, per-member projects, invite to a project, remove from a project, position/department |
 | `/reports` | `Reports` | Needs `REPORT:GENERATE_REPORTS`. Tabs: Overview charts, KPIs and the seven named reports (data from `GET /api/reports/*`) |
@@ -165,7 +165,7 @@ The UI no longer carries its own copy of the rules. After login `AuthContext` lo
 | `/help` | `Help` | Help & Support (static FAQ) |
 | `/error/:status`, any unknown path | `ErrorPage` | One page for every error status (404 for unknown paths, 403 from the permission guard) |
 
-The task detail panel (`components/TaskDetailPanel.jsx`) is a right-hand drawer with subtasks, comments, dependencies and the activity feed. New Task, Add member (project page) and Add User (Team page) open in the shared `SidePanel` (`TaskFormModal`, `AddProjectMemberModal`, `AddMemberModal`); New Project has its own copy of the drawer layout (`NewProjectModal`); editing a task or a project uses a centered modal.
+The task detail panel (`components/TaskDetailPanel.jsx`) is a right-hand drawer with subtasks, comments, dependencies and the activity feed. New Task, Edit Task, New Project, Edit Project, Add member (project page) and Add User (Team page) all open in the shared `SidePanel` (`TaskFormModal`, `NewProjectModal`, `AddProjectMemberModal`, `AddMemberModal`).
 
 ## 4. API communication
 
