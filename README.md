@@ -2,7 +2,32 @@
 
 A full-stack task and project management app — React (Vite) frontend, Spring Boot REST API backend, PostgreSQL database, containerized with Docker and built via GitHub Actions.
 
-**Documentation:** project-level documentation lives in [docs/](docs/README.md) — setup guide, architecture, authentication/authorization, API reference, database, testing, known issues, roadmap, changelog and decision records.
+## Documentation
+
+All project documentation lives in [docs/](docs/README.md); this README is the quick start and overview.
+
+| Looking for | Read |
+|---|---|
+| Everything, with the reading order | [docs/README.md](docs/README.md) |
+| Install, configure and run it | [docs/setup.md](docs/setup.md) |
+| What each screen does and how it works (one short page per screen) | [docs/pages_docs/](docs/pages_docs/README.md) |
+| How it is built | [docs/architecture.md](docs/architecture.md), [backend](docs/backend.md), [frontend](docs/frontend.md), [decision records](docs/adr/README.md) |
+| The API | [docs/api-reference.md](docs/api-reference.md) |
+| Data and rules in the database | [docs/database.md](docs/database.md) |
+| Roles, permissions and sign-in | [docs/authentication-authorization.md](docs/authentication-authorization.md), [security](docs/security.md) |
+| How it is tested | [docs/testing.md](docs/testing.md), [test cases](docs/test-cases.md) |
+| What is done, known issues, what changed | [docs/roadmap.md](docs/roadmap.md), [docs/issues.md](docs/issues.md), [docs/changelog.md](docs/changelog.md) |
+| The requirements it is built against | [assignment-brief.md](assignment-brief.md), [project-workflow.md](project-workflow.md) |
+| Branching and pull requests | [Contributing.md](Contributing.md) |
+
+## Screenshots
+
+Seeded demo data, light theme (the app also has a dark theme).
+
+| | |
+|---|---|
+| **Dashboard**: figures, due and overdue work, delayed projects, workload<br>![Dashboard](docs/images/dashboard.png) | **Project page**: overview, tasks, members, milestones, files, activity<br>![Project page](docs/images/project-detail.png) |
+| **Kanban board**: five columns, drag a card to move it<br>![Kanban board](docs/images/kanban.png) | **Calendar**: month, week and day views of due dates and milestones<br>![Calendar](docs/images/calendar.png) |
 
 ## Features
 
@@ -11,6 +36,7 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 - **Project & Task Management API**: full CRUD for projects, tasks, milestones, project members, task assignees, task dependencies, subtasks, checklist items, comments (with replies and @mentions), file attachments and time logs, plus the task approval workflow, the manager views (team tasks, workload, dashboard statistics) and server-side KPIs and reports — all 128 endpoints are in [docs/api-reference.md](docs/api-reference.md)
 - **Task Dependencies**: model "task X can't start until task Y is done," with database-level cycle prevention; blocked tasks are surfaced to API/UI consumers by name, not just silently rejected
 - **Subtask/task status rules**: a task can't be marked `COMPLETED` while it has an incomplete subtask; touching a subtask on a still-To-Do task auto-promotes it to In Progress (skipped if the task is itself blocked by an incomplete dependency) — see [Task & Subtask Rules](docs/backend.md#task--subtask-rules)
+- **Completed means closed**: a `COMPLETED` project takes no new task, milestone, subtask, checklist item, comment, time entry, file or dependency, and a `COMPLETED` task takes no new subtask, checklist item, comment, time entry, file or dependency. The server answers `409` and the screens hide the controls; changing the status back reopens it (decision D-27).
 - **Database-enforced business rules**: auto-managed timestamps, date-range validation (task/milestone due dates constrained to their project's dates), case-insensitive username/email uniqueness, task-dependency ordering (a task can't go active while a dependency is incomplete, checked from both directions), assignment integrity (assignee must be an active project member), task/milestone/project consistency, and project/milestone/task progress auto-derived from completion (writable but not authoritative — recomputed on every relevant change)
 - **Role-level permissions**: the `permissions` / `role_permissions` matrix (seven actions — View, Create, Edit, Delete, Assign, Approve, Generate Reports — over each resource, for both the system and the project roles) is what the backend enforces, cached and re-read when an administrator saves the grid in *Administration → Roles & Permissions* (see [docs/database.md](docs/database.md#13-authorization-and-permissions) and [ADR-0014](docs/adr/0014-requirement-roles-and-permission-matrix.md))
 - **Overdue detection**: a `v_overdue_tasks` view plus a `fn_generate_overdue_notifications()` DB function feed the overdue state, and a daily scheduled job (`DeadlineScheduler`, 08:00 and at startup) sends the **deadline reminders** (3 and 1 days before) and **overdue notices** to the assignees and the project Owner, at most once each — see [docs/notifications.md](docs/notifications.md#8-deadline-reminders-and-overdue-notices-since-2026-10-10); overdue/blocked state is also surfaced directly on tasks in the UI (an "N overdue tasks" badge on the project detail page, a lock icon + tooltip naming the blocking task), and an open task due today or within 3 days carries a "Due today / tomorrow / in N days" flag (`dueSoon`, calculated on the server)
@@ -24,22 +50,25 @@ A full-stack task and project management app — React (Vite) frontend, Spring B
 
 ## Table of Contents
 
-1. [Tech Stack](#tech-stack)
-2. [Architecture Overview](#architecture-overview)
-3. [Prerequisites](#prerequisites)
-4. [Setup Instructions](#setup-instructions)
-5. [Environment Variables](#environment-variables)
-6. [Database Migrations](#database-migrations)
-7. [Running the Application](#running-the-application)
-8. [Deployment](#deployment)
-9. [API Documentation](#api-documentation)
-10. [Project Structure](#project-structure)
-11. [Security Features](#security-features)
-12. [Testing the API](#testing-the-api)
-13. [Troubleshooting](#troubleshooting)
-14. [License](#license)
-15. [Contributors](#contributors)
-16. [Future Enhancements](#future-enhancements)
+1. [Documentation](#documentation)
+2. [Screenshots](#screenshots)
+3. [Features](#features)
+4. [Tech Stack](#tech-stack)
+5. [Architecture Overview](#architecture-overview)
+6. [Prerequisites](#prerequisites)
+7. [Setup Instructions](#setup-instructions)
+8. [Environment Variables](#environment-variables)
+9. [Database Migrations](#database-migrations)
+10. [Running the Application](#running-the-application)
+11. [Deployment](#deployment)
+12. [API Documentation](#api-documentation)
+13. [Project Structure](#project-structure)
+14. [Security Features](#security-features)
+15. [Testing the API](#testing-the-api)
+16. [Troubleshooting](#troubleshooting)
+17. [License](#license)
+18. [Contributors](#contributors)
+19. [Future Enhancements](#future-enhancements)
 
 ## Tech Stack
 
@@ -474,7 +503,7 @@ curl http://localhost:8080/api/projects -H "Authorization: Bearer $TOKEN"
 
 Or just log into the frontend directly at http://localhost:5173 with any seeded `ACTIVE` username (e.g. `admin.system`, `pm.olivia`) and password `DevPassword123!`.
 
-Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgres matching the schema — currently 569 tests across 50 classes — the Spring context load, the exception handler, the controllers (standalone `MockMvc`: auth, tasks, dashboard, milestones, team, projects, notifications), the custom repository queries (on the real schema) and the services (users, projects, members, tasks, approvals, milestones, comments, attachments, checklists, reports, team views, activity log, work logs), the permission matrix itself and the JWT validator; service logic is covered with mocked repositories; nothing sends a request through the security filter chain yet). Automated frontend tests: `cd frontend && npm run test:e2e` — a Playwright end-to-end suite (291 tests across the `auth`, `registration`, `smoke`, `core-workflow`, `projects`, `project-team`, `team`, `permissions`, `time-tracking`, `time-log-edit`, `invite-role`, `session`, `paging`, `tasks-server-list`, `hardening`, `calendar-projects-server`, `dashboard-server`, `reports-overview-server`, `kanban-server`, `roles-permissions`, `batch1`, `approvals`, `collaboration`, `manager-views`, `reports`, `gantt`, `help-errors`, `quick-wins`, `idle-and-updates`, `user-management`, `custom-roles`, `project-lead`, `audit-log`, `kanban-moves`, `kanban-integrity`, `mentions`, `report-export`, `dependencies-and-notices`, `dashboard-polish`, `side-panels`, `add-member`, `role-labels`, `calendar-details`, `sticky-header` and `phone-project-page` specs; run with `npx playwright test --workers=4`, since the default 8 workers are intermittently flaky) that drives the real app against the real backend (requires `docker compose up -d` first); see [docs/frontend.md](docs/frontend.md#testing). Frontend unit tests: `cd frontend && npm test` (Vitest, 196 tests for the pure logic in `src/api` and `src/auth`, no browser or backend needed). Lint, the unit tests, the backend tests and the whole Playwright suite all run in CI. Every test case with its steps and expected result: [docs/test-cases.md](docs/test-cases.md). Full inventory, regression-test map and coverage gaps: [docs/testing.md](docs/testing.md).
+Automated backend tests: `cd backend && ./mvnw test` (requires a running Postgres matching the schema — currently 591 tests across 50 classes — the Spring context load, the exception handler, the controllers (standalone `MockMvc`: auth, tasks, dashboard, milestones, team, projects, notifications), the custom repository queries (on the real schema) and the services (users, projects, members, tasks, approvals, milestones, comments, attachments, checklists, reports, team views, activity log, work logs), the permission matrix itself and the JWT validator; service logic is covered with mocked repositories; nothing sends a request through the security filter chain yet). Automated frontend tests: `cd frontend && npm run test:e2e` — a Playwright end-to-end suite (291 tests across the `auth`, `registration`, `smoke`, `core-workflow`, `projects`, `project-team`, `team`, `permissions`, `time-tracking`, `time-log-edit`, `invite-role`, `session`, `paging`, `tasks-server-list`, `hardening`, `calendar-projects-server`, `dashboard-server`, `reports-overview-server`, `kanban-server`, `roles-permissions`, `batch1`, `approvals`, `collaboration`, `manager-views`, `reports`, `gantt`, `help-errors`, `quick-wins`, `idle-and-updates`, `user-management`, `custom-roles`, `project-lead`, `audit-log`, `kanban-moves`, `kanban-integrity`, `mentions`, `report-export`, `dependencies-and-notices`, `dashboard-polish`, `side-panels`, `add-member`, `role-labels`, `calendar-details`, `sticky-header` and `phone-project-page` specs; run with `npx playwright test --workers=4`, since the default 8 workers are intermittently flaky) that drives the real app against the real backend (requires `docker compose up -d` first); see [docs/frontend.md](docs/frontend.md#testing). Frontend unit tests: `cd frontend && npm test` (Vitest, 196 tests for the pure logic in `src/api` and `src/auth`, no browser or backend needed). Lint, the unit tests, the backend tests and the whole Playwright suite all run in CI. Every test case with its steps and expected result: [docs/test-cases.md](docs/test-cases.md). Full inventory, regression-test map and coverage gaps: [docs/testing.md](docs/testing.md).
 
 ## Troubleshooting
 
@@ -498,7 +527,7 @@ TODO — no license file is present in the repo yet.
 
 ## Contributors
 
-See [Contributing.md](Contributing.md) and [Role_Requirment.md](Role_Requirment.md) for the team's area assignments (Frontend, Backend, API, Database). Individual contributor names aren't tracked in this README — see the Git history.
+See [Contributing.md](Contributing.md) for branching and reviews. Individual contributor names aren't tracked in this README — see the Git history.
 
 ## Future Enhancements
 

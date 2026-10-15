@@ -35,10 +35,11 @@ const MAX_ENTRY_HOURS = 24
 
 // Estimated vs. actual time for one task (Role_Requirment.md "Time Tracking
 // & Work Logs"): a summary bar, a start/stop timer, a manual entry form and
-// the list of entries. `canLog` is the same OWNER/ADMIN/MEMBER rule the
+// the list of entries. `locked` (a completed task or project) hides the timer and the form for a new entry;
+// existing entries stay editable. `canLog` is the same OWNER/ADMIN/MEMBER rule the
 // backend enforces; `canManage` lets a project manager delete anyone's entry.
 // Only the author changes an entry (the pencil on their own rows).
-export function TimeTracking({ task, canLog, canManage, currentUserId, onChange }) {
+export function TimeTracking({ task, canLog, locked = false, canManage, currentUserId, onChange }) {
   const notify = useToast()
   const logsFetcher = useCallback(() => getWorkLogsByTask(task.id), [task.id])
   const { data: logsData, loading, error: loadError, refetch } = useApi(logsFetcher)
@@ -84,6 +85,12 @@ export function TimeTracking({ task, canLog, canManage, currentUserId, onChange 
     writeTimer(currentUserId, next)
     setNow(next.startedAt)
     setTimer(next)
+  }
+
+  // A timer that was already running when its task was completed cannot be logged any more: it can only be dropped.
+  const discardTimer = () => {
+    writeTimer(currentUserId, null)
+    setTimer(null)
   }
 
   const stopTimer = () => {
@@ -235,7 +242,16 @@ export function TimeTracking({ task, canLog, canManage, currentUserId, onChange 
         )}
       </div>
 
-      {canLog && (
+      {canLog && locked && timerOnThisTask && (
+        <div className="mt-3 flex flex-wrap items-center gap-2.5">
+          <span className="text-muted text-[12px]">A timer was running on this task, but it is completed, so its time cannot be logged.</span>
+          <button type="button" className="btn btn-secondary" onClick={discardTimer}>
+            Discard timer
+          </button>
+        </div>
+      )}
+
+      {canLog && !locked && (
         <>
           <div className="mt-3 flex flex-wrap items-center gap-2.5">
             {timerOnThisTask ? (

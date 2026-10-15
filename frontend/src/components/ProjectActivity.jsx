@@ -64,7 +64,7 @@ export function ProjectActivity({ projectId, limit = 30 }) {
 
       {!error && !loading && entries.length === 0 && <p className="text-faint text-[12px]">No activity yet.</p>}
 
-      <div className="flex flex-col gap-3">
+      <div className="scroll-y flex max-h-[420px] flex-col gap-3 pr-1">
         {entries.map((entry) => {
           const Icon = ICONS[entry.action] ?? History
           return (

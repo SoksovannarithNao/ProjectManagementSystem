@@ -10,7 +10,7 @@ export function DelayedBadge({ project, className = '' }) {
     <span
       data-testid="delayed-badge"
       title={days ? `The end date passed ${days} day${days === 1 ? '' : 's'} ago` : 'The end date has passed'}
-      className={`bg-danger-soft text-danger-ink inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] leading-none font-semibold whitespace-nowrap ${className}`}
+      className={`bg-danger-soft text-danger-ink inline-flex items-center gap-[5px] rounded-full px-2.5 py-1 text-[12px] leading-none font-semibold whitespace-nowrap ${className}`}
     >
       <Clock size={12} /> Delayed{days ? ` · ${days}d` : ''}
     </span>

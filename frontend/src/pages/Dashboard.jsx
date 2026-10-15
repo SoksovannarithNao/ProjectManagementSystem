@@ -1,6 +1,18 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronDown, Check, AlertTriangle, Circle, CheckCircle2, History, Clock } from 'lucide-react'
+import {
+  ChevronDown,
+  Check,
+  AlertTriangle,
+  Circle,
+  CheckCircle2,
+  History,
+  Clock,
+  FolderKanban,
+  Activity,
+  Gauge,
+  ListChecks,
+} from 'lucide-react'
 import {
   LineChart,
   Line,
@@ -32,6 +44,47 @@ import { getRecentActivity } from '../api/activityLog'
 import { getManagedWorkload } from '../api/teamViews'
 import { formatDate, humanizeEnum, taskDisplayTitle, timeAgo, dueSoonLabel } from '../api/format'
 
+
+// The six figure cards. The number is the headline; the hint says what it is made of or how it compares, from the
+// same server figures (`GET /api/dashboard/stats`), so nothing is worked out differently here than on other screens.
+const STAT_CARDS = [
+  { key: 'total', label: 'Total projects', icon: FolderKanban },
+  { key: 'active', label: 'Active projects', icon: Activity, tone: 'info' },
+  { key: 'completed', label: 'Completed projects', icon: CheckCircle2, tone: 'success' },
+  { key: 'delayed', label: 'Delayed projects', icon: Clock, tone: 'danger' },
+  { key: 'average', label: 'Average completion', icon: Gauge },
+  { key: 'tasks', label: 'Total tasks', icon: ListChecks },
+]
+
+const share = (part, whole) => (whole > 0 ? `${Math.round((part / whole) * 100)}% of all projects` : 'No projects yet')
+
+function buildStatCards(stats) {
+  const p = stats.projects
+  const t = stats.tasks
+  const others = [
+    [p.planning, 'planning'],
+    [p.onHold, 'on hold'],
+    [p.cancelled, 'cancelled'],
+  ]
+    .filter(([n]) => n > 0)
+    .map(([n, what]) => `${n} ${what}`)
+  const values = {
+    total: { value: p.total, hint: others.length ? others.join(' \u00b7 ') : 'None planned, on hold or cancelled' },
+    active: { value: p.active, hint: share(p.active, p.total) },
+    completed: { value: p.completed, hint: share(p.completed, p.total) },
+    delayed: { value: p.delayed, hint: p.delayed > 0 ? 'Past their end date' : 'Nothing behind schedule' },
+    average: {
+      value: `${Math.round(Number(p.averageProgress))}%`,
+      progress: Number(p.averageProgress),
+      hint: `across ${p.total} project${p.total === 1 ? '' : 's'}`,
+    },
+    tasks: {
+      value: t.total,
+      hint: t.total > 0 ? `${t.completed} done \u00b7 ${t.overdue} overdue` : 'No tasks yet',
+    },
+  }
+  return STAT_CARDS.map((c) => ({ ...c, ...values[c.key] }))
+}
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
@@ -75,6 +128,7 @@ export function Dashboard() {
   const projectMemberMap = useMemo(() => buildProjectMemberMap(projectMembers), [projectMembers])
   const taskOverview = useMemo(() => (stats ? taskOverviewFromStats(stats.tasks) : []), [stats])
   const statsLoading = !stats && !statsError
+  const statCards = useMemo(() => (stats ? buildStatCards(stats) : null), [stats])
   const periodReport = useMemo(() => activityToPeriodPoints(activity, period.days), [activity, period])
   const todayLabel = periodReport[periodReport.length - 1]?.day
 
@@ -129,27 +183,11 @@ export function Dashboard() {
       )}
 
       <div className="mb-6 grid grid-cols-6 gap-4 max-[1200px]:grid-cols-3 max-[640px]:grid-cols-2" data-testid="dashboard-stats">
-        {stats ? (
-          <>
-            <StatCard label="Total projects" value={stats.projects.total} />
-            <StatCard label="Active projects" value={stats.projects.active} />
-            <StatCard label="Completed projects" value={stats.projects.completed} />
-            <StatCard label="Delayed projects" value={stats.projects.delayed} tone="danger" />
-            <StatCard label="Average completion" value={`${Math.round(Number(stats.projects.averageProgress))}%`} />
-            <StatCard label="Total tasks" value={stats.tasks.total} />
-          </>
-        ) : statsError ? (
-          <>
-            <StatCard label="Total projects" value="—" />
-            <StatCard label="Active projects" value="—" />
-            <StatCard label="Completed projects" value="—" />
-            <StatCard label="Delayed projects" value="—" />
-            <StatCard label="Average completion" value="—" />
-            <StatCard label="Total tasks" value="—" />
-          </>
-        ) : (
-          Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[92px] rounded-card" />)
-        )}
+        {statCards
+          ? statCards.map(({ key, ...card }) => <StatCard key={key} {...card} />)
+          : statsError
+            ? STAT_CARDS.map(({ key, label, icon, tone }) => <StatCard key={key} label={label} icon={icon} tone={tone} value="—" />)
+            : Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[132px] rounded-card" />)}
       </div>
 
       {/* Two independent columns on desktop, so a short card never leaves a hole beside a tall one:

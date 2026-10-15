@@ -79,6 +79,7 @@ public class SubtaskService {
         Task task = requireTask(request.getTaskId());
         // Writing subtasks is a content write — a VIEWER stays read-only.
         projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.SUBTASK, Action.CREATE);
+        ProjectWorkRules.assertTaskAcceptsNew(task, "subtasks");
 
         Subtask subtask = new Subtask();
         subtask.setTask(task);

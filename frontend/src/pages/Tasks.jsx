@@ -128,7 +128,14 @@ export function Tasks() {
   // Whether there's at least one project the caller can add tasks to —
   // gates the top-level "New Task"/"Add task" affordances. Per-row actions
   // instead check that specific task's own project: see the row below.
-  const canAddTasks = canAny('TASK', 'CREATE')
+  // A completed project takes no new tasks (D-27): offered only while some project in view can still take one.
+  const canAddTasks =
+    projects == null
+      ? canAny('TASK', 'CREATE')
+      : projects.some(
+          (p) =>
+            p.status !== 'COMPLETED' && can('TASK', 'CREATE', p.id) && (!projectFilter || String(p.id) === projectFilter)
+        )
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 250)
@@ -673,7 +680,7 @@ export function Tasks() {
         )}
 
         {projectGroups.map((group) => {
-          const canAddToProject = group.project != null && can('TASK', 'CREATE', group.project.id)
+          const canAddToProject = group.project != null && group.project.status !== 'COMPLETED' && can('TASK', 'CREATE', group.project.id)
           const projectProgress = group.project ? Math.round(Number(group.project.progress ?? 0)) : null
           const isCollapsed = collapsedProjectIds.has(group.id)
 

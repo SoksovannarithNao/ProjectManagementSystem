@@ -59,7 +59,15 @@ export function Kanban() {
   // Whether there's at least one project the caller can add tasks to —
   // gates the top-level "New Task" affordances; TaskFormModal itself only
   // offers projects the caller can actually create tasks in.
-  const canAddTasks = canAny('TASK', 'CREATE')
+  // A completed project takes no new tasks (D-27) and the form lists only the others, so the buttons
+  // are offered only while some project in view (the filtered one, or any) can still take a task.
+  const canAddTasks =
+    projects == null
+      ? canAny('TASK', 'CREATE')
+      : projects.some(
+          (p) =>
+            p.status !== 'COMPLETED' && can('TASK', 'CREATE', p.id) && (!projectFilter || String(p.id) === projectFilter)
+        )
   const activeFilterCount = priorityFilter.size + (projectFilter ? 1 : 0)
 
   useEffect(() => {

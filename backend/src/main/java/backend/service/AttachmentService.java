@@ -104,6 +104,11 @@ public class AttachmentService {
         Project project = task != null ? task.getProject() : projectRepository.findById(projectId)
                 .orElseThrow(() -> new NotFoundException("Project not found"));
         projectAccessGuard.assertCan(caller, project.getId(), Resource.ATTACHMENT, Action.CREATE);
+        if (task != null) {
+            ProjectWorkRules.assertTaskAcceptsNew(task, "files");
+        } else {
+            ProjectWorkRules.assertProjectAcceptsNew(project, "files");
+        }
 
         if (file.getSize() > maxSizeBytes) {
             throw new IllegalArgumentException("The file is too large (max " + describeSize(maxSizeBytes) + ")");

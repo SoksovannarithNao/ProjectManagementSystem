@@ -113,6 +113,8 @@ public class MilestoneService {
     public MilestoneResponse createMilestone(MilestoneRequest request, String username) {
         User caller = requireUser(username);
         projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.MILESTONE, Action.CREATE);
+        ProjectWorkRules.assertProjectAcceptsNew(projectRepository.findById(request.getProjectId())
+                .orElseThrow(() -> new NotFoundException("Project not found")), "milestones");
         Milestone milestone = new Milestone();
         applyRequest(milestone, request);
         Milestone saved = milestoneRepository.save(milestone);
@@ -130,6 +132,9 @@ public class MilestoneService {
         // too (same reasoning as TaskService.updateTask).
         if (request.getProjectId() != null && !request.getProjectId().equals(currentProjectId)) {
             projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.MILESTONE, Action.EDIT);
+            // Moving a milestone in adds one to that project, so a completed project refuses it too.
+            ProjectWorkRules.assertProjectAcceptsNew(projectRepository.findById(request.getProjectId())
+                    .orElseThrow(() -> new NotFoundException("Project not found")), "milestones");
         }
         String previousStatus = milestone.getStatus();
         String[] before = snapshot(milestone);

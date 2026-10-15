@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/projects')
   await page.locator('a[href^="/projects/"]', { hasText: 'Website Redesign' }).click()
   await expect(page).toHaveURL(/\/projects\/\d+$/)
-  await page.getByTestId('task-row').first().click()
+  await page.getByTestId('task-row').filter({ hasNotText: 'Completed' }).first().click() // a completed task takes no new time entry
   await expect(page.getByRole('heading', { name: 'Time tracking', exact: true })).toBeVisible()
 })
 
@@ -41,7 +41,7 @@ test('start timer switches to a running clock that survives a reload, and stops 
   await expect(stop).toContainText(/0:00:0\d/)
 
   await page.reload()
-  await page.getByTestId('task-row').first().click()
+  await page.getByTestId('task-row').filter({ hasNotText: 'Completed' }).first().click() // a completed task takes no new time entry
   await expect(page.getByRole('button', { name: /^Stop/ })).toBeVisible()
 
   await page.getByRole('button', { name: /^Stop/ }).click()

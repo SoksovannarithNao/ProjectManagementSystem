@@ -153,8 +153,12 @@ test.describe('audit log: API', () => {
     expect(everything.total).toBeGreaterThan(1)
     expect(everything.size).toBe(1)
 
+    // Newest first. Other specs write audit entries while this runs, so the order is checked inside one read
+    // (two pages read a moment apart can shift by an entry), and page 1 only has to be older than page 0 was.
+    const two = await audit(request, admin, { size: 2 })
+    expect(two.items[1].id).toBeLessThan(two.items[0].id)
     const second = await audit(request, admin, { size: 1, page: 1 })
-    expect(second.items[0].id).toBeLessThan(everything.items[0].id)
+    expect(second.items).toHaveLength(1)
 
     const oversized = await audit(request, admin, { size: 5000 })
     expect(oversized.size).toBe(100)

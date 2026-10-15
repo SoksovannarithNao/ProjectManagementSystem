@@ -11,6 +11,7 @@ import { useAuth } from '../auth/AuthContext'
 import { useApi } from '../api/useApi'
 import { getTasksDueBetween, getTaskById, getTasksByMilestoneId } from '../api/tasks'
 import { getMilestones } from '../api/milestones'
+import { getProjects } from '../api/projects'
 import { calendarRange, monthGridStart, startOfWeek, toISODate } from '../api/calendarRange'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -20,6 +21,7 @@ const eventTones = {
   success: 'bg-success-soft text-success-ink',
   warning: 'bg-warning-soft text-warning-ink',
   danger: 'bg-danger-soft text-danger-ink',
+  critical: 'bg-critical-soft text-critical-ink',
   info: 'bg-info-soft text-info-ink',
   // Milestones are not coloured by priority: a neutral chip with a flag marks them.
   milestone: 'bg-blue-gray text-ink',
@@ -29,11 +31,12 @@ const eventDots = {
   success: 'bg-success',
   warning: 'bg-warning',
   danger: 'bg-danger',
+  critical: 'bg-critical',
   info: 'bg-info',
   milestone: 'bg-charcoal',
 }
 
-const PRIORITY_TONE = { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', URGENT: 'danger' }
+const PRIORITY_TONE = { LOW: 'info', MEDIUM: 'warning', HIGH: 'danger', URGENT: 'critical' }
 
 const eventClass = (tone) =>
   `truncate rounded-[2px] px-1.5 py-[3px] text-[12px] font-semibold ${eventTones[tone] ?? eventTones.info}`
@@ -88,11 +91,16 @@ function dateKey(d) {
 }
 
 export function Calendar() {
-  const { canAny } = useAuth()
+  const { canAny, can } = useAuth()
+  const { data: projects } = useApi(getProjects)
   // Whether there's at least one project the caller can add tasks to —
   // TaskFormModal itself only offers projects the caller can actually
   // create tasks in.
-  const canAdd = canAny('TASK', 'CREATE')
+  // A completed project takes no new tasks (D-27), so it does not count.
+  const canAdd =
+    projects == null
+      ? canAny('TASK', 'CREATE')
+      : projects.some((p) => p.status !== 'COMPLETED' && can('TASK', 'CREATE', p.id))
   const today = useMemo(() => new Date(), [])
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()))
   const [view, setView] = useState('Month')
