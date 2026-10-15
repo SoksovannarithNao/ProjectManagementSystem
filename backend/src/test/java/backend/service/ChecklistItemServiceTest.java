@@ -119,6 +119,36 @@ class ChecklistItemServiceTest {
     }
 
     @Test
+    void anItemOnACompletedTask_isRefused_andNothingIsSaved() {
+        task.setStatus("COMPLETED");
+
+        assertThatThrownBy(() -> service.create(request(5L, "late", null), "dev.chen"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("task is completed");
+        verify(checklistItemRepository, never()).save(any());
+    }
+
+    @Test
+    void anItemInACompletedProject_isRefused_andNothingIsSaved() {
+        task.getProject().setStatus("COMPLETED");
+
+        assertThatThrownBy(() -> service.create(request(5L, "late", null), "dev.chen"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("project is completed");
+        verify(checklistItemRepository, never()).save(any());
+    }
+
+    @Test
+    void anItemOnATaskInReview_isAccepted() {
+        task.setStatus("IN_REVIEW");
+        when(checklistItemRepository.maxSortOrder(5L)).thenReturn(0);
+
+        service.create(request(5L, "fine", null), "dev.chen");
+
+        verify(checklistItemRepository).save(any(ChecklistItem.class));
+    }
+
+    @Test
     void anItemNeedsATask() {
         assertThatThrownBy(() -> service.create(request(null, "x", null), "dev.chen"))
                 .isInstanceOf(IllegalArgumentException.class);

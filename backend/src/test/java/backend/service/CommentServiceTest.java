@@ -100,6 +100,26 @@ class CommentServiceTest {
     }
 
     @Test
+    void aCommentOrReplyOnACompletedTask_isRefused_andNothingIsSaved() {
+        task.setStatus("COMPLETED");
+
+        assertThatThrownBy(() -> service.createComment(request(5L, "late", null), "dev.chen"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("task is completed");
+        verify(commentRepository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void aCommentInACompletedProject_isRefused_andNothingIsSaved() {
+        task.getProject().setStatus("COMPLETED");
+
+        assertThatThrownBy(() -> service.createComment(request(5L, "late", null), "dev.chen"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("project is completed");
+        verify(commentRepository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void aComment_isLoggedInTheActivityFeed() {
         service.createComment(request(5L, "Looks good to me", null), "dev.chen");
 

@@ -67,6 +67,23 @@ class WorkLogServiceTest {
         task.setProject(project);
     }
 
+    @Test
+    void aTimeEntryOnACompletedTaskOrProject_isRefused_andNothingIsSaved() {
+        when(taskRepository.findById(5L)).thenReturn(Optional.of(task));
+        task.setStatus("COMPLETED");
+        assertThatThrownBy(() -> service.createWorkLog(request(LocalDate.now(), "1", null), "dev.mia"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("task is completed");
+
+        task.setStatus("IN_PROGRESS");
+        task.getProject().setStatus("COMPLETED");
+        assertThatThrownBy(() -> service.createWorkLog(request(LocalDate.now(), "1", null), "dev.mia"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("project is completed");
+
+        verify(workLogRepository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
     private WorkLogRequest request(LocalDate date, String hours, String description) {
         WorkLogRequest r = new WorkLogRequest();
         r.setTaskId(5L);

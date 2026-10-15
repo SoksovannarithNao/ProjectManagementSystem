@@ -289,6 +289,8 @@ public class TaskService {
     public TaskResponse createTask(TaskRequest request, String username) {
         User caller = requireUser(username);
         projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.TASK, Action.CREATE);
+        ProjectWorkRules.assertProjectAcceptsNew(projectRepository.findById(request.getProjectId())
+                .orElseThrow(() -> new NotFoundException("Project not found")), "tasks");
 
         Task task = new Task();
         applyRequest(task, request);
@@ -338,6 +340,9 @@ public class TaskService {
             // any project in the system, including ones they can't even see.
             if (request.getProjectId() != null && !request.getProjectId().equals(currentProjectId)) {
                 projectAccessGuard.assertCan(caller, request.getProjectId(), Resource.TASK, Action.EDIT);
+                // Moving a task in adds work to that project, so a completed one refuses it too.
+                ProjectWorkRules.assertProjectAcceptsNew(projectRepository.findById(request.getProjectId())
+                        .orElseThrow(() -> new NotFoundException("Project not found")), "tasks");
                 // The approver named in the old project may not belong to the new one.
                 task.setApprover(null);
             }

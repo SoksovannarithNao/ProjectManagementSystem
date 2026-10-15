@@ -1,11 +1,13 @@
 const slug = (s) => (s || '').toLowerCase().replace(/\s+/g, '-')
 
+// High is the soft red tint; the top level (Urgent for tasks, Critical for projects) is a rose-crimson tint, so the
+// two never look alike.
 const toneClasses = {
   high: 'bg-danger-soft text-danger-ink',
   medium: 'bg-warning-soft text-warning-ink',
   low: 'bg-info-soft text-info-ink',
-  urgent: 'bg-danger-soft text-danger-ink',
-  critical: 'bg-danger-soft text-danger-ink',
+  urgent: 'bg-critical-soft text-critical-ink',
+  critical: 'bg-critical-soft text-critical-ink',
   todo: 'bg-subtle text-muted',
   to_do: 'bg-subtle text-muted',
   'in-progress': 'bg-info-soft text-info-ink',

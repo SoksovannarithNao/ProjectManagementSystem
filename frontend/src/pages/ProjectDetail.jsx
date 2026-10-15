@@ -55,7 +55,7 @@ const TASK_STATUS_OPTIONS = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED', 'C
 // same height, padding, line-height, font-size, and radius regardless of
 // whether the element is a <select>, the Badge component, or a plain <span>.
 const STATUS_ROW_BADGE_CLASS =
-  'h-7 box-border inline-flex items-center rounded-full px-2.5 text-[12px] leading-none font-semibold'
+  'h-7 box-border inline-flex items-center gap-[5px] rounded-full px-2.5 text-[12px] leading-none font-semibold max-sm:h-9'
 const TASK_PRIORITY_OPTIONS = ['LOW', 'MEDIUM', 'HIGH', 'URGENT']
 // Business names of the project roles (Owner = Project Manager of the project).
 // An Owner has to be able to own projects (Project Manager or Administrator).
@@ -394,7 +394,7 @@ export function ProjectDetail() {
                 aria-label="Project status"
                 onChange={(e) => handleStatusChange(e.target.value)}
                 disabled={savingStatus}
-                className={`bg-subtle border-border border outline-none disabled:opacity-70 max-sm:h-10 ${STATUS_ROW_BADGE_CLASS}`}
+                className={`bg-subtle border-border border outline-none disabled:opacity-70 ${STATUS_ROW_BADGE_CLASS}`}
               >
                 {PROJECT_STATUS_OPTIONS.map((s) => (
                   <option key={s} value={s}>
@@ -408,25 +408,33 @@ export function ProjectDetail() {
               </Badge>
             )}
             {project.priority && (
-              <Badge tone={project.priority} className={`${STATUS_ROW_BADGE_CLASS} gap-1.25`}>
+              <Badge tone={project.priority} className={STATUS_ROW_BADGE_CLASS}>
                 {humanizeEnum(project.priority)}
               </Badge>
             )}
-            <DelayedBadge project={project} />
+            <DelayedBadge project={project} className={STATUS_ROW_BADGE_CLASS} />
             {project.completedAt && (
               <span
                 data-testid="completed-on"
-                className={`bg-success-soft text-success-ink gap-1 ${STATUS_ROW_BADGE_CLASS}`}
+                className={`bg-success-soft text-success-ink ${STATUS_ROW_BADGE_CLASS}`}
               >
                 <CheckCircle2 size={12} /> Completed on {formatLongDate(project.completedAt)}
               </span>
             )}
             {overdueCount > 0 && (
-              <span className={`bg-danger-soft text-danger-ink gap-1 ${STATUS_ROW_BADGE_CLASS}`}>
+              <span className={`bg-danger-soft text-danger-ink ${STATUS_ROW_BADGE_CLASS}`}>
                 <AlertTriangle size={12} /> {overdueCount} overdue task{overdueCount === 1 ? '' : 's'}
               </span>
             )}
           </div>
+
+          {/* A completed project takes nothing new (D-27): the controls are gone and one notice says why. */}
+          {project.status === 'COMPLETED' && (canAddContent || canCreateMilestone || can('ATTACHMENT', 'CREATE', projectId)) && (
+            <p data-testid="completed-notice" className="bg-subtle text-muted mb-4 rounded-md px-3 py-2 text-[12px]">
+              This project is completed, so nothing new can be added to it (tasks, milestones, files, and subtasks,
+              checklist items, comments, time entries or dependencies on its tasks). Change its status to reopen it.
+            </p>
+          )}
 
           {project.description && <p className="text-muted mb-5 text-[13px] leading-relaxed">{project.description}</p>}
 
@@ -578,7 +586,7 @@ export function ProjectDetail() {
                   </div>
                 )}
               </Dropdown>
-              {canAddContent && (
+              {canAddContent && project.status !== 'COMPLETED' && (
                 <button className="btn btn-primary px-3 py-2 text-[12px]" onClick={() => setShowNewTask(true)}>
                   <Plus size={14} /> Add Task
                 </button>
@@ -613,7 +621,8 @@ export function ProjectDetail() {
             <p className="text-faint text-[12px]">No tasks match the selected filters.</p>
           )}
 
-          <div className="flex flex-col gap-1.5">
+          {/* The list scrolls inside the card, so a project with many tasks does not make the page endless. */}
+          <div className="scroll-y flex max-h-[440px] flex-col gap-1.5 pr-1" data-testid="project-task-list">
             {filteredTasks.map((t) => {
               const assigneeIds = assigneeMap.get(t.id) ?? []
               return (
@@ -659,13 +668,11 @@ export function ProjectDetail() {
           </div>
         </div>
 
-        {/* items-start: grid's default stretch would otherwise force the
-            shorter card (usually Milestones, especially empty) to match the
-            taller sibling's height, leaving a big blank gap under its own
-            content instead of the card just sizing to fit it. */}
-        <div className="grid grid-cols-2 items-start gap-5 max-lg:grid-cols-1">
+        {/* Two columns of cards in reading order: Members | Milestones, then Attachments | Activity. Cards in a row
+            stretch to the same height (the grid default), so Members and Milestones are always the same size. */}
+        <div className="grid grid-cols-2 gap-5 max-lg:grid-cols-1">
           {/* Members */}
-          <div className="card px-6 py-5">
+          <div className="card flex min-w-0 flex-col px-6 py-5" data-testid="project-members-card">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Users size={15} className="text-faint" />
@@ -692,16 +699,16 @@ export function ProjectDetail() {
 
             {!membersError && activeMembers.length === 0 && <p className="text-faint text-[12px]">No members yet.</p>}
 
-            <div className="flex flex-col gap-0.5">
+            <div className="scroll-y flex max-h-[340px] flex-col gap-0.5 pr-1">
               {activeMembers.map((m) => (
-                <div key={m.id} className="flex items-center gap-2.5 rounded-sm px-1 py-1.5">
+                <div key={m.id} className="flex items-center gap-2.5 rounded-sm px-1 py-1.5 max-sm:flex-wrap max-sm:gap-y-1.5">
                   <Avatar
                     initials={initialsFor(m.user.fullName)}
                     color={colorForId(m.user.id)}
                     photoUrl={m.user.profilePhotoUrl}
                     size={30}
                   />
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 max-sm:basis-[130px]">
                     <p className="text-ink truncate text-[13px] font-semibold">{m.user.fullName}</p>
                     {m.user.positionName && <p className="text-faint truncate text-[12px]">{m.user.positionName}</p>}
                   </div>
@@ -745,7 +752,7 @@ export function ProjectDetail() {
             </div>
 
             {pendingCount > 0 && (
-              <div className="mt-3 flex flex-col gap-1.5" data-testid="pending-invitations">
+              <div className="mt-auto flex flex-col gap-1.5 pt-3" data-testid="pending-invitations">
                 <p className="text-faint text-[12px]">
                   {pendingCount} pending invitation{pendingCount === 1 ? '' : 's'}
                 </p>
@@ -775,7 +782,7 @@ export function ProjectDetail() {
           </div>
 
           {/* Milestones */}
-          <div className="card px-6 py-5">
+          <div className="card flex min-w-0 flex-col px-6 py-5" data-testid="project-milestones-card">
             <div className="mb-4 flex items-center gap-2">
               <MilestoneIcon size={15} className="text-faint" />
               <h4 className="text-[13px] font-[650]">Milestones</h4>
@@ -791,7 +798,7 @@ export function ProjectDetail() {
               </div>
             )}
 
-            <div className="mb-3 flex flex-col gap-2">
+            <div className="scroll-y mb-3 flex max-h-[340px] flex-col gap-2 pr-1">
               {milestones.map((ms) => (
                 <div
                   key={ms.id}
@@ -835,7 +842,7 @@ export function ProjectDetail() {
               ))}
             </div>
 
-            {canCreateMilestone && (
+            {canCreateMilestone && project.status !== 'COMPLETED' && (
               // flex-wrap (not a flex-col/flex-row breakpoint switch) because
               // this form's actual available width depends on the
               // Members/Milestones grid above going 1 or 2 columns, which is
@@ -846,7 +853,7 @@ export function ProjectDetail() {
               // lets the title input actually shrink to fit instead of
               // forcing the row to overflow the card before that wrap can
               // kick in (the classic flex-item intrinsic-min-width trap).
-              <form onSubmit={handleAddMilestone} className="flex flex-wrap gap-2">
+              <form onSubmit={handleAddMilestone} className="mt-auto flex flex-wrap gap-2">
                 <input
                   type="text"
                   value={milestoneTitle}
@@ -875,16 +882,17 @@ export function ProjectDetail() {
           </div>
 
           {/* Files attached to the project itself (task files live in the task panel) */}
-          <div className="card px-6 py-5">
+          <div className="card min-w-0 self-start px-6 py-5">
             <AttachmentsSection
               projectId={projectId}
-              canUpload={can('ATTACHMENT', 'CREATE', projectId)}
+              canUpload={can('ATTACHMENT', 'CREATE', projectId) && project.status !== 'COMPLETED'}
               canDelete={can('ATTACHMENT', 'DELETE', projectId)}
               currentUserId={profile?.id}
             />
           </div>
 
           <ProjectActivity projectId={projectId} />
+
         </div>
       </div>
 

@@ -36,10 +36,9 @@ Documentation for the **TaskFlow** task and project management system (React fro
 | 16 | Backend guide — stack, run, structure, security reasoning, logging, invitations, notifications, status | [backend.md](backend.md) |
 | 17 | Frontend guide — stack, scripts, structure, routes, behaviours, design tokens, end-to-end tests | [frontend.md](frontend.md) |
 | 18 | Product context and design system | [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md) |
-| 19 | Requirements audit — done, partially done, not done, falls short, unclear | [checklist/](checklist/done.md) |
-| 20 | Workflow conformance test: the running app against the 44 application flows (first run 2026-10-08, re-tested through 2026-10-10; current standing at the top) | [workflow-conformance.md](workflow-conformance.md) |
-| 21 | Change plan: what was planned and what is still to change, in the proposed order (written 2026-10-08, batches 1–3c done 2026-10-09) | [change-plan.md](change-plan.md) |
-| 22 | Test cases — every case with its steps, expected result and the test that proves it | [test-cases.md](test-cases.md) |
+| 19 | Requirements audit — done, falls short | [checklist/](checklist/done.md) |
+| 20 | Test cases — every case with its steps, expected result and the test that proves it | [test-cases.md](test-cases.md) |
+| 21 | Pages — one short document per screen: what it does, how it works, what it reads | [pages_docs/](pages_docs/README.md) |
 
 ## Where the rest of the documentation lives
 
@@ -47,7 +46,7 @@ Documentation for the **TaskFlow** task and project management system (React fro
 |---|---|
 | Project README, quick start | [../README.md](../README.md) |
 | Branching, pull requests, reviews | [../Contributing.md](../Contributing.md) |
-| The requirements the project is built against | [../assignment-brief.md](../assignment-brief.md) (the assignment; **Part B is the resolved specification** — roles, permissions, definitions, reports, acceptance criteria, open gaps), [../project-workflow.md](../project-workflow.md) (the user flows). [../Role_Requirment.md](../Role_Requirment.md) now holds only the team-responsibility areas |
+| The requirements the project is built against | [../assignment-brief.md](../assignment-brief.md) (the assignment; **Part B is the resolved specification** — roles, permissions, definitions, reports, acceptance criteria, open gaps), [../project-workflow.md](../project-workflow.md) (the user flows) |
 | Legacy machine-readable API contract (partial, not maintained) | [../api/openapi.yaml](../api/openapi.yaml); see [api-reference.md](api-reference.md#18-the-legacy-openapiyaml) |
 
 ## Where the old folder READMEs went

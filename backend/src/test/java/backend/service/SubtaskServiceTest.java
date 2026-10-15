@@ -78,10 +78,71 @@ class SubtaskServiceTest {
         subtask.setTask(task);
         subtask.setTitle("Existing");
         subtask.setStatus("TODO");
-        when(subtaskRepository.findById(8L)).thenReturn(Optional.of(subtask));
+        lenient().when(subtaskRepository.findById(8L)).thenReturn(Optional.of(subtask));
         lenient().when(subtaskRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(taskRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+    }
+
+    private SubtaskRequest newSubtask() {
+        SubtaskRequest request = new SubtaskRequest();
+        request.setTaskId(64L);
+        request.setTitle("Brand new");
+        request.setStatus("TODO");
+        return request;
+    }
+
+    @Test
+    void addingASubtaskToATaskOfACompletedProject_isRefused_andNothingIsSaved() {
+        when(taskRepository.findById(64L)).thenReturn(Optional.of(task));
+        task.getProject().setStatus("COMPLETED");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.createSubtask(newSubtask(), "lead.owen"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("completed");
+
+        verify(subtaskRepository, never()).save(any());
+    }
+
+    @Test
+    void addingASubtaskInAProjectThatIsNotCompleted_works() {
+        when(taskRepository.findById(64L)).thenReturn(Optional.of(task));
+        task.getProject().setStatus("IN_PROGRESS");
+
+        service.createSubtask(newSubtask(), "lead.owen");
+
+        verify(subtaskRepository).save(any());
+    }
+
+    @Test
+    void addingASubtaskToACompletedTask_isRefused_andNothingIsSaved() {
+        when(taskRepository.findById(64L)).thenReturn(Optional.of(task));
+        task.setStatus("COMPLETED");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.createSubtask(newSubtask(), "lead.owen"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("task is completed");
+
+        verify(subtaskRepository, never()).save(any());
+    }
+
+    @Test
+    void addingASubtaskToATaskInReview_works() {
+        when(taskRepository.findById(64L)).thenReturn(Optional.of(task));
+        task.setStatus("IN_REVIEW");
+
+        service.createSubtask(newSubtask(), "lead.owen");
+
+        verify(subtaskRepository).save(any());
+    }
+
+    @Test
+    void ticking_anExistingSubtask_inACompletedProject_stillWorks() {
+        task.getProject().setStatus("COMPLETED");
+
+        service.updateSubtask(8L, completeIt(), "lead.owen");
+
+        assertThat(subtask.getStatus()).isEqualTo("COMPLETED");
     }
 
     private SubtaskRequest completeIt() {

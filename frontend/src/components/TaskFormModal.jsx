@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { FolderKanban, Flag, CalendarDays } from 'lucide-react'
-import { Modal } from './ui/Modal'
 import { SidePanel } from './ui/SidePanel'
 import { useToast } from './ui/Toast'
 import { useDirtyForm } from './ui/useDirtyForm'
@@ -34,8 +33,14 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
   // editing) — the backend enforces this authoritatively regardless, this just
   // avoids an obvious 403.
   const selectableProjects = useMemo(
-    () => (projects ?? []).filter((p) => can('TASK', isEdit ? 'EDIT' : 'CREATE', p.id)),
-    [projects, can, isEdit]
+    // A completed project takes no new tasks (a task being edited may stay in its own project).
+    () =>
+      (projects ?? []).filter(
+        (p) =>
+          can('TASK', isEdit ? 'EDIT' : 'CREATE', p.id) &&
+          (p.status !== 'COMPLETED' || (isEdit && p.id === task?.project?.id))
+      ),
+    [projects, can, isEdit, task?.project?.id]
   )
   const [title, setTitle] = useState(task?.title ?? '')
   const [projectId, setProjectId] = useState(
@@ -192,16 +197,14 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
     }
   }
 
-  // Edit keeps the existing centered dialog (unchanged) — only New Task
-  // becomes a right-side drawer matching TaskDetailPanel, per the redesign
-  // request; editing a task already happens with TaskDetailPanel's own
-  // drawer open behind it, so turning this into a second right-side drawer
-  // would stack two of them rather than match that pattern.
+  // Edit and New both use the shared right-hand SidePanel (below). Editing a task usually happens with the
+  // task panel open behind it; the form is then a second panel on top of it.
   if (isEdit) {
     return (
-      <Modal title="Edit Task" onClose={onClose} isDirty={isDirty}>
+      <SidePanel title="Edit Task" onClose={onClose} isDirty={isDirty}>
         {({ requestClose: requestCloseModal }) => (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <>
+          <form id="edit-task-form" onSubmit={handleSubmit} className="flex flex-1 flex-col gap-4 overflow-y-auto px-[22px] pt-5 pb-6">
             <label className="flex flex-col gap-1.5">
               <span className="text-muted text-[12px] font-semibold">Title</span>
               <input
@@ -315,18 +318,19 @@ export function TaskFormModal({ task, defaultProjectId, defaultDueDate, onClose,
             </label>
 
             {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
-
-            <div className="mt-1 flex justify-end gap-2">
-              <button type="button" className="btn btn-secondary" onClick={requestCloseModal}>
-                Cancel
-              </button>
-              <button type="submit" className="btn btn-primary" disabled={submitting || !effectiveProjectId}>
-                {submitting ? 'Saving…' : 'Save Changes'}
-              </button>
-            </div>
           </form>
+
+          <div className="border-divider flex items-center justify-end gap-2 border-t px-[18px] py-3.5">
+            <button type="button" className="btn btn-secondary" onClick={requestCloseModal}>
+              Cancel
+            </button>
+            <button type="submit" form="edit-task-form" className="btn btn-primary" disabled={submitting || !effectiveProjectId}>
+              {submitting ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+          </>
         )}
-      </Modal>
+      </SidePanel>
     )
   }
 

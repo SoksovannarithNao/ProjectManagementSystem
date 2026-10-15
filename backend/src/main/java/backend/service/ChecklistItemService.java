@@ -66,6 +66,7 @@ public class ChecklistItemService {
         User caller = requireUser(username);
         Task task = requireTask(request.getTaskId());
         projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.CHECKLIST_ITEM, Action.CREATE);
+        ProjectWorkRules.assertTaskAcceptsNew(task, "checklist items");
 
         ChecklistItem item = new ChecklistItem();
         item.setTask(task);

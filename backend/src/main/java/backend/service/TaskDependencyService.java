@@ -104,6 +104,8 @@ public class TaskDependencyService {
                 .orElseThrow(() -> new NotFoundException("Depends-on task not found"));
         User caller = requireUser(username);
         projectAccessGuard.assertCan(caller, task.getProject().getId(), Resource.TASK, Action.ASSIGN);
+        // A completed task, or a task of a completed project, takes no new dependency (D-27).
+        ProjectWorkRules.assertTaskAcceptsNew(task, "dependencies");
         // A task of a project the caller cannot see is "not found"; one they can see but is another project is a 400.
         projectAccessGuard.assertAccess(caller, dependsOnTask.getProject().getId());
         if (!task.getProject().getId().equals(dependsOnTask.getProject().getId())) {

@@ -18,7 +18,7 @@ What is built, what is incomplete, and what the project's own documents say come
 | **Partial** | Some behaviour is tested, important parts are not |
 | **None** | No automated test |
 
-Sources of evidence: the code (controllers, services, pages, SQL), the running application, the test suites ([testing.md](testing.md)), the former project READMEs' *Future Enhancements* / *Next Steps* sections (now in the root README, [backend.md](backend.md#next-steps) and [database.md](database.md#14-api--backend-coverage)), and the requirement documents ([assignment-brief.md](../assignment-brief.md), [project-workflow.md](../project-workflow.md), [Role_Requirment.md](../Role_Requirment.md)).
+Sources of evidence: the code (controllers, services, pages, SQL), the running application, the test suites ([testing.md](testing.md)), the former project READMEs' *Future Enhancements* / *Next Steps* sections (now in the root README, [backend.md](backend.md#next-steps) and [database.md](database.md#14-api--backend-coverage)), and the requirement documents ([assignment-brief.md](../assignment-brief.md) and [project-workflow.md](../project-workflow.md)).
 
 ## 1. Completed and partial features
 
@@ -105,9 +105,9 @@ Database tables exist for several of these, but **no entity, API or UI**:
 | PDF / Excel export of reports | `report_exports` table | Built 2026-10-13 in the browser; no endpoint, so the table stays unused |
 | ~~KPI calculation~~ | done 2026-10-09 | `GET /api/reports/kpis`, calculated live; `kpi_snapshots` is still never written |
 | ~~Gantt chart~~ | done 2026-10-10 (prototype) | `GanttChart.jsx`, the project's *Gantt* tab; no backend |
-| Refresh tokens | Done (2026-10-14) | ✓ | ✓ | ✓ `refresh_tokens` (`V20`) | unit + e2e | A 15-minute access token in memory, renewed from a 7-day httpOnly cookie; sign-out and a password change delete it (D-24) |
+| Refresh tokens | Done (2026-10-14) | `refresh_tokens` (`V20`); unit and e2e tests. A 15-minute access token in memory, renewed from a 7-day httpOnly cookie; sign-out and a password change delete it (D-24) |
 | Forgot-password | — | Listed as future work in the READMEs (auto-logout was built 2026-10-12) |
-| Administrator audit log | Done (2026-10-13) | `audit_logs` (`V16`), `GET /api/audit-logs`, *Administration → Audit log* | Optional ("may") item; `audit-log.spec.js`, `AuditLogServiceTest` |
+| Administrator audit log | Done (2026-10-13) | `audit_logs` (`V16`), `GET /api/audit-logs`, *Administration → Audit log*. Optional ("may") item; `audit-log.spec.js`, `AuditLogServiceTest` |
 | ~~Server-side report endpoints~~ | Done 2026-10-09 | `GET /api/reports/*` check `REPORT:GENERATE_REPORTS` on the server |
 | Pagination | Done for the task lists (2026-10-14) | Undefined in the specification (B7 item 6); optional `page` / `size` on the project, task and notification lists (D-25), used by the notification bell and, since the same day, the Tasks page (the server also applies its quick views, assignee filters and project grouping); the Calendar reads only the days on screen and the project cards read their counts (2026-10-14); the Dashboard and Reports Overview read their figures from the server (2026-10-14); the Kanban board reads each column on its own, 25 cards at a time, so no screen reads the whole task list; the assignment list and the project members are still read whole. Server-side search, filter and sort exist on the project and task lists since 2026-10-13 (G-16) |
 
@@ -147,13 +147,13 @@ Work needed to bring the application to the model in [ADR-0015](adr/0015-two-lev
 
 ## 5. Blocked
 
-**What is left at 2026-10-15** (every requirement of the brief is built; see [checklist/not_done.md](checklist/not_done.md)). It is all waiting on the project owner or optional:
+**What is left at 2026-10-15** (every requirement of the brief is built; see [checklist/done.md](checklist/done.md)). It is all waiting on the project owner or optional:
 
 | # | Item | Waiting for |
 |---|---|---|
 | 1 | **A deploy target for the CD pipeline** (it only builds and pushes images today) | Where the app should run and which container registry to use |
 | 2 | **Flyway in a production deployment** (CI already checks that every migration is folded into the init scripts, F-84) | Item 1 |
-| 3 | **Decisions D-19 to D-25** ([assignment-brief.md](../assignment-brief.md), “Proposal, not yet approved”): near-deadline and Today / Upcoming, auto-logout timing, @mentions, report export, time logged on unassigned tasks, sign-in lifetime, pagination | The project owner's approval |
+| 3 | ~~Decisions D-19 to D-25~~ (near-deadline and Today / Upcoming, auto-logout timing, @mentions, report export, time logged on unassigned tasks, sign-in lifetime, pagination) | **Approved as built by the project owner on 2026-10-15** ([assignment-brief.md](../assignment-brief.md) B13.2) |
 | 4 | **The live demo database was edited by hand** (an extra account, a project and the Project Manager permission grid), so two role e2e specs fail against it; they pass on a freshly seeded database | The owner: keep the edits, or reset the demo database (destructive) |
 | 5 | **The CI workflow has never run on GitHub**; its steps were replayed locally (a second stack for the e2e job, a throw-away PostgreSQL 18 for the database steps) | The first push |
 | 6 | Optional: a test through the security filter chain and `@PreAuthorize`; tests for the controllers not yet covered | Time |

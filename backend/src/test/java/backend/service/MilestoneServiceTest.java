@@ -138,6 +138,44 @@ class MilestoneServiceTest {
         assertThat(milestone.getTitle()).isEqualTo("Beta renamed");
     }
 
+    // ---- a completed project takes no new milestones -------------------------
+
+    @Test
+    void creatingAMilestoneInACompletedProject_isRefused_andNothingIsSaved() {
+        milestone.getProject().setStatus("COMPLETED");
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+
+        assertThatThrownBy(() -> service.createMilestone(request(10L, "Launch"), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("completed");
+
+        verify(milestoneRepository, never()).save(any());
+    }
+
+    @Test
+    void movingAMilestoneIntoACompletedProject_isRefused_andItStaysWhereItWas() {
+        Project done = project(20L);
+        done.setStatus("COMPLETED");
+        when(projectRepository.findById(20L)).thenReturn(Optional.of(done));
+
+        assertThatThrownBy(() -> service.updateMilestone(3L, request(20L, "Beta"), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class);
+
+        verify(milestoneRepository, never()).save(any());
+        assertThat(milestone.getProject().getId()).isEqualTo(10L);
+    }
+
+    @Test
+    void editingAMilestoneThatAlreadyLivesInACompletedProject_stillWorks() {
+        milestone.getProject().setStatus("COMPLETED");
+        when(milestoneRepository.save(any(Milestone.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(projectRepository.findById(10L)).thenReturn(Optional.of(milestone.getProject()));
+
+        service.updateMilestone(3L, request(10L, "Beta renamed"), "pm.olivia");
+
+        assertThat(milestone.getTitle()).isEqualTo("Beta renamed");
+    }
+
     // ---- the project feed ---------------------------------------------------
 
     @Test

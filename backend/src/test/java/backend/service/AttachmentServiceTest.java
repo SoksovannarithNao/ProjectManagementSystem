@@ -116,6 +116,24 @@ class AttachmentServiceTest {
     // ---- upload ----------------------------------------------------------------
 
     @Test
+    void aFileOnACompletedTaskOrInACompletedProject_isRefused_andNothingIsStored() {
+        task.setStatus("COMPLETED");
+        assertThatThrownBy(() -> service.upload(pdf("a.pdf"), 5L, null, "dev.chen"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("task is completed");
+
+        task.setStatus("IN_PROGRESS");
+        project.setStatus("COMPLETED");
+        assertThatThrownBy(() -> service.upload(pdf("a.pdf"), 5L, null, "dev.chen"))
+                .isInstanceOf(backend.exception.ConflictException.class);
+        assertThatThrownBy(() -> service.upload(pdf("a.pdf"), null, 10L, "dev.chen"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("project is completed");
+
+        verify(attachmentRepository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void aMember_uploadsToATask_theBytesAreStoredApart_andTheUploadIsLogged() {
         AttachmentResponse response = service.upload(pdf("..\\specs\\plan.pdf"), 5L, null, "dev.chen");
 

@@ -163,6 +163,59 @@ class TaskServiceTest {
         assertThat(task.getTitle()).isEqualTo("Renamed");
     }
 
+    // ---- a completed project takes no new tasks -------------------------
+
+    @Test
+    void creatingATaskInACompletedProject_isRefused_andNothingIsSaved() {
+        current.setStatus("COMPLETED");
+
+        assertThatThrownBy(() -> service.createTask(request(10L, "New", "TODO"), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class)
+                .hasMessageContaining("completed");
+
+        verify(taskRepository, never()).save(any());
+    }
+
+    @Test
+    void creatingATaskInAProjectThatIsNotCompleted_works() {
+        current.setStatus("ON_HOLD");
+
+        service.createTask(request(10L, "New", "TODO"), "pm.olivia");
+
+        verify(taskRepository).save(any(Task.class));
+    }
+
+    @Test
+    void aPersonWhoMayNotCreateTasks_isToldThatBeforeTheProjectIsCompletedNotice() {
+        current.setStatus("COMPLETED");
+        doThrow(new AccessDeniedException("no")).when(projectAccessGuard).assertCan(caller, 10L, Resource.TASK, Action.CREATE);
+
+        assertThatThrownBy(() -> service.createTask(request(10L, "New", "TODO"), "pm.olivia"))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void movingATaskIntoACompletedProject_isRefused_andTheTaskStaysWhereItWas() {
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+        other.setStatus("COMPLETED");
+
+        assertThatThrownBy(() -> service.updateTask(5L, request(20L, "Original title", "TODO"), "pm.olivia"))
+                .isInstanceOf(backend.exception.ConflictException.class);
+
+        verify(taskRepository, never()).save(any());
+        assertThat(task.getProject().getId()).isEqualTo(10L);
+    }
+
+    @Test
+    void editingATaskThatAlreadyLivesInACompletedProject_stillWorks() {
+        when(projectAccessGuard.can(caller, 10L, Resource.TASK, Action.EDIT)).thenReturn(true);
+        current.setStatus("COMPLETED");
+
+        service.updateTask(5L, request(10L, "Renamed", "TODO"), "pm.olivia");
+
+        assertThat(task.getTitle()).isEqualTo("Renamed");
+    }
+
     // ---- assignees and read-only viewers --------------------------------
 
     @Test
