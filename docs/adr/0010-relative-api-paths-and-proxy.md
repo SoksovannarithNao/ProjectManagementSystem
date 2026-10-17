@@ -36,3 +36,7 @@ No frontend environment variable holds an API base URL.
 ## Evidence
 
 `frontend/nginx.conf`, `frontend/vite.config.js`, `frontend/src/api/client.js`, `docker-compose.yml`.
+
+## Update 2026-10-17
+
+The deployment target is now known: on Vercel the "equivalent proxy" is a rewrite in `frontend/vercel.json` that sends `/api/*` to the Render backend (and every other path to `index.html`). Because the browser still talks only to one origin, the `SameSite=Strict` refresh cookie and CORS keep working unchanged ([host/README.md](../../host/README.md)).

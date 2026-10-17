@@ -311,6 +311,7 @@ Good to know:
 | Backend can't connect to the database | Postgres isn't running (`docker compose ps`), or you changed `POSTGRES_*` / `TASKMANAGER_APP_PASSWORD` in `.env` after the volume was created — reset the database. |
 | Login fails for every seeded user | Wrong password (it's `DevPassword123!`), or the database wasn't seeded — reset it. Five wrong tries in 15 minutes triggers a temporary lock-out (HTTP 429); wait, or restart the backend. |
 | Registering works but no verification email arrives | Emails never go to a real inbox — open Mailpit at http://localhost:8025. In Path B, make sure you started the backend with `MAIL_HOST=localhost` (see B2). |
+| On the hosted site (Vercel, Render, Neon) sign-up codes never arrive, or the administrator is stuck on "Enter your sign-in code" | Render's free tier blocks SMTP, so the hosted mail needs the three `GMAIL_*` values (and `MAIL_FROM`); the administrator's code goes to the address stored on the account, which must be a real mailbox. To get back in, remove `ADMIN_2FA_ENABLED` from Render and redeploy. See [../host/README.md](../host/README.md) section 5. |
 | Blank page or data never loads | Open the browser's developer tools (Network tab) to see the failing `/api` call. Check the backend log file `backend/logs/log.txt` (the console is quiet by design, so `docker compose logs backend` shows little). In Path B, confirm the backend is running on port 8080. |
 | I changed code but the app (Docker) looks the same | Docker serves a built copy — rebuild: `docker compose build backend frontend` then `docker compose up -d backend frontend`. Hard-refresh the browser (Ctrl+Shift+R). |
 | `npm install` / `npm ci` errors | Check `node --version` is 20 or newer. Delete `frontend/node_modules` and run `npm install` again. |
@@ -335,6 +336,7 @@ docker exec -it taskmanager-postgres psql -U postgres -d taskmanager   # open a 
 ├── frontend/     React app        (src/pages = screens, src/components = shared pieces, src/api = calls to the backend, e2e/ = browser tests)
 ├── database/     init/ = schema + sample data + app DB role; taskmanager/ = Flyway migrations (applied by the `migrate` Compose service)
 ├── api/          openapi.yaml — the REST API contract
+├── host/         Hosting guide (Vercel, Render, Neon, Gmail API) and the hosted app-role SQL
 ├── docs/         You are here
 ├── docker-compose.yml   The whole stack
 └── .env.example         Settings template — copy to .env

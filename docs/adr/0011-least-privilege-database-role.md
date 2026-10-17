@@ -35,3 +35,7 @@ No `SUPERUSER`, `CREATEDB` or `CREATEROLE`. The backend's defaults and the compo
 ## Evidence
 
 `database/init/03-app-role.sh`, `docker-compose.yml`, `.env.example`, `../database.md` (Least-privilege application role), `.github/workflows/ci.yml`.
+
+## Update 2026-10-17
+
+On the hosted Neon database the role is created by `host/neon-app-role.sql`, the plain-SQL equivalent of `03-app-role.sh` (the Docker entrypoint does not exist there); keep the table list in both in step.

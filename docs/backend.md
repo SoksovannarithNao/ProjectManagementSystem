@@ -54,7 +54,7 @@ How the layers and services relate: [architecture.md](architecture.md#2-backend-
 
 ## API endpoints
 
-The complete endpoint-by-endpoint reference (all 128 endpoints, permissions, request and response shapes, error codes) is [api-reference.md](api-reference.md). Resource groups:
+The complete endpoint-by-endpoint reference (all 129 endpoints, permissions, request and response shapes, error codes) is [api-reference.md](api-reference.md). Resource groups:
 
 | Resource | Base path | Notes |
 |---|---|---|
@@ -177,18 +177,20 @@ Backend project setup         done
 Spring Boot / Java 25         done
 Database connection           done (least-privilege role, ddl-auto=validate)
 JPA entities and repositories done (24 entities)
-Business REST APIs            done: 26 controllers, 128 endpoints (17 resources + auth + health + photos + work logs + permissions)
+Business REST APIs            done: 26 controllers, 129 endpoints (17 resources + auth + health + photos + work logs + permissions)
 DTOs (no raw entities in/out) done
 Bean Validation on requests   done
 Global exception handling     done (404/400/401/403/429, no leaked stack traces)
 JWT authentication            done
-Self-registration + OTP       done (register, verify-otp, resend-otp; email via Mailpit locally)
+Self-registration + OTP       done (register, verify-otp, resend-otp; email via Mailpit locally, through the Gmail API when the GMAIL_* values are set)
+Administrator sign-in code    done (2026-10-17): ADMIN_2FA_ENABLED (default false), POST /api/auth/login/verify, purpose LOGIN_2FA (V22)
+E-mail over HTTPS             done (2026-10-17): MailService uses the Gmail API when configured; a failed send is a 503
 Authorization                 done (data-driven role x resource x action matrix, project-scoped, ADMINISTRATOR bypass, task approval gate)
 CORS, password hashing        done
 Login rate limiting           done (in-memory, 5 attempts / 15 min per IP+username)
 Least-privilege DB role       done
-Unit tests                    partial: 591 unit, controller and repository tests (the controllers by standalone `MockMvc`, the custom queries on the real schema), none through the security filter chain; see testing.md
-File logging                  done (rotating backend/logs/log.txt)
+Unit tests                    partial: 619 unit, controller and repository tests (the controllers by standalone `MockMvc`, the custom queries on the real schema), none through the security filter chain; see testing.md
+File logging                  done (rotating backend/logs/log.txt; the image creates /app/logs itself, so it starts without a mounted volume)
 Notifications                 done: all 12 types produced (comments, project and milestone updates since 2026-10-12; mentions since 2026-10-13)
 Deadline reminders, overdue   done (2026-10-10): @Scheduled daily 08:00 + at startup
 Attachments, checklists       done (2026-10-09)
@@ -212,7 +214,7 @@ Roughly in priority order. The prioritised plan with reasoning is in [roadmap.md
 3. ~~PDF / Excel export~~ — built in the browser on 2026-10-13 (no endpoint); entities for the remaining DB-only tables (`report_exports`, `kpi_snapshots`) are still not built.
 4. ~~A project-wide activity feed~~ — done 2026-10-09; a per-user or administrator audit view remains.
 5. ~~Broader test coverage: controller and integration tests, not only service and handler unit tests.~~ Controller tests (standalone `MockMvc`) and repository query tests (`@DataJpaTest` on the real schema) exist since 2026-10-15; a test through the security filter chain and the other controllers' tests remain.
-6. Flyway now runs as a one-shot Compose service (`migrate`); CI now checks that every migration is folded into the init scripts (`database/check_migrations_folded.sh`, 2026-10-15); a production deployment is still open (see [database.md](database.md#8-migrations-vs-the-init-script)).
+6. Flyway now runs as a one-shot Compose service (`migrate`); CI now checks that every migration is folded into the init scripts (`database/check_migrations_folded.sh`, 2026-10-15); the hosted Neon database gets a new migration by hand with the Flyway container ([../host/README.md](../host/README.md)); running Flyway automatically in the deployment is still open (see [database.md](database.md#8-migrations-vs-the-init-script)).
 7. ~~`COMMENT_ADDED`, `PROJECT_UPDATED` and `MILESTONE_UPDATED` notifications~~ — done 2026-10-12 (deadline and overdue notifications on 2026-10-10).
 8. ~~A refresh-token flow~~ — done 2026-10-14 (risk R-4): a 15-minute access token renewed from an httpOnly refresh cookie.
 

@@ -40,15 +40,17 @@ src/
                   ChecklistSection, AttachmentsSection, ApprovalChip, DelayedBadge, ProjectActivity,
                   TeamTasksView, WorkloadTable, TimelineView, GanttChart, MilestoneFormModal, DueSoonBadge, NewProjectModal, AddMemberModal, EditUserModal, RoleFormPanel, KanbanMoveMenu,
                   AddProjectMemberModal, AddLookupModal, MentionInput (the comment box with @ autocomplete), CommentText
+  components/public/  PublicLayout (skip link, header, theme toggle, footer with the legal links) and LegalDocument, the frame of the public pages (home, privacy policy, terms of service)
+  config/         site.js: the operator name, contact e-mail and dates the public pages print
   components/reports/  the Reports tabs (ReportViews, ReportParts) and their helpers: reportExport.js (the Excel and PDF files), reportFormat.js and the useReportableProjects hook
   components/ui/  small reusable primitives: Avatar, Badge, Checkbox, ConfirmDialog, Dropdown (generic popover),
                   EmptyState, Logo, LookupSelect, Modal, PasswordChecklist, ProgressBar, ProgressRing,
-                  SidePanel, Skeleton, TimeChip, Toast, useDirtyForm
+                  SidePanel, Skeleton, ThemeToggle, TimeChip, Toast, useDirtyForm
   layout/         app shell: Sidebar, TopBar (the sticky page header with its search/filter slot and notifications bell), layout context (LayoutContext, layoutContextStore, useLayout)
   pages/          routed pages (see Routes below); admin/ holds UsersAdmin, RolesPermissions and AuditLog
   auth/           AuthContext (JWT login, logout, refreshProfile, permissions; the token lives in memory, renewed from a refresh cookie),
                   ProtectedRoute, RequirePermission (403 page when the matrix does not grant an action) and IdleLogout (inactivity warning and sign-out)
-  theme/          ThemeContext.jsx: light/dark/system preference, persisted per user through Settings
+  theme/          ThemeContext.jsx: light/dark/system preference, persisted per user through Settings or the top bar's ThemeToggle
   api/            fetch client (client.js) and one module per backend resource (projects, tasks, subtasks,
                   comments, mentions, milestones, taskAssignees, taskDependencies, projectMembers, users, roles,
                   positions, departments, notifications, activityLog, auditLog, workLogs, approvals, attachments,

@@ -18,7 +18,7 @@ The UI checks are conveniences only; the backend and database repeat every rule 
 - Policy (8+ chars, upper, lower, digit, special) — single source `dto/PasswordPolicy.java`, mirrored in `frontend/src/api/validation.js`; details and where it applies in [authentication-authorization.md](authentication-authorization.md#4-password-policy).
 - Hashed with **BCrypt** (`BCryptPasswordEncoder`) on registration, admin create/update and change-password; never returned by any DTO (`UserResponse` has no password field; `UserServiceTest` asserts hashing and non-leakage).
 - Changing a password requires the current password.
-- The OTP code is hashed with the same encoder; the plaintext exists only in the outgoing email.
+- The OTP code (registration, and the administrator's sign-in code) is hashed with the same encoder; the plaintext exists only in the outgoing email.
 - Not present: forgot-password flow, lockout of the *change-password* endpoint, breached-password checks, password history/expiry.
 
 ## 3. Authentication security
@@ -32,6 +32,8 @@ The UI checks are conveniences only; the backend and database repeat every rule 
 | Per-request account check | token rejected (`401`) as soon as the account is not `ACTIVE`, even before the token expires | `ActiveAccountJwtValidator`, `SecurityConfig.jwtDecoder` |
 | Uniform login failure | one `401` message for unknown user, wrong password and non-active account **(verified live)** | `AuthService`, `GlobalExceptionHandler` |
 | Email verification | 6-digit `SecureRandom` code, bcrypt-hashed, 10 min expiry, 5 attempts, 60 s resend cooldown | `OtpService` |
+| Administrator sign-in code | optional second step for `ADMINISTRATOR` accounts (`ADMIN_2FA_ENABLED`, default off): after the right password no session starts until the e-mailed 6-digit code is entered (`POST /api/auth/login/verify`); the code is hashed, expires after 10 min and allows 5 attempts; wrong codes and failed passwords share the same lock-out; every failure answers alike; a code sent inside the 60 s cooldown is kept, not replaced | `AuthService`, `OtpService`, `LoginRateLimiter` |
+| Mail route | SMTP (Mailpit locally) or the Gmail API over HTTPS when the three `GMAIL_*` values are set; a failed hand-over is a `503` that names no provider; the Gmail credentials are server configuration, never stored in the database | `MailService`, `GlobalExceptionHandler` |
 | Unverified accounts | cannot log in | `CustomUserDetailsService` |
 | Session ends | sign-out calls `POST /api/auth/logout` (deletes the refresh token, clears the cookie) and the browser forgets who signed in; a `401` that a refresh cannot fix also logs out; after 15 idle minutes (60-second warning) the app signs out by itself, since 2026-10-12. The 15-minute access token cannot be recalled, it expires | `api/client.js`, `auth/IdleLogout.jsx`, `AuthController` |
 
@@ -130,7 +132,7 @@ Full catalogue in [database.md](database.md). The security-relevant ones:
 - **CSRF:** disabled — acceptable because authentication is a bearer header, not a cookie.
 - **Response headers (API):** Spring Security defaults, e.g. `X-Content-Type-Options: nosniff`, `Cache-Control: no-cache, no-store`, `X-XSS-Protection: 0` **(verified live)**.
 - **Secrets:** read from environment variables; `.env` is git-ignored; `.env.example` and `docker-compose.yml` contain **development defaults** (database passwords, JWT secret) that must be changed for any real deployment.
-- **Not present (confirmed absent from the repository):** HTTPS/TLS configuration, HSTS, a Content-Security-Policy, security headers in `nginx.conf`, an upload virus scan, dependency-vulnerability scanning in CI (a one-off scan of 14 direct dependencies found no known CVEs during the 2026-10-06 Java upgrade — see [changelog.md](changelog.md); `npm audit` on the front end reports two high-severity advisories in build-time packages, see I-23 in [issues.md](issues.md)), rate limiting other than login and OTP resend. How production traffic is secured is **Unknown / Needs clarification** (the CD pipeline only pushes images).
+- **Not present (confirmed absent from the repository):** HTTPS/TLS configuration in the application itself (in the hosted deployment TLS is terminated by Vercel and Render), HSTS, a Content-Security-Policy, security headers in `nginx.conf`, an upload virus scan, dependency-vulnerability scanning in CI (a one-off scan of 14 direct dependencies found no known CVEs during the 2026-10-06 Java upgrade — see [changelog.md](changelog.md); `npm audit` on the front end reports two high-severity advisories in build-time packages, see I-23 in [issues.md](issues.md)), rate limiting other than login and OTP resend. How production traffic is secured is **Unknown / Needs clarification** (the CD pipeline only pushes images).
 
 ## 9. Security checklist for contributors
 
