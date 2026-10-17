@@ -5,6 +5,8 @@ import { RequirePermission } from './auth/RequirePermission'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
 import { VerifyOtp } from './pages/VerifyOtp'
+import { PrivacyPolicy } from './pages/PrivacyPolicy'
+import { TermsOfService } from './pages/TermsOfService'
 import { Dashboard } from './pages/Dashboard'
 import { Projects } from './pages/Projects'
 import { ProjectDetail } from './pages/ProjectDetail'
@@ -29,6 +31,9 @@ function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/verify-otp" element={<VerifyOtp />} />
+      {/* Public pages: open to anyone, signed in or not (the home page at "/" is shown to signed-out visitors by ProtectedRoute). */}
+      <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+      <Route path="/terms-of-service" element={<TermsOfService />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route path="/" element={<Dashboard />} />

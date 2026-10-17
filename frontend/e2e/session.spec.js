@@ -79,10 +79,23 @@ test.describe('session: browser', () => {
 
   test('without a live session a reload goes to the sign-in page', async ({ page, context }) => {
     await login(page, 'dev.chen')
+    await page.goto('/projects') // a protected page ("/" is the public home page for a signed-out visitor)
+    await expect(page).toHaveURL(/\/projects$/)
     await context.clearCookies() // the refresh cookie is gone (expired, or cleared by the person)
 
     await page.reload()
     await expect(page).toHaveURL(/\/login/)
+    expect(await page.evaluate(() => localStorage.getItem('taskflow.auth'))).toBeNull()
+  })
+
+  test('without a live session the home page "/" shows the public landing page, not the dashboard', async ({ page, context }) => {
+    await login(page, 'dev.chen')
+    await context.clearCookies()
+
+    await page.reload() // still at "/"
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(/plan the work/i)
+    await expect(page.getByRole('link', { name: 'Sign in' }).first()).toBeVisible()
     expect(await page.evaluate(() => localStorage.getItem('taskflow.auth'))).toBeNull()
   })
 })

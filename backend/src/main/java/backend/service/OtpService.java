@@ -13,11 +13,13 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 
-// Registration OTP: a 6-digit code, bcrypt-hashed at rest (never stored or
+// One-time codes: a 6-digit code, bcrypt-hashed at rest (never stored or
 // returned in plaintext — the only place the plaintext code appears is the
 // outgoing email), with an expiry, a capped number of verify attempts, and a
 // resend cooldown. All state lives in otp_verifications; see
-// docs/database.md for the schema.
+// docs/database.md for the schema. Two purposes share it: REGISTRATION (verify the e-mail of a new
+// account) and LOGIN_2FA (the second step of an administrator's sign-in); each purpose has its own
+// latest code, so one never answers for the other.
 @Service
 @Transactional
 public class OtpService {
@@ -26,7 +28,8 @@ public class OtpService {
     // attempts, wrong) and whether or not the username exists, so it reveals nothing (issue I-08).
     public static final String INVALID_CODE_MESSAGE = "The code is incorrect or has expired. Request a new code if needed.";
 
-    private static final String PURPOSE = "REGISTRATION";
+    public static final String PURPOSE_REGISTRATION = "REGISTRATION";
+    public static final String PURPOSE_LOGIN = "LOGIN_2FA";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OtpVerificationRepository otpVerificationRepository;
@@ -52,22 +55,11 @@ public class OtpService {
     }
 
     public void sendNewOtp(User user) {
-        String code = generateCode();
-
-        OtpVerification otp = new OtpVerification();
-        otp.setUser(user);
-        otp.setPurpose(PURPOSE);
-        otp.setOtpHash(passwordEncoder.encode(code));
-        otp.setExpiresAt(OffsetDateTime.now().plusMinutes(expirationMinutes));
-        otp.setMaxAttempts(maxAttempts);
-        otp.setLastSentAt(OffsetDateTime.now());
-        otpVerificationRepository.save(otp);
-
-        mailService.sendOtpEmail(user.getEmail(), code, expirationMinutes);
+        issue(user, PURPOSE_REGISTRATION);
     }
 
     public void resendOtp(User user) {
-        otpVerificationRepository.findTopByUserIdAndPurposeOrderByCreatedAtDesc(user.getId(), PURPOSE)
+        otpVerificationRepository.findTopByUserIdAndPurposeOrderByCreatedAtDesc(user.getId(), PURPOSE_REGISTRATION)
                 .ifPresent(latest -> {
                     Duration sinceLastSend = Duration.between(latest.getLastSentAt(), OffsetDateTime.now());
                     long remaining = resendCooldownSeconds - sinceLastSend.getSeconds();
@@ -77,6 +69,41 @@ public class OtpService {
                     }
                 });
         sendNewOtp(user);
+    }
+
+    // The second step of an administrator's sign-in. A code sent a moment ago (inside the resend
+    // cooldown) that is still unused and unexpired is kept, so signing in again at once does not
+    // flood the inbox or invalidate the e-mail the person is already holding.
+    public void sendLoginCode(User user) {
+        boolean recentCodeStillValid = otpVerificationRepository
+                .findTopByUserIdAndPurposeOrderByCreatedAtDesc(user.getId(), PURPOSE_LOGIN)
+                .filter(latest -> latest.getConsumedAt() == null
+                        && latest.getExpiresAt().isAfter(OffsetDateTime.now())
+                        && latest.getAttempts() < latest.getMaxAttempts()
+                        && Duration.between(latest.getLastSentAt(), OffsetDateTime.now()).getSeconds() < resendCooldownSeconds)
+                .isPresent();
+        if (!recentCodeStillValid) {
+            issue(user, PURPOSE_LOGIN);
+        }
+    }
+
+    private void issue(User user, String purpose) {
+        String code = generateCode();
+
+        OtpVerification otp = new OtpVerification();
+        otp.setUser(user);
+        otp.setPurpose(purpose);
+        otp.setOtpHash(passwordEncoder.encode(code));
+        otp.setExpiresAt(OffsetDateTime.now().plusMinutes(expirationMinutes));
+        otp.setMaxAttempts(maxAttempts);
+        otp.setLastSentAt(OffsetDateTime.now());
+        otpVerificationRepository.save(otp);
+
+        if (PURPOSE_LOGIN.equals(purpose)) {
+            mailService.sendLoginCodeEmail(user.getEmail(), code, expirationMinutes);
+        } else {
+            mailService.sendOtpEmail(user.getEmail(), code, expirationMinutes);
+        }
     }
 
     // Throws IllegalArgumentException (-> 400, with a client-facing message)
@@ -91,8 +118,18 @@ public class OtpService {
     // so the counter would never actually advance past 1.
     @Transactional(noRollbackFor = IllegalArgumentException.class)
     public void verify(User user, String code) {
+        verifyCode(user, code, PURPOSE_REGISTRATION);
+    }
+
+    // Same checks for the administrator's sign-in code; the caller then issues the session.
+    @Transactional(noRollbackFor = IllegalArgumentException.class)
+    public void verifyLoginCode(User user, String code) {
+        verifyCode(user, code, PURPOSE_LOGIN);
+    }
+
+    private void verifyCode(User user, String code, String purpose) {
         OtpVerification otp = otpVerificationRepository
-                .findTopByUserIdAndPurposeOrderByCreatedAtDesc(user.getId(), PURPOSE)
+                .findTopByUserIdAndPurposeOrderByCreatedAtDesc(user.getId(), purpose)
                 .orElseThrow(() -> new IllegalArgumentException(INVALID_CODE_MESSAGE));
 
         if (otp.getConsumedAt() != null

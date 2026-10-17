@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { login as loginRequest } from '../api/auth'
+import { login as loginRequest, verifyLoginCode } from '../api/auth'
 import { getUserByUsername, getMyPermissions } from '../api/users'
 import { endSession, getStoredAuth, refreshSession, setUnauthorizedHandler, storeAuth } from '../api/client'
 import { EMPTY_PERMISSIONS, canAnywhere, canInProject, canSystem } from '../api/permissions'
@@ -76,8 +76,8 @@ export function AuthProvider({ children }) {
 
   useEffect(() => syncProfile(), [syncProfile])
 
-  const login = useCallback(async (username, password) => {
-    const result = await loginRequest(username, password)
+  // Starts the session from { token, username, role } and loads the profile and permissions.
+  const startSession = useCallback(async (result) => {
     const nextAuth = { token: result.token, username: result.username, role: result.role }
     storeAuth(nextAuth)
     setAuth(nextAuth)
@@ -86,6 +86,21 @@ export function AuthProvider({ children }) {
     setPermissions(perms)
     return user
   }, [])
+
+  // Resolves to the signed-in user, or to { twoFactorRequired: true, username, maskedEmail } when an
+  // administrator still has to enter the code e-mailed to them (then call loginWithCode).
+  const login = useCallback(
+    async (username, password) => {
+      const result = await loginRequest(username, password)
+      if (result.twoFactorRequired) {
+        return { twoFactorRequired: true, username: result.username, maskedEmail: result.maskedEmail }
+      }
+      return startSession(result)
+    },
+    [startSession]
+  )
+
+  const loginWithCode = useCallback(async (username, otp) => startSession(await verifyLoginCode(username, otp)), [startSession])
 
   // Re-fetches the profile after a self-service edit (Settings page) so the
   // sidebar/topbar name and other cached fields update without a re-login.
@@ -119,10 +134,11 @@ export function AuthProvider({ children }) {
       isAuthenticated: Boolean(auth?.token),
       loading,
       login,
+      loginWithCode,
       logout,
       refreshProfile,
     }),
-    [auth, permissions, can, canSys, canAny, profile, loading, login, logout, refreshProfile]
+    [auth, permissions, can, canSys, canAny, profile, loading, login, loginWithCode, logout, refreshProfile]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

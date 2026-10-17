@@ -176,7 +176,10 @@ Defaults work for local development; every variable has a fallback in `docker-co
 | `MAIL_HOST` / `MAIL_PORT` | `mailpit` / `1025` | SMTP server for registration codes |
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | empty | SMTP credentials (not needed for Mailpit) |
 | `MAIL_SMTP_AUTH` / `MAIL_SMTP_STARTTLS` | `false` / `false` | SMTP options |
-| `MAIL_FROM` | `no-reply@taskflow.dev` | "From" address |
+| `MAIL_FROM` | `no-reply@taskflow.dev` | "From" address (with the Gmail API: that Gmail address) |
+| `MAIL_FROM_NAME` | `TaskFlow` | Sender display name |
+| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` | empty | When all three are set, codes are sent through the Gmail API over HTTPS instead of SMTP (for hosts that block SMTP ports); see [host/README.md](../host/README.md) section 5 |
+| `ADMIN_2FA_ENABLED` | `false` | `true` = an administrator must enter an e-mailed code after the password. Keep `false` until the administrator's e-mail is a real mailbox and mail works |
 | `MAILPIT_SMTP_PORT` / `MAILPIT_UI_PORT` | `1025` / `8025` | Mailpit host ports |
 
 ### Backend-only settings (`application.properties`, override with environment variables)

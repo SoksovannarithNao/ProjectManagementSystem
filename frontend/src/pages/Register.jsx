@@ -111,6 +111,18 @@ export function Register() {
             Sign in
           </Link>
         </p>
+
+        <p className="text-muted mt-4 text-center text-[11px]">
+          By creating an account you agree to the{' '}
+          <Link to="/terms-of-service" className="hover:text-ink underline">
+            Terms of Service
+          </Link>{' '}
+          and acknowledge the{' '}
+          <Link to="/privacy-policy" className="hover:text-ink underline">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </div>
     </div>
   )
