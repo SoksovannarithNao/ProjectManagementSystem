@@ -85,10 +85,14 @@ Sources of evidence: the code (controllers, services, pages, SQL), the running a
 | Feature | Status | Evidence | Notes |
 |---|---|---|---|
 | Docker Compose stack (db, one-shot Flyway `migrate`, mail, backend, frontend) | Done | `docker-compose.yml` | Healthchecks; rebuild needed after code changes |
-| CI (lint, unit tests and build; backend tests + DB invariants; Playwright against a fresh stack; image builds) | Done (2026-10-12) | `.github/workflows/ci.yml` | The `e2e` job was validated by a local simulation and has not yet run on GitHub |
-| CD (build and push images to GHCR) | Partial | `.github/workflows/cd.yml` | No deploy step |
+| CI (lint, unit tests and build; backend tests + DB invariants; Playwright against a fresh stack; image builds) | Done (2026-10-12) | `.github/workflows/ci.yml` | The `e2e` job was first validated by a local simulation and has since run green on GitHub (pull requests #63 and #64, 2026-10-17) |
+| CD (build and push images to GHCR) | Partial | `.github/workflows/cd.yml` | No deploy step in the workflow; the hosted app is deployed by Vercel and Render from the repository ([host/README.md](../host/README.md)) |
+| Hosting (Vercel frontend, Render backend, Neon database) | Done (2026-10-17) | `frontend/vercel.json`, `host/README.md`, `host/neon-app-role.sql`, `backend/Dockerfile` | Free tiers: the backend sleeps when idle; SMTP is blocked, so mail uses the Gmail API |
+| Administrator sign-in code (optional second step) | Done (2026-10-17) | `AuthService`, `OtpService`, `V22`, [ADR-0016](adr/0016-admin-two-factor-and-https-mail.md) | Off unless `ADMIN_2FA_ENABLED=true`; needs the administrator's e-mail to be a real mailbox |
+| E-mail over the Gmail API | Done (2026-10-17) | `MailService`, `MailServiceTest` | Tested against a mocked Google; one real send was checked by hand |
+| Public home, privacy policy and terms pages | Done (2026-10-17) | `pages/Landing.jsx`, `PrivacyPolicy.jsx`, `TermsOfService.jsx`, `e2e/public-pages.spec.js` | For the Google OAuth consent screen; verification itself is Google's decision ([google-oauth-verification.md](google-oauth-verification.md)) |
 | Java 25 / Spring Boot 4 | Done | `pom.xml`, `Dockerfile`, CI | Upgraded 2026-10-06 |
-| Flyway migrations | Partial | `database/taskmanager/`, the `migrate` service in `docker-compose.yml` | Applied by Compose, not by the app or CI; the migrations still lack some task/subtask objects that `init/` has (X-04) |
+| Flyway migrations | Partial | `database/taskmanager/`, the `migrate` service in `docker-compose.yml` | Applied by Compose locally and, for the hosted Neon database, by hand with the Flyway container ([host/README.md](../host/README.md)); not by the app; the migrations still lack some task/subtask objects that `init/` has (X-04) |
 | Documentation | Done | this `docs/` folder (the per-folder READMEs were merged into it on 2026-10-08) | Checked page by page against the code on 2026-10-12 (see [issues.md](issues.md#4-documentation-drift), D-11); `api/openapi.yaml` is not maintained |
 
 ## 2. Not started
@@ -120,11 +124,11 @@ From the root `README.md` (*Future Enhancements*), `backend.md` (*Next Steps*), 
 3. ~~Scheduled job for overdue notices and deadline reminders~~ — done 2026-10-10 (`DeadlineScheduler`).
 4. ~~Remaining notification types (`COMMENT_ADDED`, `PROJECT_UPDATED`, `MILESTONE_UPDATED`)~~ — done 2026-10-12 (`UpdateNotificationService`).
 5. ~~Pagination, search and filtering on list endpoints~~ (done on the project, task and notification lists, 2026-10-13 / 2026-10-14).
-6. Flyway in CI and a production deployment (locally the Compose `migrate` service runs it).
+6. Flyway in CI and a production deployment (locally the Compose `migrate` service runs it; the hosted Neon database gets new migrations by hand, [host/README.md](../host/README.md)).
 7. ~~Entities and controllers for `checklist_items`, `attachments`, `work_logs`.~~ Done.
 8. ~~Endpoints over the reporting views~~ — the reports are calculated in Java instead (2026-10-09); `kpi_snapshots` remains, and `report_exports` stays unused (the export is made in the browser, 2026-10-13).
 9. ~~More backend tests (controller and repository).~~ Done 2026-10-15 (standalone `MockMvc` controller tests, `@DataJpaTest` query tests on the real schema). ~~Playwright in CI~~ — done 2026-10-12.
-10. A deploy target for the CD pipeline.
+10. A deploy step in the CD pipeline (the app is hosted on Vercel, Render and Neon since 2026-10-17, deployed by those providers; `cd.yml` still only builds and pushes images).
 11. ~~A project-wide activity feed~~ — done 2026-10-09; ~~an administrator audit view~~ — done 2026-10-13.
 12. ~~Closing the CI vs `03-app-role.sh` grant drift~~ (since 2026-10-14 CI runs the script itself and `verify_grants.sql` fails the build for an ungranted table) — the lists match (22 read-write tables plus `audit_logs`, checked 2026-10-14).
 
@@ -143,20 +147,21 @@ Work needed to bring the application to the model in [ADR-0015](adr/0015-two-lev
 
 ## 4. In progress
 
-**Nothing that is half-built.** As of 2026-10-15 the work of the last days (the side panels, the server-side lists, the hardening fixes and the tests) is in the working tree of branch `feat/side-panels-calendar-detail-sticky-header`, **not committed**: the project owner commits it. Other local branches exist (`backend/*`, `database/*`, `Project/*`, `fronrtend/updateUI`) but were not reviewed, so work in them is **Unknown**.
+**Nothing that is half-built.** As of 2026-10-17 everything is committed and merged into `dev` and `main` (pull requests #63 and #64: the administrator sign-in code, the Gmail mail route, the public pages and the shared theme toggle), and the hosted app runs it.
 
 ## 5. Blocked
 
-**What is left at 2026-10-15** (every requirement of the brief is built; see [checklist/done.md](checklist/done.md)). It is all waiting on the project owner or optional:
+**What is left at 2026-10-17** (every requirement of the brief is built; see [checklist/done.md](checklist/done.md)). It is all waiting on the project owner or optional:
 
 | # | Item | Waiting for |
 |---|---|---|
-| 1 | **A deploy target for the CD pipeline** (it only builds and pushes images today) | Where the app should run and which container registry to use |
-| 2 | **Flyway in a production deployment** (CI already checks that every migration is folded into the init scripts, F-84) | Item 1 |
+| 1 | ~~A deploy target~~ **The app is hosted** (2026-10-17): Vercel (frontend), Render (backend), Neon (database), deployed by those providers from the repository. `cd.yml` still only builds and pushes images to GHCR, which the hosted app does not use | Optional: whether `cd.yml` should deploy |
+| 2 | **Flyway in the hosted deployment** (CI already checks that every migration is folded into the init scripts, F-84; a new migration is applied to Neon by hand with the Flyway container) | Optional: running it from CI against Neon |
 | 3 | ~~Decisions D-19 to D-25~~ (near-deadline and Today / Upcoming, auto-logout timing, @mentions, report export, time logged on unassigned tasks, sign-in lifetime, pagination) | **Approved as built by the project owner on 2026-10-15** ([assignment-brief.md](../assignment-brief.md) B13.2) |
-| 4 | **The live demo database was edited by hand** (an extra account, a project and the Project Manager permission grid), so two role e2e specs fail against it; they pass on a freshly seeded database | The owner: keep the edits, or reset the demo database (destructive) |
-| 5 | **The CI workflow has never run on GitHub**; its steps were replayed locally (a second stack for the e2e job, a throw-away PostgreSQL 18 for the database steps) | The first push |
+| 4 | **The live demo database was edited by hand** (an extra account and a project; the Project Manager permission grid was edited and then reset to the seeded grants on 2026-10-15), so the specs that assert on the seeded grid pass again (the full run of 2026-10-17 passed). The hosted Neon database was loaded from the seed on 2026-10-17 and its demo password is public | The owner: keep the edits, or reset the demo database; change the hosted administrator's password |
+| 5 | ~~The CI workflow has never run on GitHub~~ **It has**: green on pull requests #63 and #64 on 2026-10-17 (CI about 6.5 minutes, CD about 1.5 minutes) | none |
 | 6 | Optional: a test through the security filter chain and `@PreAuthorize`; tests for the controllers not yet covered | Time |
+| 7 | **Fix I-24** ([issues.md](issues.md)): give the notification and recent-activity list queries an `@EntityGraph` (or a fetch join) on the project, as was done for the task, assignee and project-member lists | Time |
 
 **Accepted limitations** (decided, in [issues.md](issues.md) section 8): document management (#42, optional); unassigning a task notifies nobody; the task assignments and the project members are still read whole by a few screens; a database cannot be built from the migrations alone (X-04).
 
