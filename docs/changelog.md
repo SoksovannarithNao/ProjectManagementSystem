@@ -6,6 +6,11 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-17 (Edit User opens in a side panel)
+
+**Changed**
+- **Edit User** (Administration → Users) now opens in the right-hand `SidePanel`, the same frame as Add User, Edit Task and Edit Project, instead of the centred pop-up. Same fields and behaviour; the form body scrolls and Cancel/Save stay pinned at the bottom. `e2e/user-management.spec.js` now checks the panel sits on the right.
+
 ## 2026-10-15 (a completed project takes no new work; owner rights right after creating a project; the top priority colour)
 
 **Docs (how they display on GitHub)**
