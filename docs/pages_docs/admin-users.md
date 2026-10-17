@@ -15,4 +15,4 @@ Lists every account and lets an authorised person change its system role, edit i
 - Role changes, account creation, status changes and deletions are recorded in the [audit log](admin-audit-log.md).
 
 ## Data
-`api/users.js`, `api/roles.js`; edit form in `components/EditUserModal`.
+`api/users.js`, `api/roles.js`; edit form in `components/EditUserModal` (opens in the right-hand `SidePanel`, like Edit Task and Edit Project).

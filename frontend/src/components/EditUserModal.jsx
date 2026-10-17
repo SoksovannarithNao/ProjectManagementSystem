@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Modal } from './ui/Modal'
+import { SidePanel } from './ui/SidePanel'
 import { LookupSelect } from './ui/LookupSelect'
 import { PasswordChecklist } from './ui/PasswordChecklist'
 import { useToast } from './ui/Toast'
@@ -74,116 +74,118 @@ export function EditUserModal({ user, isSelf, onClose, onSaved }) {
   }
 
   return (
-    <Modal title="Edit user" onClose={onClose} isDirty={isDirty}>
+    <SidePanel title="Edit User" onClose={onClose} isDirty={isDirty}>
       {({ requestClose }) => (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-muted text-[12px] font-semibold">Full name</span>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              maxLength={150}
-              className="field"
-              autoFocus
-              required
-            />
-          </label>
-
-          <div className="flex gap-3 max-sm:flex-col">
-            <label className="flex flex-1 flex-col gap-1.5">
-              <span className="text-muted text-[12px] font-semibold">Username</span>
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-[22px] pt-5 pb-6">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-muted text-[12px] font-semibold">Full name</span>
               <input
                 type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                maxLength={50}
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                maxLength={150}
                 className="field"
+                autoFocus
                 required
               />
             </label>
-            <label className="flex flex-1 flex-col gap-1.5">
-              <span className="text-muted text-[12px] font-semibold">Email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                maxLength={255}
-                className="field"
-                required
-              />
-            </label>
-          </div>
 
-          <div className="flex gap-3 max-sm:flex-col">
-            <label className="flex flex-1 flex-col gap-1.5">
-              <span className="text-muted text-[12px] font-semibold">Gender</span>
-              <select value={gender} onChange={(e) => setGender(e.target.value)} className="field">
-                {GENDER_OPTIONS.map((g) => (
-                  <option key={g} value={g}>
-                    {g || 'Not set'}
+            <div className="flex gap-3 max-sm:flex-col">
+              <label className="flex flex-1 flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">Username</span>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  maxLength={50}
+                  className="field"
+                  required
+                />
+              </label>
+              <label className="flex flex-1 flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">Email</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  maxLength={255}
+                  className="field"
+                  required
+                />
+              </label>
+            </div>
+
+            <div className="flex gap-3 max-sm:flex-col">
+              <label className="flex flex-1 flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">Gender</span>
+                <select value={gender} onChange={(e) => setGender(e.target.value)} className="field">
+                  {GENDER_OPTIONS.map((g) => (
+                    <option key={g} value={g}>
+                      {g || 'Not set'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-1 flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">Date of birth</span>
+                <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className="field" />
+              </label>
+              <label className="flex flex-1 flex-col gap-1.5">
+                <span className="text-muted text-[12px] font-semibold">Phone number</span>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  maxLength={30}
+                  className="field"
+                />
+              </label>
+            </div>
+
+            <div className="flex gap-3 max-sm:flex-col">
+              <LookupSelect label="Position" items={positions} value={positionId} onChange={setPositionId} />
+              <LookupSelect label="Department" items={departments} value={departmentId} onChange={setDepartmentId} />
+            </div>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-muted text-[12px] font-semibold">Account status</span>
+              <select
+                value={accountStatus}
+                onChange={(e) => setAccountStatus(e.target.value)}
+                disabled={isSelf}
+                className="field"
+              >
+                {statusOptions.map((s) => (
+                  <option key={s} value={s} disabled={!STATUS_OPTIONS.includes(s)}>
+                    {humanizeEnum(s)}
                   </option>
                 ))}
               </select>
+              <span className="text-muted text-[11px]">
+                {isSelf
+                  ? 'You cannot change the status of your own account.'
+                  : 'An inactive or suspended account cannot sign in.'}
+              </span>
             </label>
-            <label className="flex flex-1 flex-col gap-1.5">
-              <span className="text-muted text-[12px] font-semibold">Date of birth</span>
-              <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className="field" />
-            </label>
-            <label className="flex flex-1 flex-col gap-1.5">
-              <span className="text-muted text-[12px] font-semibold">Phone number</span>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-muted text-[12px] font-semibold">New password (optional)</span>
               <input
-                type="tel"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                maxLength={30}
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Leave blank to keep the current password"
+                autoComplete="off"
                 className="field"
               />
+              {password && <PasswordChecklist password={password} />}
             </label>
+
+            {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
           </div>
 
-          <div className="flex gap-3 max-sm:flex-col">
-            <LookupSelect label="Position" items={positions} value={positionId} onChange={setPositionId} />
-            <LookupSelect label="Department" items={departments} value={departmentId} onChange={setDepartmentId} />
-          </div>
-
-          <label className="flex flex-col gap-1.5">
-            <span className="text-muted text-[12px] font-semibold">Account status</span>
-            <select
-              value={accountStatus}
-              onChange={(e) => setAccountStatus(e.target.value)}
-              disabled={isSelf}
-              className="field"
-            >
-              {statusOptions.map((s) => (
-                <option key={s} value={s} disabled={!STATUS_OPTIONS.includes(s)}>
-                  {humanizeEnum(s)}
-                </option>
-              ))}
-            </select>
-            <span className="text-muted text-[11px]">
-              {isSelf
-                ? 'You cannot change the status of your own account.'
-                : 'An inactive or suspended account cannot sign in.'}
-            </span>
-          </label>
-
-          <label className="flex flex-col gap-1.5">
-            <span className="text-muted text-[12px] font-semibold">New password (optional)</span>
-            <input
-              type="text"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Leave blank to keep the current password"
-              autoComplete="off"
-              className="field"
-            />
-            {password && <PasswordChecklist password={password} />}
-          </label>
-
-          {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
-
-          <div className="mt-1 flex justify-end gap-2">
+          <div className="border-divider flex justify-end gap-2 border-t px-[22px] py-4">
             <button type="button" className="btn btn-secondary" onClick={requestClose}>
               Cancel
             </button>
@@ -197,6 +199,6 @@ export function EditUserModal({ user, isSelf, onClose, onSaved }) {
           </div>
         </form>
       )}
-    </Modal>
+    </SidePanel>
   )
 }

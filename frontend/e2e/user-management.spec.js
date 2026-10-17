@@ -39,6 +39,16 @@ test.describe('user management screen', () => {
 
       // edit the name and phone, and set the account Inactive
       await page.getByRole('button', { name: `Edit Temp Person ${suffix}` }).click()
+      // Edit User is a right-hand side panel (like Edit Task / Edit Project), not a centred pop-up
+      const panel = page.getByRole('dialog', { name: 'Edit User', exact: true })
+      await expect(panel).toBeVisible()
+      await expect
+        .poll(async () => {
+          const box = await panel.boundingBox()
+          return box ? Math.round(box.x + box.width) : 0
+        })
+        .toBeGreaterThanOrEqual(page.viewportSize().width - 2)
+      expect((await panel.boundingBox()).width).toBeLessThan(page.viewportSize().width / 2)
       await page.getByLabel('Full name').fill(`Renamed Person ${suffix}`)
       await page.getByLabel('Phone number').fill('012 345 678')
       await page.getByLabel('Account status').selectOption('INACTIVE')
