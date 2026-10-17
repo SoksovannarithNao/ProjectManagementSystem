@@ -48,6 +48,7 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/health",
                     "/api/auth/login",
+                    "/api/auth/login/verify",
                     "/api/auth/refresh",
                     "/api/auth/logout",
                     "/api/auth/register",

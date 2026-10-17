@@ -80,6 +80,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
+        "202":
+          description: >
+            The password was right but the account is an `ADMINISTRATOR` and
+            `ADMIN_2FA_ENABLED=true`: a 6-digit code was e-mailed. No token and no
+            refresh cookie yet; send the code to `POST /api/auth/login/verify`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  twoFactorRequired: { type: boolean, example: true }
+                  username: { type: string, example: admin.system }
+                  maskedEmail: { type: string, example: "a***@gmail.com" }
+        "503":
+          description: The code could not be e-mailed (mail provider refused or unreachable).
         "400":
           description: >
             `username`/`password` blank (`@NotBlank` on `LoginRequest`).
@@ -98,6 +113,44 @@ paths:
             5 failed attempts within 15 minutes for this
             `remoteAddr:username` key (`LoginRateLimiter`, in-memory, resets
             on restart). A successful login clears the counter for that key.
+          $ref: "#/components/responses/TooManyRequests"
+
+  /api/auth/login/verify:
+    post:
+      tags: [Auth]
+      summary: Second sign-in step for an administrator (the e-mailed code)
+      description: >
+        Only meaningful when `ADMIN_2FA_ENABLED=true`. Checks the 6-digit code
+        e-mailed after a correct password and then issues the same session as
+        `POST /api/auth/login` (access token in the body, refresh cookie).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, otp]
+              properties:
+                username: { type: string, example: admin.system }
+                otp: { type: string, pattern: "^\\d{6}$", example: "123456" }
+      responses:
+        "200":
+          description: Code accepted; the session starts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: >
+            Malformed code, or the one general message for every failure (unknown
+            name, not an administrator, inactive account, no code, used, expired,
+            too many attempts, wrong code, second step switched off).
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          description: >
+            Failed passwords and wrong codes together reached 5 in 15 minutes for
+            this `remoteAddr:username` key.
           $ref: "#/components/responses/TooManyRequests"
 
   /api/users:

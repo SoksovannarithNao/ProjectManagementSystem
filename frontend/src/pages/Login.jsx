@@ -5,11 +5,14 @@ import { clearIdleSignOutNotice, wasSignedOutForInactivity } from '../auth/idleT
 import { Logo } from '../components/ui/Logo'
 
 export function Login() {
-  const { login } = useAuth()
+  const { login, loginWithCode } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  // Set after a correct password when an administrator still has to enter the e-mailed code.
+  const [challenge, setChallenge] = useState(null)
+  const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   // Why the user landed here, when the app signed them out for inactivity.
@@ -21,7 +24,12 @@ export function Login() {
     setError('')
     setSubmitting(true)
     try {
-      await login(username, password)
+      const result = await login(username, password)
+      if (result?.twoFactorRequired) {
+        setChallenge(result)
+        setPassword('')
+        return
+      }
       const redirectTo = location.state?.from?.pathname || '/'
       navigate(redirectTo, { replace: true })
     } catch (err) {
@@ -29,6 +37,27 @@ export function Login() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleCodeSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      await loginWithCode(challenge.username, code)
+      const redirectTo = location.state?.from?.pathname || '/'
+      navigate(redirectTo, { replace: true })
+    } catch (err) {
+      setError(err.message || 'Invalid sign-in code')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const backToPassword = () => {
+    setChallenge(null)
+    setCode('')
+    setError('')
   }
 
   return (
@@ -39,8 +68,16 @@ export function Login() {
           <Logo size={22} />
           <span className="text-ink text-[18px] font-bold tracking-[-0.02em]">TaskFlow</span>
         </div>
-        <h1 className="text-ink mb-1 text-xl font-bold tracking-[-0.015em]">Sign in</h1>
-        <p className="text-muted mb-6 text-[13px]">Use your TaskFlow account to continue.</p>
+        <h1 className="text-ink mb-1 text-xl font-bold tracking-[-0.015em]">{challenge ? 'Enter your sign-in code' : 'Sign in'}</h1>
+        <p className="text-muted mb-6 text-[13px]">
+          {challenge ? (
+            <>
+              We e-mailed a 6-digit code to <span className="text-ink font-semibold">{challenge.maskedEmail}</span>.
+            </>
+          ) : (
+            'Use your TaskFlow account to continue.'
+          )}
+        </p>
         {idleNotice && (
           <p
             role="status"
@@ -51,6 +88,32 @@ export function Login() {
           </p>
         )}
 
+        {challenge ? (
+          <form onSubmit={handleCodeSubmit} className="flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-muted text-[12px] font-semibold">Sign-in code</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="field field-lg text-center text-lg tracking-[0.3em]"
+                placeholder="······"
+                maxLength={6}
+                autoComplete="one-time-code"
+                autoFocus
+                required
+              />
+            </label>
+            {error && <p className="text-danger-ink text-[12px] font-semibold">{error}</p>}
+            <button type="submit" className="btn btn-primary mt-2 justify-center py-[11px]" disabled={submitting || code.length !== 6}>
+              {submitting ? 'Verifying…' : 'Verify and sign in'}
+            </button>
+            <button type="button" className="text-ink text-center text-[12px] font-semibold hover:underline" onClick={backToPassword}>
+              Back to sign in
+            </button>
+          </form>
+        ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
             <span className="text-muted text-[12px] font-semibold">Username or email</span>
@@ -79,11 +142,24 @@ export function Login() {
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+        )}
 
-        <p className="text-muted mt-5 text-center text-[12px]">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-ink font-semibold hover:underline">
-            Create account
+        {!challenge && (
+          <p className="text-muted mt-5 text-center text-[12px]">
+            Don't have an account?{' '}
+            <Link to="/register" className="text-ink font-semibold hover:underline">
+              Create account
+            </Link>
+          </p>
+        )}
+
+        <p className="text-muted mt-4 text-center text-[11px]">
+          <Link to="/privacy-policy" className="hover:text-ink underline">
+            Privacy Policy
+          </Link>
+          {' \u00b7 '}
+          <Link to="/terms-of-service" className="hover:text-ink underline">
+            Terms of Service
           </Link>
         </p>
       </div>

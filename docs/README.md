@@ -32,13 +32,14 @@ Documentation for the **TaskFlow** task and project management system (React fro
 | 12 | Feature & development roadmap — done / partial / not started / planned | [roadmap.md](roadmap.md) |
 | 13 | Development setup — install, environment, database, run, build, test | [setup.md](setup.md) |
 | 14 | Change log — reconstructed from the git history | [changelog.md](changelog.md) |
-| 15 | Architecture decision records (15) | [adr/README.md](adr/README.md) |
+| 15 | Architecture decision records (16) | [adr/README.md](adr/README.md) |
 | 16 | Backend guide — stack, run, structure, security reasoning, logging, invitations, notifications, status | [backend.md](backend.md) |
 | 17 | Frontend guide — stack, scripts, structure, routes, behaviours, design tokens, end-to-end tests | [frontend.md](frontend.md) |
 | 18 | Product context and design system | [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md) |
 | 19 | Requirements audit — done, falls short | [checklist/](checklist/done.md) |
 | 20 | Test cases — every case with its steps, expected result and the test that proves it | [test-cases.md](test-cases.md) |
 | 21 | Pages — one short document per screen: what it does, how it works, what it reads | [pages_docs/](pages_docs/README.md) |
+| 22 | Google OAuth consent screen — the public home, privacy and terms pages, and the manual steps in Google Cloud | [google-oauth-verification.md](google-oauth-verification.md) |
 
 ## Where the rest of the documentation lives
 

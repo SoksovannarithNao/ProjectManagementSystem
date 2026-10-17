@@ -6,7 +6,7 @@ What is tested today, how to run it, what the tests prove, and where the gaps ar
 
 | Layer | Tooling | Location | Tests | Runs in CI? |
 |---|---|---|---|---|
-| Backend unit tests | JUnit 5, Mockito, AssertJ (Spring Boot test starters) | `backend/src/test/java/backend/` | 568 | Yes (`mvn -B verify`) |
+| Backend unit tests | JUnit 5, Mockito, AssertJ (Spring Boot test starters) | `backend/src/test/java/backend/` | 619 | Yes (`mvn -B verify`) |
 | Backend context test | `@SpringBootTest` (needs PostgreSQL) | `BackendApplicationTests` | 1 | Yes (CI starts Postgres) |
 | Frontend end-to-end | Playwright (Chromium) against the running stack | `frontend/e2e/` | 308 | Yes (CI job `e2e`: builds the stack on a fresh runner) |
 | Frontend unit tests | Vitest 4 (Node environment, no browser) | `frontend/src/**/*.test.js` | 196 | Yes (`npm test`) |

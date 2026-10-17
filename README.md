@@ -197,7 +197,9 @@ Running the full stack via Docker Compose (`docker compose up -d --build`, see [
 | MAIL_HOST / MAIL_PORT | SMTP server for the registration OTP email | mailpit / 1025 (docker-compose default) |
 | MAIL_USERNAME / MAIL_PASSWORD | SMTP auth, if the server needs it | (blank for Mailpit) |
 | MAIL_SMTP_AUTH / MAIL_SMTP_STARTTLS | SMTP auth/STARTTLS toggles | false / false (Mailpit needs neither) |
-| MAIL_FROM | "From" address on the OTP email | no-reply@taskflow.dev |
+| MAIL_FROM / MAIL_FROM_NAME | "From" address and display name on the OTP email (with the Gmail API, the Gmail address that granted the token) | no-reply@taskflow.dev / TaskFlow |
+| GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN | When all three are set, codes are sent through the Gmail API over HTTPS instead of SMTP (hosts that block SMTP ports, e.g. Render's free tier); see [host/README.md](host/README.md) section 5 | (blank: SMTP) |
+| ADMIN_2FA_ENABLED | `true` = an ADMINISTRATOR must enter a 6-digit code e-mailed to them after the password (see [ADR-0016](docs/adr/0016-admin-two-factor-and-https-mail.md)); keep `false` until the administrator's e-mail is a real mailbox | false |
 | MAILPIT_SMTP_PORT / MAILPIT_UI_PORT | Host ports for Mailpit's SMTP listener and its web UI (`http://localhost:8025`) | 1025 / 8025 |
 
 ### Backend (`application.properties`, overridable via env)
@@ -216,7 +218,7 @@ Running the full stack via Docker Compose (`docker compose up -d --build`, see [
 | ATTACHMENT_MAX_BYTES / ATTACHMENT_MAX_PER_TARGET | Largest attachment and most attachments per task or project | 10485760 (10 MB) / 25 |
 | MULTIPART_MAX_FILE_SIZE / MULTIPART_MAX_REQUEST_SIZE | Spring's upload limits | 10MB / 11MB |
 | DEADLINES_ENABLED / DEADLINES_CRON / DEADLINES_RUN_ON_STARTUP | Deadline reminders and overdue notices: on/off, schedule (Spring cron, server time), and whether to also run once at startup | true / `0 0 8 * * *` / true |
-| MAIL_HOST / MAIL_PORT / MAIL_USERNAME / MAIL_PASSWORD / MAIL_SMTP_AUTH / MAIL_SMTP_STARTTLS / MAIL_FROM | SMTP config for the self-registration OTP email | see the root `.env` table above — same variables, consumed directly by the backend |
+| MAIL_HOST / MAIL_PORT / MAIL_USERNAME / MAIL_PASSWORD / MAIL_SMTP_AUTH / MAIL_SMTP_STARTTLS / MAIL_FROM / MAIL_FROM_NAME / GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN / ADMIN_2FA_ENABLED | Mail route for the OTP emails (SMTP, or the Gmail API over HTTPS) and the administrator sign-in code switch | see the root `.env` table above — same variables, consumed directly by the backend |
 
 Frontend has no `.env` of its own — it calls the backend via relative `/api/...` paths (proxied by nginx in Docker, by Vite's dev server otherwise), so no API base URL needs configuring.
 

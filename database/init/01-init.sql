@@ -267,7 +267,8 @@ CREATE TRIGGER trg_users_updated_at
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ==================== otp_verifications ==================== --
--- One-time codes for self-registration email verification. Only a bcrypt
+-- One-time codes for self-registration email verification and for the administrator's
+-- sign-in (purpose LOGIN_2FA, V22). Only a bcrypt
 -- hash of the code is ever stored (same PasswordEncoder bean used for user
 -- passwords) — never the plaintext code, matching password-storage practice
 -- elsewhere in this schema.
@@ -275,7 +276,7 @@ CREATE TABLE otp_verifications (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id      BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     purpose      VARCHAR(30) NOT NULL DEFAULT 'REGISTRATION'
-                 CHECK (purpose IN ('REGISTRATION')),
+                 CHECK (purpose IN ('REGISTRATION', 'LOGIN_2FA')),
     otp_hash     VARCHAR(255) NOT NULL,
     expires_at   TIMESTAMPTZ NOT NULL,
     attempts     INT NOT NULL DEFAULT 0,
