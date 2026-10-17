@@ -34,3 +34,7 @@ Requirements: users register with basic information and log in with credentials.
 ## Evidence
 
 `AuthService`, `OtpService`, `MailService`, `PasswordPolicy`, `V3__add_registration_otp_and_preferences.sql`, `Register.jsx`, `VerifyOtp.jsx`, `docker-compose.yml` (`mailpit`); [../authentication-authorization.md](../authentication-authorization.md#12-self-registration-with-email-verification).
+
+## Later changes
+
+- 2026-10-17 ([ADR-0016](0016-admin-two-factor-and-https-mail.md)): the same code machinery sends an administrator's sign-in code (purpose `LOGIN_2FA`, migration `V22`), and the mail can go through the Gmail API over HTTPS in addition to SMTP/Mailpit, because Render's free tier blocks SMTP.

@@ -29,6 +29,7 @@ The formal list of what the application is tested for: one row per case, with th
 | DB | Database rules | [16](#16-database-rules) |
 | UNIT | Pure front-end logic | [17](#17-front-end-unit-tests) |
 | E2E | The whole flow | [0](#0-the-whole-flow) |
+| PUB | Public pages, theme toggle, the sign-in code and the Gmail route | [19](#19-public-pages-theme-toggle-and-the-administrators-sign-in-code) |
 
 ## 0. The whole flow
 
@@ -56,6 +57,13 @@ The formal list of what the application is tested for: one row per case, with th
 | AUTH-14 | Signing out ends the session on the server | Sign out; replay the old refresh cookie | `401 "Session expired"`; the cookie is cleared; a reload shows the sign-in page | `session.spec.js`; `AuthServiceTest` |
 | AUTH-15 | A changed or reset password, or a suspension, ends the session | Change the password (or have an administrator reset it, or suspend the account); refresh with the old cookie | `401 "Session expired"` each time | `session.spec.js`; `UserServiceTest`; `RefreshTokenServiceTest` |
 | AUTH-16 | The sign-in lockout is per client | Fail five sign-ins for one name; try a sixth, then a sixth with an `X-Forwarded-For` header naming another address; try the same name from a different client address | The sixth is `429` and so is the one with the header (a client cannot pose as another address); a client at another address is not locked | `hardening.spec.js`; checked by hand with two client addresses (2026-10-14, I-09) |
+
+| AUTH-17 | An administrator's password alone starts no session when the second step is on | With `ADMIN_2FA_ENABLED=true`, sign in as an administrator with the right password | `202` with `twoFactorRequired` and the masked e-mail; no token and no cookie; a 6-digit code is e-mailed | `admin-two-factor.spec.js`; `AuthServiceAdminTwoFactorTest`; `AuthControllerTwoFactorTest` |
+| AUTH-18 | The code starts the session, once | Enter a wrong code, then the right one, then the right one again | Wrong: `400` with the general message; right: `200`, the session and the refresh cookie; again: `400` | `admin-two-factor.spec.js`; `OtpServiceLoginCodeTest` |
+| AUTH-19 | Everyone else is unaffected, and the step is off by default | Sign in as a non-administrator with the step on; sign in as the administrator with the setting off | Both sign in with the password alone | `admin-two-factor.spec.js`; `AuthServiceAdminTwoFactorTest` |
+| AUTH-20 | Wrong codes count toward the lock-out and every failure answers alike | Try codes for an unknown name, a non-administrator, an inactive administrator, and fail five in a row | The same `400` message each time; then `429` | `AuthServiceAdminTwoFactorTest` |
+| AUTH-21 | Signing in again at once does not send another e-mail | Sign in twice within a minute | One code is mailed; the first stays valid | `OtpServiceLoginCodeTest` |
+| AUTH-22 | A code leaves by SMTP or by the Gmail API, and a failed send is a `503` | Send with and without the `GMAIL_*` values; make the send fail | SMTP by default; the Gmail API (token, then send) when all three are set; `503` on failure | `MailServiceTest` (Google mocked); a real send is [MAN-07](#18-cases-with-no-automated-test) |
 
 ## 2. Registration and verification
 
@@ -316,4 +324,18 @@ These were checked by hand during development and are the next candidates for au
 | MAN-04 | *My Tasks* filter | Shows exactly the tasks assigned to the signed-in user |
 | MAN-05 | Settings | Notification and appearance preferences save and apply |
 | MAN-06 | Kanban and Profile | Moving the quick-advance circle on a card; changing the photo |
+| MAN-07 | A real Gmail API send | Start the backend with real `GMAIL_*` values and register an account with an address you can read | The verification code arrives in that inbox (checked by hand on 2026-10-17) |
 | DB-03 | Each trigger rejects a bad write | See [section 16](#16-database-rules) |
+
+## 19. Public pages, theme toggle and the administrator's sign-in code
+
+| ID | Case | Steps | Expected | Automated by |
+|---|---|---|---|---|
+| PUB-01 | The home page is public | Signed out, open `/` | The introduction, a Sign in and a Create account button, and links to the privacy policy and the terms; no redirect to sign in | `public-pages.spec.js` |
+| PUB-02 | The privacy policy and the terms open from a direct address and after a refresh | Open `/privacy-policy` and `/terms-of-service` signed out, then refresh | Each page with its own heading and the contact e-mail; no redirect | `public-pages.spec.js` |
+| PUB-03 | The policy says how Google OAuth is really used | Open the Google section of the policy | No Google sign-in; the only scope is `gmail.send`, used to send; nothing is read | `public-pages.spec.js` |
+| PUB-04 | The pages link to each other and to the forms | Use the footer links; open Sign in and Register | Policy and terms link each way; sign in and register link to both | `public-pages.spec.js` |
+| PUB-05 | A signed-in person still gets the dashboard at `/` | Sign in, open `/`, then `/privacy-policy` | The dashboard at `/`; the policy with an *Open TaskFlow* button | `public-pages.spec.js`; `session.spec.js` |
+| PUB-06 | Other protected addresses still lead to sign in | Signed out, open `/projects`, or reload a protected page without a session | The sign-in page; the saved session is cleared | `public-pages.spec.js`; `session.spec.js` |
+| PUB-07 | The public pages follow the theme and the screen | Switch light/dark; open at 375 px wide; press Tab once | The colours change; no sideways scroll; the first stop is *Skip to content*; one `main` and one `h1` | `public-pages.spec.js` |
+| PUB-08 | One theme toggle in the app | Signed in, click the theme button three times | Light, Dark, System in turn, applied at once, saved to the account and kept after a reload; no three-item menu | `theme-toggle.spec.js` |

@@ -14,6 +14,16 @@ flowchart LR
     Migrate["migrate container<br/>(one-shot Flyway)"] -->|"applies new migrations, then exits"| PG
 ```
 
+**Hosted topology** (the deployment at `https://www.task-flow.lat`, see [../host/README.md](../host/README.md)): the static app and the `/api/*` rewrite are served by Vercel, the backend runs on Render from the same Dockerfile, the database is Neon, and one-time codes are e-mailed through the Gmail API because Render's free tier blocks SMTP.
+
+```mermaid
+flowchart LR
+    Browser["Browser"] -->|"https"| Vercel["Vercel<br/>static app + /api rewrite"]
+    Vercel -->|"/api/* forwarded"| Render["Render<br/>Spring Boot (Docker)"]
+    Render -->|"JDBC over SSL as taskmanager_app"| Neon[("Neon<br/>PostgreSQL")]
+    Render -->|"HTTPS, gmail.send"| Gmail["Gmail API<br/>(one-time codes)"]
+```
+
 Defined in `docker-compose.yml`:
 
 | Service | Image / build | Host port | Notes |
@@ -60,7 +70,7 @@ Errors from any layer are turned into JSON by `exception/GlobalExceptionHandler`
 | `AuthService` | Login (with `LoginRateLimiter`), registration, OTP verify/resend |
 | `JwtService` | Issues HS512 access tokens (`sub` = username, optional `role` claim, 15 min default expiry) |
 | `RefreshTokenService` | The long-lived half of the session: random refresh tokens stored as SHA-256 hashes (`refresh_tokens`), validated, revoked on sign-out and on a password change |
-| `OtpService`, `MailService` | One-time codes (bcrypt-hashed), expiry, attempt cap, resend cooldown, the email |
+| `OtpService`, `MailService` | One-time codes (bcrypt-hashed) for registration and for the administrator's sign-in (purposes `REGISTRATION`, `LOGIN_2FA`), expiry, attempt cap, resend cooldown; `MailService` sends over SMTP or, when the `GMAIL_*` values are set, through the Gmail API |
 | `CustomUserDetailsService` | Adapts a `User` for Spring Security; only `ACTIVE` accounts are enabled |
 | `UserService` | User CRUD, self-service profile/password/photo/preferences, position/department, registration |
 | `RoleService`, `RolePermissionService`, `PositionService`, `DepartmentService` | Role list, the role × resource × action matrix and its guarded editing, and the two org-wide lookup lists |
@@ -133,7 +143,7 @@ BrowserRouter
                └─ App     routes
 ```
 
-`App.jsx` defines the routes. Everything except `/login`, `/register` and `/verify-otp` sits behind `auth/ProtectedRoute`, which redirects to `/login` (remembering the original location). Authenticated pages render inside `layout/AppLayout` (sidebar + page). `/reports`, `/admin/users` and `/admin/roles` are additionally wrapped in `auth/RequirePermission`, which shows the 403 error page when the matrix does not grant the action. `layout/AppLayout` also mounts `auth/IdleLogout`, the inactivity warning and automatic sign-out.
+`App.jsx` defines the routes. Everything except `/login`, `/register`, `/verify-otp`, `/privacy-policy` and `/terms-of-service` sits behind `auth/ProtectedRoute`, which redirects to `/login` (remembering the original location); at `/` it shows the public home page (`Landing`) to a signed-out visitor instead. Authenticated pages render inside `layout/AppLayout` (sidebar + page). `/reports`, `/admin/users` and `/admin/roles` are additionally wrapped in `auth/RequirePermission`, which shows the 403 error page when the matrix does not grant the action. `layout/AppLayout` also mounts `auth/IdleLogout`, the inactivity warning and automatic sign-out.
 
 ### 3.2 Data access
 
@@ -150,7 +160,8 @@ The UI no longer carries its own copy of the rules. After login `AuthContext` lo
 
 | Route | Page | Purpose |
 |---|---|---|
-| `/login`, `/register`, `/verify-otp` | `Login`, `Register`, `VerifyOtp` | Public. Registration shows a live password checklist; OTP page has a 60 s resend cooldown |
+| `/login`, `/register`, `/verify-otp` | `Login`, `Register`, `VerifyOtp` | Public. Registration shows a live password checklist; OTP page has a 60 s resend cooldown; for an administrator, when `ADMIN_2FA_ENABLED` is on, `Login` shows a second form for the e-mailed sign-in code |
+| `/` (signed out), `/privacy-policy`, `/terms-of-service` | `Landing`, `PrivacyPolicy`, `TermsOfService` | Public, in the light `PublicLayout` frame (skip link, header, theme toggle, footer with the legal links); `/` shows `Landing` only while nobody is signed in |
 | `/` | `Dashboard` | Project and task statistics (from `GET /api/dashboard/stats`), the activity chart (`GET /api/dashboard/task-activity`), due and overdue tasks, project cards, *Delayed projects*, recent activity and, for people who can assign tasks, team workload |
 | `/tasks` | `Tasks` | Tasks grouped by project then status; search, filter (status, priority, assignee, due date, project, *My Tasks*), sort, quick views (Today, Upcoming, In Progress, Completed, Overdue); create/edit/delete; expandable subtasks; *Awaiting your approval* at the top |
 | `/projects`, `/projects/:id` | `Projects`, `ProjectDetail` | Project cards; detail with status/priority, completion date, tasks, members (role picker, ownership transfer), milestones (add, edit, delete), attachments, activity |

@@ -35,8 +35,9 @@ Versions are taken from `backend/pom.xml`, `frontend/package.json`, `docker-comp
 | Database | PostgreSQL **18** (`postgres:18-alpine`); schema from hand-written SQL, `spring.jpa.hibernate.ddl-auto=validate` |
 | Frontend | React **19.2**, React Router **7.18**, Vite **8.2**, Tailwind CSS **4.3**, Recharts **3.10**, lucide-react |
 | Testing | JUnit 5 + Mockito + Spring test starters (backend); Vitest **4.1** (frontend unit tests); Playwright **1.63** (frontend end-to-end) |
-| Infrastructure | Docker Compose (`postgres`, the one-shot Flyway `migrate`, `mailpit`, `backend`, `frontend`), nginx (serves the built frontend and proxies `/api/`), GitHub Actions (CI and CD) |
+| Infrastructure | Docker Compose (`postgres`, the one-shot Flyway `migrate`, `mailpit`, `backend`, `frontend`), nginx (serves the built frontend and proxies `/api/`), GitHub Actions (CI and CD); hosted on Vercel (frontend), Render (backend) and Neon (database), see [../host/README.md](../host/README.md) |
 | Local email | Mailpit — an SMTP catcher; nothing leaves the machine |
+| Hosted email | The Gmail API over HTTPS (Render's free tier blocks SMTP) |
 
 Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/springdoc, Spring Actuator, Flyway as an application dependency, Redux/React Query, JaCoCo.
 
@@ -46,27 +47,30 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 .
 ├── backend/               Spring Boot API
 │   └── src/main/java/backend/
-│       ├── controller/    26 REST controllers (128 endpoints)
+│       ├── controller/    26 REST controllers (129 endpoints)
 │       ├── service/       business rules, transactions, ProjectAccessGuard
 │       ├── repository/    Spring Data JPA repositories
 │       ├── entity/        24 JPA entities
 │       ├── dto/           request/response objects, PasswordPolicy
 │       ├── security/      Resource and Action enums, PermissionChecker
-│       ├── exception/     GlobalExceptionHandler, NotFoundException, ConflictException, TooManyRequestsException, SessionExpiredException
+│       ├── exception/     GlobalExceptionHandler, NotFoundException, ConflictException, TooManyRequestsException, SessionExpiredException, MailDeliveryException
 │       ├── config/        SecurityConfig, JwtSecretGuard, ActiveAccountJwtValidator, DeadlineScheduler
 │       └── util/          TextFormat, Derived, WorkloadClassifier, FileTypeGuard, Mentions, ProjectListQuery, TaskListQuery, PageParams
 ├── frontend/              React app
-│   ├── src/pages/         one file per screen (19, including the three under admin/)
+│   ├── src/pages/         one file per screen (22, including the three under admin/)
 │   ├── src/components/    shared components; components/ui/ = primitives
 │   ├── src/api/           fetch client + one module per backend resource
 │   ├── src/auth|data|theme|layout/   context providers and the app shell
+│   ├── src/components/public|config/ the frame of the public pages and the facts they print (operator, contact e-mail)
+│   ├── vercel.json        Vercel rewrites: /api/* to the Render backend, every other path to index.html
 │   └── e2e/               Playwright specs
 ├── database/
 │   ├── init/              01-init.sql (schema), 02-seed.sql (demo data), 03-app-role.sh, 04-flyway-baseline.sql
-│   ├── taskmanager/       Flyway project (migrations V1–V21) — applied by the Compose `migrate` service, not by the app
+│   ├── taskmanager/       Flyway project (migrations V1–V22) — applied by the Compose `migrate` service, not by the app
 │   ├── verify_invariants.sql
 │   └── verify_grants.sql
 ├── api/                   openapi.yaml (partly out of date — see issues.md)
+├── host/                  hosting guide (Vercel, Render, Neon, Gmail API, administrator sign-in code) and the hosted app-role SQL
 ├── docs/                  this documentation
 ├── .github/workflows/     ci.yml, cd.yml
 ├── docker-compose.yml
@@ -99,6 +103,9 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Gantt chart prototype | Done (2026-10-10) |
 | Auto-logout | Done (2026-10-12) — 15 idle minutes, a 60-second warning, then sign-out (the timer is browser-side; signing out also deletes the refresh token on the server) |
 | Sign-in session | Done (2026-10-14) — a 15-minute access token in memory, renewed from a 7-day httpOnly refresh cookie; sign-out and a password change end it |
+| Administrator sign-in code | Done (2026-10-17) — optional (`ADMIN_2FA_ENABLED`, default off): after the password, a 6-digit code is e-mailed; migration `V22` ([ADR-0016](adr/0016-admin-two-factor-and-https-mail.md)) |
+| Public home, privacy policy and terms pages | Done (2026-10-17) — `/`, `/privacy-policy`, `/terms-of-service`, open without signing in ([google-oauth-verification.md](google-oauth-verification.md)) |
+| Hosting | Done (2026-10-17) — Vercel, Render and Neon ([../host/README.md](../host/README.md)); the CD pipeline still only builds and pushes images |
 | List search, filter, sort and paging | Done (2026-10-13 / 2026-10-14) — optional parameters on the project and task lists, optional paging on those and the notification list; the screens that need a whole list still read it whole |
 
 ## 6. Where to read next

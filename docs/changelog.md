@@ -6,6 +6,11 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-17 (documentation sync)
+
+**Build / CI / Docs**
+- A page-by-page pass after the administrator sign-in code, the Gmail mail route, the public pages, the shared theme toggle and the hosting (issues.md D-14). Recomputed from the code: 129 endpoints, 26 controllers, 24 entities, 64 DTOs, 26 tables, 22 migrations (baseline 22), 16 ADRs, 22 pages, 619 backend tests in 54 classes, 196 unit tests, 329 Playwright tests in 51 files (324 run by default). Fixed the repeated counts (endpoints 128 and 119, `V1`-`V21`, 591 and 308 tests, 48 spec files), the statements that the app has no deploy target, that CI had never run on GitHub and that the work was uncommitted, and the OpenAPI banner. Added the hosted topology, the new migration, the new test classes and specs, test cases AUTH-17 to AUTH-22, PUB-01 to PUB-08 and MAN-07, issues F-85 to F-88 and the new known limitations. Re-tested that `V1` to `V22` on an empty database still fails at `V13`. The final full e2e run found a rare `500` on `GET /api/notifications` and the recent-activity list when a project is deleted at the same moment (a lazy-load race, recorded as I-24; not fixed here).
+
 ## 2026-10-17 (public home page, Privacy Policy and Terms of Service)
 
 **Added**
