@@ -15,7 +15,10 @@ WORKDIR /app
 
 RUN addgroup -S spring && adduser -S spring -G spring
 COPY --from=build /app/target/*.jar app.jar
-RUN chown spring:spring /app/app.jar
+# logs/ is where logback writes log.txt (logging.file.name). docker-compose mounts ./backend/logs over it;
+# without this a host with no mounted volume (Render) would crash at startup: the spring user cannot
+# create it under the root-owned /app.
+RUN mkdir -p /app/logs && chown -R spring:spring /app/app.jar /app/logs
 
 USER spring:spring
 

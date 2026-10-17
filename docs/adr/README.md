@@ -21,6 +21,7 @@ Where a reason is stated in the project's own files it is cited. Where it is **i
 | [0013](0013-manual-task-status-with-guards.md) | Task status is manual, with two guarded exceptions | 2026-09-14/15 |
 | [0014](0014-requirement-roles-and-permission-matrix.md) | A data-driven permission matrix (role set replaced by 0015) | 2026-10-08 |
 | [0015](0015-two-level-roles-system-and-project.md) | Two-level roles: system roles and project roles (**implemented**, migration V10) | 2026-10-08 |
+| [0016](0016-admin-two-factor-and-https-mail.md) | An e-mailed second sign-in step for administrators; codes over HTTPS when SMTP is blocked (migration V22) | 2026-10-17 |
 
 ## Template for new records
 

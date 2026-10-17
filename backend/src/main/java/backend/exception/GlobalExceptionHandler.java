@@ -136,6 +136,16 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(HttpStatus.TOO_MANY_REQUESTS.value(), "Too Many Requests", ex.getMessage()));
     }
 
+    // The mail provider did not take the message (SMTP blocked, wrong key): the code was not sent, so
+    // the person is told to try again rather than shown a generic 500.
+    @ExceptionHandler(MailDeliveryException.class)
+    public ResponseEntity<ErrorResponse> handleMailDelivery(MailDeliveryException ex) {
+        log.error("E-mail could not be sent", ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse(HttpStatus.SERVICE_UNAVAILABLE.value(), "Service Unavailable",
+                        "The code could not be e-mailed right now. Try again in a moment."));
+    }
+
     // A path variable that can't be converted to its declared type (e.g.
     // GET /api/projects/abc where {id} is a Long) — without this it fell
     // through to the generic 500 handler below instead of a 400.

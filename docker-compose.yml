@@ -29,7 +29,7 @@ services:
   # Flyway history yet (built by init/01-init.sql before this service existed),
   # so Flyway adopts that state and applies V9 onward. A database created from
   # the current init scripts carries its own baseline row (init/04-flyway-baseline.sql,
-  # version 21), so nothing already folded into 01-init.sql is replayed.
+  # version 22), so nothing already folded into 01-init.sql is replayed.
   # It uses the postgres superuser because migrations change the schema; the
   # backend itself still connects as the least-privileged taskmanager_app.
   migrate:
@@ -92,6 +92,15 @@ services:
       MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
       MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-false}
       MAIL_FROM: ${MAIL_FROM:-no-reply@taskflow.dev}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-TaskFlow}
+      # When all three are set, codes are sent through the Gmail API over HTTPS instead of SMTP (hosts that
+      # block SMTP ports). MAIL_FROM must then be that Gmail address.
+      GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:-}
+      GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:-}
+      GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN:-}
+      # true = an administrator must enter an e-mailed code after the password. Off by default (the
+      # e2e suite signs in as the administrator); the demo administrator's address is not a real mailbox.
+      ADMIN_2FA_ENABLED: ${ADMIN_2FA_ENABLED:-false}
       # A registration nobody verifies is deleted after this many hours (checked at the start of every hour).
       PENDING_REGISTRATION_TTL_HOURS: ${PENDING_REGISTRATION_TTL_HOURS:-24}
       PENDING_REGISTRATION_CLEANUP_CRON: ${PENDING_REGISTRATION_CLEANUP_CRON:-0 0 * * * *}

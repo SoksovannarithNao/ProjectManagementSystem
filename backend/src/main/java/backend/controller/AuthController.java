@@ -34,10 +34,25 @@ public class AuthController {
         this.cookieSecure = cookieSecure;
     }
 
+    // 200 with the session, or 202 with a challenge when an administrator still has to enter the
+    // e-mailed code (see verifyLogin).
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         String rateLimitKey = httpRequest.getRemoteAddr() + ":" + request.getUsername();
         AuthService.LoginResult result = authService.login(request, rateLimitKey);
+        if (result.challenge() != null) {
+            return ResponseEntity.accepted().body(result.challenge());
+        }
+        return session(result);
+    }
+
+    @PostMapping("/login/verify")
+    public ResponseEntity<LoginResponse> verifyLogin(@Valid @RequestBody OtpVerifyRequest request, HttpServletRequest httpRequest) {
+        String rateLimitKey = httpRequest.getRemoteAddr() + ":" + request.getUsername();
+        return session(authService.verifyLogin(request, rateLimitKey));
+    }
+
+    private ResponseEntity<LoginResponse> session(AuthService.LoginResult result) {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshCookie(result.refreshToken(), authService.refreshLifetimeSeconds()).toString())
                 .body(result.response());

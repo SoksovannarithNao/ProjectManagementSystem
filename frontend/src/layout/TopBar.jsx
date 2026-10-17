@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { Menu, Search, Bell, BellOff, LogOut, User, Settings, X, Sun, Moon, Monitor, Check } from 'lucide-react'
+import { Menu, Search, Bell, BellOff, LogOut, User, Settings, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Avatar } from '../components/ui/Avatar'
 import { Dropdown } from '../components/ui/Dropdown'
+import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useToast } from '../components/ui/Toast'
 import { useAuth } from '../auth/AuthContext'
@@ -12,15 +13,6 @@ import { acceptInvitation, declineInvitation } from '../api/projectMembers'
 import { updateOwnPreferences } from '../api/users'
 import { initialsFor, timeAgo } from '../api/format'
 import { useLayout } from './useLayout'
-
-// Mirrors Settings.jsx's own THEME_OPTIONS (kept as a separate local copy
-// rather than a shared import, since this header control only needs the
-// icon per mode — Settings' segmented control doesn't use icons at all).
-const THEME_OPTIONS = [
-  { value: 'LIGHT', label: 'Light', icon: Sun },
-  { value: 'DARK', label: 'Dark', icon: Moon },
-  { value: 'SYSTEM', label: 'System', icon: Monitor },
-]
 
 // The header is sticky, but a header that wraps onto a second or third row (the action buttons on a phone, a project's
 // many actions) would pin a third of the screen. So only its FIRST row stays pinned: as the page scrolls, the rows
@@ -77,7 +69,6 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
   const displayName = profile?.fullName || username || ''
   const [respondingId, setRespondingId] = useState(null)
   const [savingTheme, setSavingTheme] = useState(false)
-  const ActiveThemeIcon = THEME_OPTIONS.find((opt) => opt.value === theme)?.icon ?? Monitor
 
   // Same persistence path as Settings.jsx's own theme control (PUT
   // /users/me/preferences requires both fields, so the current
@@ -266,42 +257,7 @@ export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, 
             </div>
           )}
         </Dropdown>
-        <Dropdown
-          align="right"
-          button={({ toggle }) => (
-            <button className="icon-btn" aria-label="Theme" onClick={toggle} disabled={savingTheme}>
-              <ActiveThemeIcon size={18} />
-            </button>
-          )}
-          panelClassName="w-[160px] p-1.5"
-        >
-          {({ close }) => (
-            <div className="flex flex-col gap-0.5">
-              {THEME_OPTIONS.map((opt) => {
-                const OptionIcon = opt.icon
-                const active = theme === opt.value
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className={`hover:bg-subtle flex items-center justify-between gap-4 rounded-sm px-2.5 py-2 text-left text-[13px] ${
-                      active ? 'text-ink font-semibold' : 'text-muted'
-                    }`}
-                    onClick={() => {
-                      handleThemeChange(opt.value)
-                      close()
-                    }}
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <OptionIcon size={15} /> {opt.label}
-                    </span>
-                    {active && <Check size={14} />}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </Dropdown>
+        <ThemeToggle onChange={handleThemeChange} disabled={savingTheme} />
         <Dropdown
           align="right"
           button={({ toggle }) => (

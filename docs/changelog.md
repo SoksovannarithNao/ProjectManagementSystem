@@ -6,7 +6,23 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
-## 2026-10-17 (Edit User opens in a side panel)
+## 2026-10-17 (public home page, Privacy Policy and Terms of Service)
+
+**Added**
+- **Three public pages** for the Google OAuth consent screen, all open without signing in, from a direct address and after a refresh: the home page at `/` ([Landing.jsx](../frontend/src/pages/Landing.jsx)), `/privacy-policy` and `/terms-of-service`. `ProtectedRoute` shows the home page at `/` to a signed-out visitor (a signed-in person still gets the Dashboard); every other protected address still redirects to sign in. They share `components/public/PublicLayout.jsx` (skip link, labelled navigation, one `main`, theme button, footer with the legal links) and follow the light and dark themes. The login and register pages link to the policy and the terms; `index.html` has a meta description and a `<noscript>` block with the two links.
+- The policy and terms are written from the application's behaviour (what is stored, who can see it, the providers, what an account deletion removes and keeps, that there is no Google sign-in and `gmail.send` only sends). The operator name and contact e-mail are in `frontend/src/config/site.js`. [google-oauth-verification.md](google-oauth-verification.md) lists the three URLs and the manual steps in Google Cloud Console and at the domain; the pages being live does not mean the app is verified.
+- **One theme toggle everywhere.** The public pages' one-click theme button (Light, Dark, System; the icon shows the current mode) is now a shared component, `components/ui/ThemeToggle.jsx`, and the signed-in app's top bar uses it too, replacing its three-item dropdown. In the app a click still applies at once and is saved to the account (the same `PUT /users/me/preferences` as Settings); on the public pages it is kept in the browser. `e2e/theme-toggle.spec.js` (2 tests, with a throw-away account).
+- Docs: `pages_docs/home.md`, `privacy-policy.md`, `terms-of-service.md`; the route table in `frontend.md`. Tests: `e2e/public-pages.spec.js` (13 tests); `e2e/session.spec.js` reloads a protected page for the no-session case, plus a test that `/` shows the home page.
+
+## 2026-10-17 (administrator sign-in code, codes through the Gmail API; Edit User in a side panel; backend image starts without a mounted log folder)
+
+**Added**
+- **An e-mailed second sign-in step for administrators** ([ADR-0016](adr/0016-admin-two-factor-and-https-mail.md)). With `ADMIN_2FA_ENABLED=true` (default `false`) a correct password for an `ADMINISTRATOR` answers `202 { twoFactorRequired, username, maskedEmail }` and e-mails a 6-digit code; `POST /api/auth/login/verify` then issues the session. The login page has a code form. Codes use `otp_verifications.purpose = 'LOGIN_2FA'` (migration `V22`; `01-init.sql` and the Flyway baseline moved to 22). A wrong code counts toward the same lock-out as a wrong password, and every failure answers alike.
+- **Codes through the Gmail API over HTTPS.** When `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` and `GMAIL_REFRESH_TOKEN` are all set, `MailService` sends through Gmail instead of SMTP, because Render's free tier blocks the SMTP ports. The refresh token is traded for a short-lived access token (cached, renewed once if Google refuses it); SMTP stays the default for local use and CI. A failed send is a `503` (`MailDeliveryException`), not a 500. New settings `ADMIN_2FA_ENABLED`, `GMAIL_*`, `MAIL_FROM_NAME` (in `docker-compose.yml` and `.env.example`).
+- Tests: 28 new backend tests and `e2e/admin-two-factor.spec.js` (5 tests, skipped unless the backend runs with `ADMIN_2FA_ENABLED=true`). The Gmail route is tested against a mocked Google; it has not been run against real Google credentials.
+
+**Fixed**
+- **`backend/Dockerfile` creates `/app/logs` owned by the `spring` user.** The image ran as an unprivileged user but `/app` was root-owned, so on a host that mounts no `./backend/logs` volume (Render) logback could not create `log.txt` and the backend crashed at startup (exit code 1). Docker Compose hid this because it bind-mounts that folder. Checked by running the built image against Neon with no volume and no `LOGGING_FILE_NAME`: healthy in about 15 seconds, `log.txt` owned by `spring`.
 
 **Changed**
 - **Edit User** (Administration → Users) now opens in the right-hand `SidePanel`, the same frame as Add User, Edit Task and Edit Project, instead of the centred pop-up. Same fields and behaviour; the form body scrolls and Cancel/Save stay pinned at the bottom. `e2e/user-management.spec.js` now checks the panel sits on the right.

@@ -190,6 +190,7 @@ Each has a full record with context, alternatives and consequences in [adr/](adr
 | Authorization from per-project roles, not global roles | [ADR-0002](adr/0002-project-level-authorization.md) (partly superseded) |
 | A data-driven permission matrix | [ADR-0014](adr/0014-requirement-roles-and-permission-matrix.md) |
 | Two-level roles: system roles and project roles | [ADR-0015](adr/0015-two-level-roles-system-and-project.md) |
+| An e-mailed second sign-in step for administrators; codes over HTTPS when SMTP is blocked | [ADR-0016](adr/0016-admin-two-factor-and-https-mail.md) |
 | A project *is* the team; invitations live on `project_members` | [ADR-0003](adr/0003-project-membership-and-invitations.md) |
 | Task assignment as a join table with database-enforced rules | [ADR-0004](adr/0004-task-assignment-model.md) |
 | Hand-written SQL schema; invariants in triggers | [ADR-0005](adr/0005-database-owned-schema-and-triggers.md) |

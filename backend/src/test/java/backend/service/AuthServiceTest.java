@@ -43,7 +43,7 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         jwtService = new JwtService("test-secret-test-secret-test-secret-test-secret-test-secret-test-secret", 900_000L);
-        service = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService);
+        service = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService, false);
 
         user = new User();
         user.setUsername("dev.chen");

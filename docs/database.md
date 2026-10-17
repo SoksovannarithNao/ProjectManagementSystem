@@ -122,7 +122,7 @@ All enforced by `CHECK` constraints in `01-init.sql` (and mirrored by `@Pattern`
 | `tasks.priority` | `LOW`, `MEDIUM`, `HIGH`, `URGENT` | `MEDIUM` |
 | `tasks.status` | `TODO`, `IN_PROGRESS`, `IN_REVIEW`, `COMPLETED`, `CANCELLED` | `TODO` |
 | `subtasks.status` | `TODO`, `IN_PROGRESS`, `COMPLETED` | `TODO` |
-| `otp_verifications.purpose` | `REGISTRATION` | `REGISTRATION` |
+| `otp_verifications.purpose` | `REGISTRATION`, `LOGIN_2FA` | `REGISTRATION`, `LOGIN_2FA` |
 | `notifications.type` | `TASK_ASSIGNED`, `TASK_STATUS_CHANGED`, `COMMENT_ADDED`, `PROJECT_UPDATED`, `DEADLINE_REMINDER`, `OVERDUE_TASK`, `MILESTONE_UPDATED`, `TEAM_INVITATION`, `TEAM_INVITATION_RESPONDED`, `APPROVAL_REQUESTED`, `APPROVAL_DECIDED`, `MENTION` | — |
 | `activity_logs.action` | `PROJECT_CREATED`, `PROJECT_UPDATED`, `PROJECT_COMPLETED`, `TASK_CREATED`, `TASK_DELETED`, `TASK_ASSIGNED`, `TASK_UNASSIGNED`, `TASK_STATUS_CHANGED`, `TASK_PRIORITY_CHANGED`, `TASK_DUE_DATE_CHANGED`, `TASK_COMPLETED`, `SUBTASK_ADDED`, `SUBTASK_COMPLETED`, `SUBTASK_DELETED`, `COMMENT_ADDED`, `FILE_UPLOADED`, `MILESTONE_CREATED`, `MILESTONE_COMPLETED`, `TASK_APPROVAL_REQUESTED`, `TASK_APPROVED`, `TASK_CHANGES_REQUESTED`, `TASK_REJECTED`, `TASK_APPROVER_SET`, `WORK_LOGGED`, `WORK_LOG_UPDATED`, `WORK_LOG_DELETED` (the last three since `V19`) | — |
 | `report_exports.report_type` | `PROJECT_REPORT`, `TASK_REPORT`, `PROJECT_STATUS_REPORT`, `TASK_COMPLETION_REPORT`, `OVERDUE_TASK_REPORT`, `TEAM_PERFORMANCE_REPORT`, `WORKLOAD_REPORT` | — |
@@ -167,7 +167,7 @@ Legend: **PK** primary key · **FK** foreign key (with `ON DELETE`) · **UQ** un
 
 Indexes: `idx_users_username_lower`, `idx_users_email_lower` (unique), `idx_users_role_id`, `idx_users_position_id`, `idx_users_department_id`, `idx_users_profile_photo_token`.
 
-**`otp_verifications`** *(implemented)* — registration codes. `id` PK; `user_id` NN FK → `users` `CASCADE`; `purpose` NN (`REGISTRATION`); `otp_hash` varchar(255) NN (BCrypt); `expires_at` NN; `attempts` int NN default 0; `max_attempts` int NN default 5; `consumed_at`; `last_sent_at` NN default `now()`; `created_at`. `CHECK (attempts <= max_attempts)`. Index on `user_id`.
+**`otp_verifications`** *(implemented)* — registration codes and administrator sign-in codes. `id` PK; `user_id` NN FK → `users` `CASCADE`; `purpose` NN (`REGISTRATION` or `LOGIN_2FA`, the latter since V22); `otp_hash` varchar(255) NN (BCrypt); `expires_at` NN; `attempts` int NN default 0; `max_attempts` int NN default 5; `consumed_at`; `last_sent_at` NN default `now()`; `created_at`. `CHECK (attempts <= max_attempts)`. Index on `user_id`.
 
 ### 3.2 Projects and teams
 
