@@ -7,7 +7,7 @@ export const SITE = {
   operator: 'Sovannarith',
   contactEmail: 'sovannarithnao@gmail.com',
   // Bump these when the text of the page changes in substance.
-  privacyUpdated: '2026-10-17',
+  privacyUpdated: '2026-10-24',
   termsUpdated: '2026-10-17',
 }
 

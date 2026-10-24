@@ -6,6 +6,51 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-10-24 (local demo database reset)
+
+**Database**
+- The local Docker database had been edited by hand while testing: two Google links, an account created from a real Google account, the administrator renamed "Alastor", and the data the end-to-end runs leave behind. It was backed up with `pg_dump`, then **reset to the seed**: `docker compose down`, `docker volume rm taskandprojectmanagementsystem_pgdata`, `docker compose up -d`. The fresh volume is built by `database/init/` with every migration through `V24` already folded in (Flyway baseline 24). Checked afterwards: 24 users (none without a password), 10 projects, 98 tasks, 7 roles and no custom role, no Google link, `verify_invariants.sql` and `verify_grants.sql` print nothing, and `admin.system` and `dev.chen` sign in with the seed password. The administrator is "Alex Rivera" again.
+- **Not touched:** the hosted Neon database (it still needs `V22` to `V24` applied) and `.env` (the real `GOOGLE_CLIENT_ID` stays, so Google's button still shows; connect Google on Profile again to use it).
+
+## 2026-10-24 (Google creates accounts, and the first password)
+
+Later the same day, once the owner had connected a real Google account (decision D-31, [ADR-0018](adr/0018-google-sign-up-and-first-password.md), which changes one rule of [ADR-0017](adr/0017-link-only-google-sign-in.md)).
+
+**Added**
+- **A Google account connected to nobody may create a TaskFlow account.** `POST /api/auth/google` answers `200 { signupRequired, email, name }` when Google vouches for the e-mail and no account uses it (an e-mail an account uses is a `400` that says to sign in with the password and connect Google on Profile, never an attachment); the sign-in page and the Create Account page then ask for a **username** (3 to 50 of `[A-Za-z0-9._-]`, unique in any letter case, a taken one is `400 "Username is already taken"` and the form stays open); `POST /api/auth/google/register { credential, username }` creates the account (`ACTIVE`, role `USER`, the e-mail and full name from the verified token, Google connected, `ACCOUNT_CREATED` audited) and signs the person in (`201`, the refresh cookie).
+- **No password yet, then "Set a password".** An account Google creates holds a hash of random bytes and `users.password_set = false`. Profile shows *Set a password* instead of the Password card: the new password is confirmed by choosing the Google account again (`POST /api/users/me/google/password`, which verifies a fresh ID token for the connected account). `PUT /api/users/me/password` and disconnecting Google are refused until a password exists; an administrator's password reset also sets the flag.
+- **Backend:** `GoogleSignInService.identify` / `offerSignup` / `register` / `setPassword`, `UserService.registerGoogleUser` / `setInitialPassword`, `AuthService.registerWithGoogle`, `LoginResult.signup`, three DTOs (`GoogleRegisterRequest`, `GoogleSetPasswordRequest`, `GoogleSignupRequiredResponse`), `UserResponse.passwordSet`, the name in `GoogleAccount`, two endpoints (`POST /api/auth/google/register`, `POST /api/users/me/google/password`).
+- **Frontend:** `auth/useGoogleSignIn.js`, `components/GoogleSignupForm.jsx`, `components/GoogleSetPasswordSection.jsx`, `AuthContext.registerWithGoogle`, Google's button on the Create Account page, and *Disconnect* disabled while there is no password.
+
+**Database**
+- **`V24__password_set.sql`:** `users.password_set BOOLEAN NOT NULL DEFAULT true` (every existing account keeps `true`). Folded into `01-init.sql`; the Flyway baseline and the compose comment moved to 24. Applied to the local volume after a `pg_dump`; not yet applied to Neon. Re-tested that `V1` to `V24` on an empty database still fails at `V13` (the known drift).
+
+**Changed**
+- The privacy policy now says the optional sign-in also creates accounts and that the Google name becomes the full name (`privacyUpdated` stays 2026-10-24); `public-pages.spec.js` follows the wording.
+
+**Build / CI / Docs**
+- A documentation pass for this change (issues.md D-15, F-90). Recomputed from the code: 136 endpoints, 27 controllers, 25 entities, 71 DTOs, 27 tables, 24 migrations (baseline 24), 18 ADRs, 22 pages, 674 backend tests in 58 classes, 196 unit tests, 341 Playwright tests in 53 files (336 run by default). New: ADR-0018, decision D-31, test cases AUTH-29 to AUTH-33 and MAN-09; `google-sign-in.md` rewritten.
+- **Tests:** backend 649 → **674** (`GoogleSignInServiceTest` 8 → 17, `AuthServiceGoogleTest` 5 → 10, `GoogleControllersTest` 7 → 12, `GoogleTokenVerifierTest` 10 → 11, `UserServiceTest` 20 → 25); Playwright 333 → **341** (`google-sign-in.spec.js` 4 → 6, new `google-signup-ui.spec.js` 6, with Google's script and the Google answers of the API stubbed); frontend unit tests 196, unchanged. **By hand:** a second real Google account with no TaskFlow account created an account (MAN-09: `ACTIVE`, role `USER`, no password); setting its first password with a real Google account is not yet confirmed. **Found, not caused by this change:** `audit-log.spec.js` expected the administrator's display name to be "Alex Rivera" and the local demo database held "Alastor" for that account (edited by hand); the spec now reads the name from the API, so it passes (`audit-log.spec.js` 7/7), and the database has since been reset (below).
+
+## 2026-10-24 (Sign in with Google)
+
+**Added**
+- **Optional "Sign in with Google", link-only** ([ADR-0017](adr/0017-link-only-google-sign-in.md), decision D-30, [google-sign-in.md](google-sign-in.md)). Off until the backend has `GOOGLE_CLIENT_ID` (default blank: no button, every Google endpoint answers `404`). A person connects a Google account on **Profile** by typing the current password and choosing the account in Google's button; from then on the sign-in page's Google button signs in that account, with the same 15-minute JWT and refresh cookie as a password. Google never creates an account and nothing is matched by e-mail: an account's e-mail can be edited without verification, so matching on it would let one person capture another's Google sign-in. The key is Google's `sub`.
+- **Backend:** `GoogleTokenVerifier` (Spring's `NimbusJwtDecoder` against Google's public keys: signature, expiry, issuer, audience = the client ID; no new dependency and no client secret), `GoogleSignInService` (find by `sub`, connect with the password, disconnect), `AuthService.loginWithGoogle` (the account must be `ACTIVE`; shares the sign-in lock-out under the key `address:google`; an administrator still gets the e-mailed code when `ADMIN_2FA_ENABLED=true`), entity `UserIdentity`, four DTOs, five endpoints (`GET /api/auth/google/config`, `POST /api/auth/google`, `GET`/`POST`/`DELETE /api/users/me/google` in the new `GoogleAccountController`), the two public paths in `SecurityConfig`, and the `app.auth.google.client-id` setting.
+- **Frontend:** `components/GoogleButton.jsx` (Google's script is added only when the server has a client ID; nothing is drawn if it cannot load), `components/GoogleSignInSection.jsx` (the Profile card), `api/useGoogleClientId.js`, `AuthContext.loginWithGoogle`, the button under an *or* divider on the sign-in page.
+
+**Database**
+- **`V23__user_identities.sql`:** table `user_identities` (`user_id` FK `users` `CASCADE`, `provider`, `subject`, `email`, `created_at`, `last_login_at`; `UNIQUE (provider, subject)` and `UNIQUE (user_id, provider)`) and its grant to `taskmanager_app`. Additive: no existing column or row changes. Folded into `01-init.sql`; the Flyway baseline, the app-role scripts (`03-app-role.sh`, `host/neon-app-role.sql`) and the compose comment moved to 23. Applied to the local volume (backed up with `pg_dump` first); not yet applied to Neon. Re-tested that `V1` to `V23` on an empty database still fails at `V13` (the known drift).
+
+**Changed**
+- The Profile card for Google sign-in was redesigned with the app's own tokens and components: the password field and Google's button are one aligned row at the same height (stacked on a phone), the connected state uses the `Badge` and a secondary `Disconnect` button, and `GoogleButton` draws Google's button at the width it is given, in the dark or light variant of the page theme and in English (`aria-describedby` and `role="alert"` on the field's hint and error). No sign-in logic, API call or Google setting changed.
+- The privacy policy now describes the optional sign-in (what is kept, how to remove it) and the Google script loaded on two pages; `privacyUpdated` is 2026-10-24; `public-pages.spec.js` follows the new wording.
+- `AuthController` answers `login` and `google` through one helper that returns either the session or the administrator's `202` challenge.
+
+**Build / CI / Docs**
+- A documentation pass for this change (issues.md D-15). Recomputed from the code: 134 endpoints, 27 controllers, 25 entities, 68 DTOs, 27 tables, 23 migrations (baseline 23), 17 ADRs, 22 pages, 649 backend tests in 58 classes, 196 unit tests, 333 Playwright tests in 52 files (328 run by default). New: `google-sign-in.md`, ADR-0017, test cases AUTH-23 to AUTH-28 and MAN-08, decision D-30; the endpoint, table, grant and test counts and the migration and baseline versions were updated wherever they were repeated; the stale `V9` to `V21` / baseline 21 text in `database.md` was corrected.
+- **Tests:** backend 619 → **649** (`GoogleTokenVerifierTest` 10, `GoogleSignInServiceTest` 8, `AuthServiceGoogleTest` 5, `GoogleControllersTest` 7); Playwright 329 → **333** (`google-sign-in.spec.js` 4, run against the stack with and without a client ID); frontend unit tests 196, unchanged. **By hand (2026-10-24):** with the owner's real client ID Google's button appeared and a real Google account was connected on Profile (the real ID token was verified and stored), and the sign-in with it that followed worked (the link recorded it).
+
 ## 2026-10-17 (documentation sync)
 
 **Build / CI / Docs**

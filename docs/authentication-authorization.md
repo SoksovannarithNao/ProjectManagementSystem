@@ -1,6 +1,6 @@
 # Authentication & Authorization
 
-Who a user is, what state their account can be in, and what they are allowed to do. Implementation: `backend/src/main/java/backend/` — `config/SecurityConfig.java`, `service/AuthService.java`, `JwtService.java`, `OtpService.java`, `LoginRateLimiter.java`, `CustomUserDetailsService.java`, `ProjectAccessGuard.java`; frontend: `frontend/src/auth/`, `api/permissions.js`.
+Who a user is, what state their account can be in, and what they are allowed to do. Implementation: `backend/src/main/java/backend/` — `config/SecurityConfig.java`, `service/AuthService.java`, `JwtService.java`, `OtpService.java`, `GoogleSignInService.java`, `GoogleTokenVerifier.java`, `LoginRateLimiter.java`, `CustomUserDetailsService.java`, `ProjectAccessGuard.java`; frontend: `frontend/src/auth/`, `api/permissions.js`.
 
 Behaviours marked **(verified live)** were confirmed against the running application on 2026-10-06.
 
@@ -32,7 +32,7 @@ Details:
 - **Rate limiting.** `LoginRateLimiter` keeps failure timestamps in memory, keyed `clientAddress + ":" + <what was typed>` (the address nginx saw, passed in `X-Forwarded-For` and read by Tomcat from a private-network proxy only, since 2026-10-14; before that every client looked like the proxy). After **5** failures within **15 minutes** the next attempt returns `429 Too Many Requests` (`"Too many failed login attempts. Try again later."`). A successful login clears the counter. State is lost on restart and not shared between instances.
 - **Token.** `JwtService` issues an HS512-signed JWT with `sub` = username, `iat`, `exp`, and — only when the user has a global role — a `role` claim. Lifetime is `app.jwt.expiration-ms` (`JWT_EXPIRATION_MS`, default `900000` = 15 minutes; it was 1 hour until 2026-10-14). The signing key is `app.jwt.secret` (`JWT_SECRET`); `JwtSecretGuard` logs a warning at startup if it is still the built-in development value.
 - **Per request.** Spring's OAuth2 resource server validates the signature and expiry. `SecurityConfig` maps the `role` claim to a `ROLE_<name>` authority (so `@PreAuthorize("hasRole('ADMINISTRATOR')")` works). Services then identify the caller by `authentication.getName()` (the `sub` claim).
-- **Public endpoints:** `GET /api/health`, `POST /api/auth/login`, `/login/verify`, `/register`, `/verify-otp`, `/resend-otp`, and `GET /api/photos/**`. Everything else requires a valid token.
+- **Public endpoints:** `GET /api/health`, `POST /api/auth/login`, `/login/verify`, `/google`, `/google/register`, `GET /api/auth/google/config`, `/refresh`, `/logout`, `/register`, `/verify-otp`, `/resend-otp`, and `GET /api/photos/**`. Everything else requires a valid token.
 - **No token, bad token or expired token** → `401` with an **empty body** (produced by Spring Security's filter, before the exception handler) and a `WWW-Authenticate: Bearer` header **(verified live)**.
 - **Sign-out ends the session on the server too (since 2026-10-14).** `AuthContext.logout` calls `POST /api/auth/logout`, which deletes the refresh token and clears the cookie, and removes `taskflow.auth`. A `401` that a refresh cannot fix also logs the user out (`api/client.js`). The 15-minute access token itself is stateless and cannot be recalled: it simply expires (or is refused at once if the account stops being `ACTIVE`, section 1.1).
 - **Refresh tokens (since 2026-10-14, risk R-4, D-24).** Sign-in also sets the cookie `taskflow_refresh` (`HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, 7 days; `Secure` when `REFRESH_COOKIE_SECURE=true`): a random 256-bit value of which only the SHA-256 hash is stored (`refresh_tokens`). `POST /api/auth/refresh` trades it for a new access token, after checking again that the account is `ACTIVE`; so the person is not signed out after 15 minutes of use. It is **not rotated** on use (two tabs refreshing at once would invalidate each other) and is deleted by sign-out, by a changed or reset password (every session of the account) and with the account. The idle auto-logout (15 minutes, section 7) is unchanged.
@@ -78,6 +78,43 @@ Notes:
 - Resending a code creates a new `otp_verifications` row; verification always checks the **latest** code only.
 - Mail host is `MAIL_HOST` (default `mailpit`). Outside Docker set it to `localhost` — see [setup.md](setup.md). When `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` and `GMAIL_REFRESH_TOKEN` are all set, codes go through the Gmail API over HTTPS instead of SMTP (hosts that block the SMTP ports, such as Render's free tier); `MAIL_FROM` must then be that Gmail address.
 - **Administrator second step (since 2026-10-17, [ADR-0016](adr/0016-admin-two-factor-and-https-mail.md)).** With `ADMIN_2FA_ENABLED=true` (default `false`) a correct password for an `ADMINISTRATOR` does not start a session: `login` answers `202 { twoFactorRequired, username, maskedEmail }` and e-mails a 6-digit code (`otp_verifications.purpose = 'LOGIN_2FA'`); `POST /api/auth/login/verify` checks it and only then issues the access token and refresh cookie. Other roles are unaffected. A wrong code counts toward the same lock-out as a wrong password. Turn it on only when the administrator's e-mail is a real mailbox and a test code arrives, or the administrator cannot sign in (`ADMIN_2FA_ENABLED=false` and a redeploy is the way out).
+
+### 1.3 Sign in with Google (optional)
+
+Since 2026-10-24 ([ADR-0017](adr/0017-link-only-google-sign-in.md), changed in one respect by [ADR-0018](adr/0018-google-sign-up-and-first-password.md); [google-sign-in.md](google-sign-in.md)). Available only when `GOOGLE_CLIENT_ID` is set; otherwise there is no button and every Google endpoint answers `404`. A Google account is known by its stable id (`sub`), **never by e-mail**. Three things can happen to a verified Google ID token:
+
+```mermaid
+sequenceDiagram
+    participant UI as Sign-in page
+    participant G as Google (script and button)
+    participant API as POST /api/auth/google
+    participant V as GoogleTokenVerifier
+    participant DB as user_identities
+    UI->>G: the person chooses a Google account
+    G-->>UI: signed ID token (credential)
+    UI->>API: { credential }
+    API->>API: LoginRateLimiter.assertNotLocked(address:google)
+    API->>V: verify (Google's public keys, expiry, issuer, audience = our client ID)
+    V-->>API: sub, the e-mail Google vouches for, the name
+    API->>DB: find the row for ("GOOGLE", sub)
+    alt connected to an account
+        API->>API: the account must be ACTIVE; an ADMINISTRATOR with ADMIN_2FA_ENABLED gets the e-mailed code instead
+        API-->>UI: the same answer as login: { token, username, role } and the refresh cookie (or 202 for the code)
+    else connected to nobody, e-mail verified and used by no account
+        API-->>UI: 200 { signupRequired, email, name }: the page asks for a username
+        UI->>API: POST /api/auth/google/register { credential, username }
+        API-->>UI: 201 { token, username, role } and the refresh cookie (the account now exists)
+    else connected to nobody, e-mail used by an account (or none verified)
+        API-->>UI: 400 "sign in with your password, then connect Google on your Profile page"
+    end
+```
+
+- **Signing in** to an account that is connected: the rules of a password sign-in apply. The account must be `ACTIVE` (checked in `AuthService.loginWithGoogle`, because this path does not go through the `AuthenticationManager`), failures (a bad token, an inactive account) count toward the 5-in-15-minutes lock-out under the key `address:google`, and an administrator still enters the e-mailed code (`POST /api/auth/login/verify`) when the second step is on.
+- **Creating an account** (`POST /api/auth/google/register`, from the sign-in page or the Create Account page): the e-mail and name come from the verified token, never from the request; the person **chooses the username** (the self-registration rules, unique case-insensitively, a taken one is `400 "Username is already taken"`); the account is `ACTIVE` at once with the role `USER` (Google already verified the mailbox, so no e-mailed code), the Google account is connected to it, and the person is signed in. An e-mail that an account already uses is **never attached**: the person is told to sign in with the password and connect Google on Profile.
+- **No password yet.** A Google-created account has `users.password_set = false` and a hash of random bytes (`V24`), so a password sign-in cannot work. Profile shows *Set a password* (`POST /api/users/me/google/password`), confirmed with a fresh Google ID token whose `sub` is the one connected to this account; afterwards the account has a password like any other. Until then `PUT /api/users/me/password` and disconnecting Google are both refused (`400`).
+- **Connecting an existing account** is `POST /api/users/me/google { credential, currentPassword }` from the Profile page (`GoogleSignInService.link`): the password is checked **first** (so a stolen access token alone cannot attach someone else's Google account), then the token; one Google account per TaskFlow account and the reverse (`UNIQUE (provider, subject)` and `UNIQUE (user_id, provider)`). **Disconnecting** is `DELETE /api/users/me/google`, allowed whenever the account has a password.
+- **Why not match by e-mail:** the e-mail on an account can be edited by its owner without any new verification (`UserService.updateOwnProfile`) and set by an administrator without any, so a match proves nothing about who owns the account.
+- **After it** the session is the usual one: the 15-minute JWT in memory and the `taskflow_refresh` cookie.
 
 ## 2. Account statuses
 

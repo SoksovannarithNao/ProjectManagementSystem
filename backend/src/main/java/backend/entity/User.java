@@ -25,6 +25,11 @@ public class User {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
+    // false while the account has only the random hash "Sign in with Google" gave it (V24): the person
+    // has no password yet and sets one from Profile.
+    @Column(name = "password_set", nullable = false)
+    private boolean passwordSet = true;
+
     @Column(length = 20)
     private String gender;
 
@@ -118,6 +123,14 @@ public class User {
 
     public void setPasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public boolean isPasswordSet() {
+        return passwordSet;
+    }
+
+    public void setPasswordSet(boolean passwordSet) {
+        this.passwordSet = passwordSet;
     }
 
     public String getGender() {

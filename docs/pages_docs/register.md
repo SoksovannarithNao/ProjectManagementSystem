@@ -10,6 +10,7 @@ Creates a new account (system role `USER`) and sends the person on to e-mail ver
 - A live checklist shows which password rules are met. The form refuses a password that is not complex enough, or one that does not match its confirmation, before anything is sent.
 - On success it opens [Verify OTP](verify-otp.md) and passes the username and e-mail along.
 - Server errors (for example a taken username) are shown under the fields.
+- When the server has a Google client ID, a divider and Google's button (*Sign up with Google*) appear under the form. A Google account whose e-mail no account uses then gets the same username step as on [Login](login.md) and the account is created without an e-mailed code (Google already verified the e-mail); it has no password until one is set on [Profile](profile.md). Without a client ID nothing changes.
 - Under the form: "By creating an account you agree to the [Terms of Service](terms-of-service.md) and acknowledge the [Privacy Policy](privacy-policy.md)".
 
 ## Data

@@ -59,6 +59,13 @@ const SECTIONS = [
           and name, to limit password guessing; this count is not written to the database.
         </p>
         <p>
+          <strong>Connected Google account (optional).</strong> If you connect a Google account to sign in with it, or
+          create your account with Google, the application stores Google&apos;s identifier for that account and its
+          e-mail address (shown on your Profile page so you can tell which account is connected), and, when Google
+          creates the account, uses the name on the Google account as your full name. See &ldquo;Google sign-in and
+          Google user data&rdquo; below.
+        </p>
+        <p>
           <strong>Information kept in your browser.</strong> Your username and role (to restore your session), your theme
           choice, and the time of your last activity (to sign you out when you are idle) are kept in your browser&apos;s
           local storage. The refresh cookie is an essential, HTTP-only cookie. We do not use advertising or analytics
@@ -132,9 +139,11 @@ const SECTIONS = [
           </li>
           <li>
             <strong>Google</strong>: (a) the pages load the Archivo typeface from Google Fonts, so your browser requests
-            it from Google&apos;s servers; and (b) the application sends e-mail through the Gmail API of the
-            operator&apos;s own Google account, which means the recipient&apos;s e-mail address and the message (for
-            example a verification code) pass through Google when an e-mail is sent. See the next section.
+            it from Google&apos;s servers; (b) the sign-in page and your Profile page load Google&apos;s sign-in script
+            and button when &ldquo;Sign in with Google&rdquo; is switched on, so your browser contacts Google there too;
+            and (c) the application sends e-mail through the Gmail API of the operator&apos;s own Google account, which
+            means the recipient&apos;s e-mail address and the message (for example a verification code) pass through
+            Google when an e-mail is sent. See the next section.
           </li>
         </ul>
         <p>
@@ -150,15 +159,32 @@ const SECTIONS = [
     body: (
       <>
         <p>
-          <strong>{SITE.name} does not offer &ldquo;Sign in with Google&rdquo;</strong> and does not ask you to connect
-          your own Google account. You sign in with a username (or e-mail address) and a password.
+          <strong>{SITE.name} offers an optional &ldquo;Sign in with Google&rdquo;</strong>, only when the operator has
+          switched it on. If you already have an account, you connect your Google account to it yourself, from your
+          Profile page, after confirming your password; Google is never attached to an account just because the
+          e-mail address matches. If you have no account yet, Google can create one for you: you choose a username, and
+          you can set a password later on your Profile page (until then you sign in with Google). Your username (or
+          e-mail address) and password keep working.
         </p>
         <p>
-          Google OAuth is used for one purpose only: the operator authorised the application, once, to send e-mail from
-          the operator&apos;s own Gmail address. The only permission requested is{' '}
+          For that sign-in the application asks Google for basic sign-in information only (the{' '}
+          <code className="bg-subtle rounded px-1 py-0.5 text-[12px]">openid</code>,{' '}
+          <code className="bg-subtle rounded px-1 py-0.5 text-[12px]">email</code> and{' '}
+          <code className="bg-subtle rounded px-1 py-0.5 text-[12px]">profile</code> scopes) and receives a signed token
+          from Google. It checks the token and keeps only Google&apos;s identifier for your account and that
+          account&apos;s e-mail address, and, when it creates an account for you, the name on the Google account (used
+          as your full name, which you can change on your Profile page); the picture the token also contains is not
+          read or kept. The identifier is used only to recognise you when you sign in with Google. The application does not access your
+          Google mail, contacts, files or any other Google data, and does not share this information with anyone. You
+          can disconnect the Google account at any time on your Profile page, which deletes what is stored, and deleting
+          your account deletes it too.
+        </p>
+        <p>
+          Separately, the operator authorised the application, once, to send e-mail from the operator&apos;s own Gmail
+          address. The only permission requested for that is{' '}
           <code className="bg-subtle rounded px-1 py-0.5 text-[12px]">https://www.googleapis.com/auth/gmail.send</code>
           , which allows sending messages and nothing else. The application does not read, list, search, modify or delete
-          any mailbox, and it does not receive or store any Google account data belonging to you or any other user.
+          any mailbox, and it receives no Google account data through that permission.
         </p>
         <p>
           The access credentials for that one account are held as private server configuration at the hosting provider.
@@ -223,7 +249,7 @@ const SECTIONS = [
         <ul>
           <li>
             <strong>removed:</strong> the profile and photo, project memberships and task assignments, the comments you
-            wrote, your time entries, notifications, sign-in sessions and verification codes;
+            wrote, your time entries, notifications, sign-in sessions, verification codes and any connected Google account;
           </li>
           <li>
             <strong>kept, but no longer linked to your account:</strong> tasks, checklist items, files and approval
