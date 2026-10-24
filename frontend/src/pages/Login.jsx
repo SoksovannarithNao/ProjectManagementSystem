@@ -3,6 +3,10 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { clearIdleSignOutNotice, wasSignedOutForInactivity } from '../auth/idleTimeout'
 import { Logo } from '../components/ui/Logo'
+import { GoogleButton } from '../components/GoogleButton'
+import { GoogleSignupForm } from '../components/GoogleSignupForm'
+import { useGoogleSignIn } from '../auth/useGoogleSignIn'
+import { useGoogleClientId } from '../api/useGoogleClientId'
 
 export function Login() {
   const { login, loginWithCode } = useAuth()
@@ -17,6 +21,9 @@ export function Login() {
   const [submitting, setSubmitting] = useState(false)
   // Why the user landed here, when the app signed them out for inactivity.
   const [idleNotice] = useState(wasSignedOutForInactivity)
+  // The Google button appears only when the server was given an OAuth client ID.
+  const googleClientId = useGoogleClientId()
+  const google = useGoogleSignIn({ onChallenge: setChallenge })
   useEffect(() => clearIdleSignOutNotice(), [])
 
   const handleSubmit = async (e) => {
@@ -68,12 +75,14 @@ export function Login() {
           <Logo size={22} />
           <span className="text-ink text-[18px] font-bold tracking-[-0.02em]">TaskFlow</span>
         </div>
-        <h1 className="text-ink mb-1 text-xl font-bold tracking-[-0.015em]">{challenge ? 'Enter your sign-in code' : 'Sign in'}</h1>
+        <h1 className="text-ink mb-1 text-xl font-bold tracking-[-0.015em]">{challenge ? 'Enter your sign-in code' : google.signup ? 'Choose a username' : 'Sign in'}</h1>
         <p className="text-muted mb-6 text-[13px]">
           {challenge ? (
             <>
               We e-mailed a 6-digit code to <span className="text-ink font-semibold">{challenge.maskedEmail}</span>.
             </>
+          ) : google.signup ? (
+            'One last step to create your account.'
           ) : (
             'Use your TaskFlow account to continue.'
           )}
@@ -88,7 +97,15 @@ export function Login() {
           </p>
         )}
 
-        {challenge ? (
+        {google.signup && !challenge ? (
+          <GoogleSignupForm
+            email={google.signup.email}
+            busy={google.busy}
+            error={google.error}
+            onSubmit={google.submitUsername}
+            onCancel={google.cancel}
+          />
+        ) : challenge ? (
           <form onSubmit={handleCodeSubmit} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1.5">
               <span className="text-muted text-[12px] font-semibold">Sign-in code</span>
@@ -144,7 +161,24 @@ export function Login() {
         </form>
         )}
 
-        {!challenge && (
+        {!challenge && !google.signup && googleClientId && (
+          <>
+            <div className="text-faint my-5 flex items-center gap-3 text-[11px] font-semibold uppercase">
+              <span className="bg-border h-px flex-1" />
+              or
+              <span className="bg-border h-px flex-1" />
+            </div>
+            <GoogleButton clientId={googleClientId} onCredential={google.onCredential} text="continue_with" />
+            {google.error && (
+              <p role="alert" className="text-danger-ink mt-3 text-[12px] font-semibold">
+                {google.error}
+              </p>
+            )}
+            <p className="text-faint mt-3 text-center text-[11px]">New here? Google creates your TaskFlow account.</p>
+          </>
+        )}
+
+        {!challenge && !google.signup && (
           <p className="text-muted mt-5 text-center text-[12px]">
             Don't have an account?{' '}
             <Link to="/register" className="text-ink font-semibold hover:underline">

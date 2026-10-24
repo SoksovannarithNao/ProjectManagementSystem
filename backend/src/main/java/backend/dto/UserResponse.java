@@ -11,6 +11,7 @@ public class UserResponse {
     private String fullName;
     private String username;
     private String email;
+    private boolean passwordSet;
     private String gender;
     private LocalDate dateOfBirth;
     private String phoneNumber;
@@ -32,6 +33,7 @@ public class UserResponse {
         this.fullName = user.getFullName();
         this.username = user.getUsername();
         this.email = user.getEmail();
+        this.passwordSet = user.isPasswordSet();
         this.gender = user.getGender();
         this.dateOfBirth = user.getDateOfBirth();
         this.phoneNumber = user.getPhoneNumber();
@@ -69,6 +71,11 @@ public class UserResponse {
 
     public String getEmail() {
         return email;
+    }
+
+    // false only for an account created by "Sign in with Google" that has not set a password yet.
+    public boolean isPasswordSet() {
+        return passwordSet;
     }
 
     public String getGender() {

@@ -36,10 +36,11 @@ docker run --rm -e NEON_URL -e APP_PW -e APP_DB `
 Run it **once**, on an empty database. `01-init.sql` is not safe to run twice. To start over, drop
 and recreate the database in Neon first.
 
-Later schema changes: `database/taskmanager/migrations` holds V1 to V22. `01-init.sql` already
-contains them and its baseline row (22) makes Flyway skip them on a database loaded from these scripts.
+Later schema changes: `database/taskmanager/migrations` holds V1 to V24. `01-init.sql` already
+contains them and its baseline row (24) makes Flyway skip them on a database loaded from these scripts.
 The Neon database of this project was loaded earlier, at baseline 21, so **V22 (the `LOGIN_2FA` code
-purpose) still has to be applied to it**, and any later `V23+` file is applied the same way, with the
+purpose) V23 (the `user_identities` table for Sign in with Google) and V24 (`users.password_set`) still have to be applied to it**
+unless they already were (the migration run applies whatever is missing), and any later `V25+` file is applied the same way, with the
 Flyway container against the owner's direct connection (set `FLYWAY_URL` to
 `jdbc:postgresql://<neon-host>/neondb?sslmode=require`, and `FLYWAY_USER` / `FLYWAY_PASSWORD` to the
 `neondb_owner` credentials):
@@ -72,6 +73,7 @@ with `neon login`). The generated `taskmanager_app` password and the JDBC URL ar
 | `JAVA_TOOL_OPTIONS` | `-Xmx300m` (a 512 MB instance is tight for Spring Boot) |
 | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `MAIL_FROM`, `MAIL_FROM_NAME` | only for e-mailed codes (sign-up, administrator sign-in); see section 5 |
 | `ADMIN_2FA_ENABLED` | leave unset (`false`) until section 5 is done |
+| `GOOGLE_CLIENT_ID` | only for "Sign in with Google" (optional); see section 6. Blank or unset = the button is not shown |
 
 3. Deploy, then open `https://<your-service>.onrender.com/api/health`. It should answer.
 
@@ -148,7 +150,30 @@ account's *Security > Third-party access*, revokes the refresh token. Sends then
 repeat step 6 and update `GMAIL_REFRESH_TOKEN`.
 
 The Neon database needs migration V22 (the `LOGIN_2FA` code purpose) before the administrator step is
-switched on; the Flyway container in section 1 applies it (`migrate`).
+switched on, and V23 (`user_identities`) and V24 (`users.password_set`) before Sign in with Google; the Flyway container in section 1
+applies them (`migrate`).
+
+## 6. Sign in with Google (optional)
+
+Off until `GOOGLE_CLIENT_ID` is set. An account is connected to a Google account from its Profile page
+(current password, then Google's button) and the Google button on the sign-in page signs it in; a person with
+no account can also create one with it (a username they choose, no password until they set one on Profile)
+([ADR-0017](../docs/adr/0017-link-only-google-sign-in.md), [ADR-0018](../docs/adr/0018-google-sign-up-and-first-password.md)).
+Passwords keep working.
+
+1. Apply migrations V23 and V24 to Neon (section 1, `migrate`). The backend would otherwise fail its schema check at startup.
+2. In Google Cloud Console create an OAuth client of type **Web application** with the **Authorized
+   JavaScript origins** `https://www.task-flow.lat` (and `http://localhost:5173` for local work); no
+   redirect URIs. Use a project of its own if you can, apart from the Gmail sender's. Full steps:
+   [../docs/google-sign-in.md](../docs/google-sign-in.md).
+3. On Render add `GOOGLE_CLIENT_ID` = the client ID and redeploy. Vercel needs nothing: the page asks the
+   backend for the ID (`GET /api/auth/google/config`).
+4. Check `https://www.task-flow.lat/api/auth/google/config` shows the ID, the sign-in page shows the Google
+   button, and Profile has the *Sign in with Google* card.
+
+Vercel preview URLs are not listed in Google, so the button does not work on them. To switch it off, remove
+`GOOGLE_CLIENT_ID` and redeploy: password sign-in is unchanged, but people whose account Google created and who
+have not set a password cannot sign in until an administrator resets their password.
 
 ## Cautions
 

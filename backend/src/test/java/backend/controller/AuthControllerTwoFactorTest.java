@@ -3,6 +3,7 @@ package backend.controller;
 import backend.dto.LoginResponse;
 import backend.dto.TwoFactorRequiredResponse;
 import backend.service.AuthService;
+import backend.service.GoogleSignInService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,12 +35,14 @@ class AuthControllerTwoFactorTest {
 
     @Mock
     private AuthService authService;
+    @Mock
+    private GoogleSignInService googleSignInService;
 
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        mvc = ControllerTestSupport.mvcFor(new AuthController(authService, false));
+        mvc = ControllerTestSupport.mvcFor(new AuthController(authService, googleSignInService, false));
     }
 
     @Test

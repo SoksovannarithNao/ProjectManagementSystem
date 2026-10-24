@@ -12,6 +12,8 @@ import { LookupSelect } from '../components/ui/LookupSelect'
 import { initialsFor } from '../api/format'
 import { describePasswordProblem, isPasswordComplex, passwordErrorMessage } from '../api/validation'
 import { PasswordChecklist } from '../components/ui/PasswordChecklist'
+import { GoogleSignInSection } from '../components/GoogleSignInSection'
+import { GoogleSetPasswordSection } from '../components/GoogleSetPasswordSection'
 
 const GENDER_OPTIONS = ['', 'Male', 'Female', 'Other']
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024
@@ -288,6 +290,9 @@ export function Profile() {
           </form>
         </section>
 
+        {profile?.passwordSet === false && <GoogleSetPasswordSection />}
+
+        {profile?.passwordSet !== false && (
         <section className="card px-6 py-5">
           <div className="mb-4 flex items-center gap-2.5">
             <Lock size={17} className="text-muted" />
@@ -342,6 +347,9 @@ export function Profile() {
             </div>
           </form>
         </section>
+        )}
+
+        <GoogleSignInSection />
       </div>
     </div>
   )

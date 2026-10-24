@@ -22,6 +22,8 @@ Where a reason is stated in the project's own files it is cited. Where it is **i
 | [0014](0014-requirement-roles-and-permission-matrix.md) | A data-driven permission matrix (role set replaced by 0015) | 2026-10-08 |
 | [0015](0015-two-level-roles-system-and-project.md) | Two-level roles: system roles and project roles (**implemented**, migration V10) | 2026-10-08 |
 | [0016](0016-admin-two-factor-and-https-mail.md) | An e-mailed second sign-in step for administrators; codes over HTTPS when SMTP is blocked (migration V22) | 2026-10-17 |
+| [0017](0017-link-only-google-sign-in.md) | Optional "Sign in with Google" that signs in only accounts connected beforehand, keyed by Google's `sub` (migration V23) | 2026-10-24 |
+| [0018](0018-google-sign-up-and-first-password.md) | "Sign in with Google" may also create an account (username chosen by the person); such an account sets its first password with Google (migration V24) | 2026-10-24 |
 
 ## Template for new records
 

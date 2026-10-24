@@ -24,7 +24,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
     tasks, task_assignees, task_dependencies, notifications,
     otp_verifications, positions, departments, subtasks, comments,
     activity_logs, work_logs, role_permissions, task_approvals,
-    attachments, attachment_contents, checklist_items, refresh_tokens
+    attachments, attachment_contents, checklist_items, refresh_tokens, user_identities
     TO taskmanager_app;
 
 GRANT SELECT ON permissions TO taskmanager_app;

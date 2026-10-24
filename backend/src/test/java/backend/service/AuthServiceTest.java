@@ -35,6 +35,8 @@ class AuthServiceTest {
     private OtpService otpService;
     @Mock
     private RefreshTokenService refreshTokenService;
+    @Mock
+    private GoogleSignInService googleSignInService;
 
     private JwtService jwtService;
     private AuthService service;
@@ -43,7 +45,7 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         jwtService = new JwtService("test-secret-test-secret-test-secret-test-secret-test-secret-test-secret", 900_000L);
-        service = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService, false);
+        service = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService, googleSignInService, false);
 
         user = new User();
         user.setUsername("dev.chen");

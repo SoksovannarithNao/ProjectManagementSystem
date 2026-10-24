@@ -40,6 +40,8 @@ class AuthServiceAdminTwoFactorTest {
     private OtpService otpService;
     @Mock
     private RefreshTokenService refreshTokenService;
+    @Mock
+    private GoogleSignInService googleSignInService;
 
     private JwtService jwtService;
     private AuthService service;
@@ -48,7 +50,7 @@ class AuthServiceAdminTwoFactorTest {
     @BeforeEach
     void setUp() {
         jwtService = new JwtService("test-secret-test-secret-test-secret-test-secret-test-secret-test-secret", 900_000L);
-        service = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService, true);
+        service = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService, googleSignInService, true);
         admin = account("alex", "alex.rivera@gmail.com", "ADMINISTRATOR");
     }
 
@@ -123,7 +125,7 @@ class AuthServiceAdminTwoFactorTest {
 
     @Test
     void withTheStepSwitchedOff_anAdministratorSignsInStraightAway() {
-        AuthService off = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService, false);
+        AuthService off = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService, googleSignInService, false);
         when(userService.resolveLoginIdentifier("alex")).thenReturn("alex");
         when(userService.getUserEntityByUsername("alex")).thenReturn(admin);
         when(refreshTokenService.issue(admin)).thenReturn("raw-refresh");
@@ -182,7 +184,7 @@ class AuthServiceAdminTwoFactorTest {
 
     @Test
     void withTheStepSwitchedOff_noCodeIsAccepted() {
-        AuthService off = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService, false);
+        AuthService off = new AuthService(authenticationManager, userService, jwtService, loginRateLimiter, otpService, refreshTokenService, googleSignInService, false);
 
         assertThatThrownBy(() -> off.verifyLogin(code("alex", "123456"), KEY))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage(OtpService.INVALID_CODE_MESSAGE);

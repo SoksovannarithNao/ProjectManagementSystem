@@ -42,7 +42,9 @@ test.describe('public pages (signed out)', () => {
   test('the privacy policy states how Google OAuth is really used', async ({ page }) => {
     await page.goto('/privacy-policy')
     const google = page.locator('#google')
-    await expect(google).toContainText('does not offer')
+    await expect(google).toContainText('optional')
+    await expect(google).toContainText('Google can create one for you')
+    await expect(google).toContainText('never attached to an account just because')
     await expect(google).toContainText('gmail.send')
     await expect(google).toContainText('does not read')
   })

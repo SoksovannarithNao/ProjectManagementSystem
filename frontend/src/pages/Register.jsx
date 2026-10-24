@@ -4,6 +4,10 @@ import { register } from '../api/auth'
 import { describePasswordProblem, isPasswordComplex, passwordErrorMessage } from '../api/validation'
 import { PasswordChecklist } from '../components/ui/PasswordChecklist'
 import { Logo } from '../components/ui/Logo'
+import { GoogleButton } from '../components/GoogleButton'
+import { GoogleSignupForm } from '../components/GoogleSignupForm'
+import { useGoogleClientId } from '../api/useGoogleClientId'
+import { useGoogleSignIn } from '../auth/useGoogleSignIn'
 
 export function Register() {
   const navigate = useNavigate()
@@ -13,6 +17,9 @@ export function Register() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // "Continue with Google" appears only when the server was given an OAuth client ID.
+  const googleClientId = useGoogleClientId()
+  const google = useGoogleSignIn()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -46,9 +53,18 @@ export function Register() {
           <Logo size={22} />
           <span className="text-ink text-[18px] font-bold tracking-[-0.02em]">TaskFlow</span>
         </div>
-        <h1 className="text-ink mb-1 text-xl font-bold tracking-[-0.015em]">Create Account</h1>
-        <p className="text-muted mb-6 text-[13px]">Set up a new TaskFlow account.</p>
+        <h1 className="text-ink mb-1 text-xl font-bold tracking-[-0.015em]">{google.signup ? 'Choose a username' : 'Create Account'}</h1>
+        <p className="text-muted mb-6 text-[13px]">{google.signup ? 'One last step to create your account.' : 'Set up a new TaskFlow account.'}</p>
 
+        {google.signup ? (
+          <GoogleSignupForm
+            email={google.signup.email}
+            busy={google.busy}
+            error={google.error}
+            onSubmit={google.submitUsername}
+            onCancel={google.cancel}
+          />
+        ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
             <span className="text-muted text-[12px] font-semibold">Username</span>
@@ -104,6 +120,23 @@ export function Register() {
             {submitting ? 'Creating account…' : 'Create Account'}
           </button>
         </form>
+        )}
+
+        {!google.signup && googleClientId && (
+          <>
+            <div className="text-faint my-5 flex items-center gap-3 text-[11px] font-semibold uppercase">
+              <span className="bg-border h-px flex-1" />
+              or
+              <span className="bg-border h-px flex-1" />
+            </div>
+            <GoogleButton clientId={googleClientId} onCredential={google.onCredential} text="signup_with" />
+            {google.error && (
+              <p role="alert" className="text-danger-ink mt-3 text-[12px] font-semibold">
+                {google.error}
+              </p>
+            )}
+          </>
+        )}
 
         <p className="text-muted mt-5 text-center text-[12px]">
           Already have an account?{' '}

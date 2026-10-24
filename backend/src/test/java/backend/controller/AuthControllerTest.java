@@ -5,6 +5,7 @@ import backend.dto.RegisterResponse;
 import backend.exception.SessionExpiredException;
 import backend.exception.TooManyRequestsException;
 import backend.service.AuthService;
+import backend.service.GoogleSignInService;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,12 +37,14 @@ class AuthControllerTest {
 
     @Mock
     private AuthService authService;
+    @Mock
+    private GoogleSignInService googleSignInService;
 
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        mvc = ControllerTestSupport.mvcFor(new AuthController(authService, false));
+        mvc = ControllerTestSupport.mvcFor(new AuthController(authService, googleSignInService, false));
     }
 
     private void signsIn() {
@@ -84,7 +87,7 @@ class AuthControllerTest {
 
     @Test
     void theCookieIsSecureWhenTheSiteIsServedOverHttps() throws Exception {
-        MockMvc https = ControllerTestSupport.mvcFor(new AuthController(authService, true));
+        MockMvc https = ControllerTestSupport.mvcFor(new AuthController(authService, googleSignInService, true));
         signsIn();
 
         https.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content(LOGIN))

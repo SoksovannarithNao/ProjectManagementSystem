@@ -13,7 +13,7 @@ Docker Compose creates a PostgreSQL superuser (`POSTGRES_USER`). Letting the app
 `database/init/03-app-role.sh` creates a separate login role **`taskmanager_app`** (password from `TASKMANAGER_APP_PASSWORD`) with only:
 
 - `CONNECT` on the database and `USAGE` on schema `public`;
-- `SELECT, INSERT, UPDATE, DELETE` on the **22 tables that have read-write JPA entities** (originally 15; the permission, work-log, approval, attachment, checklist and refresh-token tables were added later), and `SELECT` only on `permissions`;
+- `SELECT, INSERT, UPDATE, DELETE` on the **23 tables that have read-write JPA entities** (originally 15; the permission, work-log, approval, attachment, checklist, refresh-token and user-identity tables were added later), and `SELECT` only on `permissions`;
 - `USAGE, SELECT` on all sequences (needed because `GENERATED ALWAYS AS IDENTITY` keys use a sequence);
 - explicit `EXECUTE` on three functions (redundant today, kept as documentation).
 
