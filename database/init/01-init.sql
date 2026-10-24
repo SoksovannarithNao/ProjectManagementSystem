@@ -213,6 +213,9 @@ CREATE TABLE users (
     username         VARCHAR(50) NOT NULL,
     email            VARCHAR(255) NOT NULL,
     password_hash    VARCHAR(255) NOT NULL,
+    -- false for an account that "Sign in with Google" created (V24): password_hash then holds a hash of
+    -- random bytes nobody knows, until the person sets a real password from their Profile page.
+    password_set     BOOLEAN NOT NULL DEFAULT true,
     gender           VARCHAR(20),
     date_of_birth    DATE,
     phone_number     VARCHAR(30),
@@ -1310,6 +1313,24 @@ CREATE TABLE refresh_tokens (
 
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens (user_id);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens (expires_at);
+
+-- ==================== user_identities ==================== --
+
+-- "Sign in with Google" (V23): the link between an account and a Google identity. An account is linked
+-- from its Profile page after the person proves it is theirs with the current password, never by matching
+-- e-mail addresses. The key is Google's stable account id (the "sub" claim), not the e-mail, which is kept
+-- only to show which Google account is linked. One Google account per TaskFlow account and the reverse.
+CREATE TABLE user_identities (
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id       BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    provider      VARCHAR(20) NOT NULL CHECK (provider IN ('GOOGLE')),
+    subject       VARCHAR(255) NOT NULL,
+    email         VARCHAR(255),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at TIMESTAMPTZ,
+    CONSTRAINT uq_user_identities_provider_subject UNIQUE (provider, subject),
+    CONSTRAINT uq_user_identities_user_provider UNIQUE (user_id, provider)
+);
 
 -- ==================== audit_logs ==================== --
 -- The administrator audit log (V16; assignment-brief.md B10, workflow A7, D-11). Separate from

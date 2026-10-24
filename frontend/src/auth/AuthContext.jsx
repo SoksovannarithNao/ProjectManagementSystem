@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { login as loginRequest, verifyLoginCode } from '../api/auth'
+import { login as loginRequest, googleLogin, googleRegister, verifyLoginCode } from '../api/auth'
 import { getUserByUsername, getMyPermissions } from '../api/users'
 import { endSession, getStoredAuth, refreshSession, setUnauthorizedHandler, storeAuth } from '../api/client'
 import { EMPTY_PERMISSIONS, canAnywhere, canInProject, canSystem } from '../api/permissions'
@@ -89,14 +89,28 @@ export function AuthProvider({ children }) {
 
   // Resolves to the signed-in user, or to { twoFactorRequired: true, username, maskedEmail } when an
   // administrator still has to enter the code e-mailed to them (then call loginWithCode).
-  const login = useCallback(
-    async (username, password) => {
-      const result = await loginRequest(username, password)
+  const finishSignIn = useCallback(
+    async (result) => {
       if (result.twoFactorRequired) {
         return { twoFactorRequired: true, username: result.username, maskedEmail: result.maskedEmail }
       }
+      if (result.signupRequired) {
+        return { signupRequired: true, email: result.email, name: result.name }
+      }
       return startSession(result)
     },
+    [startSession]
+  )
+
+  const login = useCallback(async (username, password) => finishSignIn(await loginRequest(username, password)), [finishSignIn])
+
+  // Same result as login, from the ID token Google gave the browser (an account connected to that Google
+  // account beforehand; an administrator still gets the e-mailed-code step).
+  const loginWithGoogle = useCallback(async (credential) => finishSignIn(await googleLogin(credential)), [finishSignIn])
+
+  // A Google account connected to nobody: creates the account with the chosen username and signs in.
+  const registerWithGoogle = useCallback(
+    async (credential, username) => startSession(await googleRegister(credential, username)),
     [startSession]
   )
 
@@ -134,11 +148,13 @@ export function AuthProvider({ children }) {
       isAuthenticated: Boolean(auth?.token),
       loading,
       login,
+      loginWithGoogle,
+      registerWithGoogle,
       loginWithCode,
       logout,
       refreshProfile,
     }),
-    [auth, permissions, can, canSys, canAny, profile, loading, login, loginWithCode, logout, refreshProfile]
+    [auth, permissions, can, canSys, canAny, profile, loading, login, loginWithGoogle, registerWithGoogle, loginWithCode, logout, refreshProfile]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

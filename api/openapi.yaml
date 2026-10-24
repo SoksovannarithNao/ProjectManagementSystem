@@ -3,8 +3,8 @@ info:
   title: Task & Project Management System API
   description: >
     **Partly out of date and no longer maintained — read
-    `docs/api-reference.md` for the complete, current API (129 endpoints).**
-    This file documents 58 of the 129 endpoints
+    `docs/api-reference.md` for the complete, current API (136 endpoints).**
+    This file documents 58 of the 136 endpoints
     and still describes authorization with the removed global roles
     `TEAM_LEADER` / `TEAM_MEMBER` and the old per-endpoint rules; the real
     model is the system roles `ADMINISTRATOR` / `PROJECT_MANAGER` / `USER`

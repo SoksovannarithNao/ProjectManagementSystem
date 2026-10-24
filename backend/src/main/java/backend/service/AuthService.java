@@ -1,5 +1,6 @@
 package backend.service;
 
+import backend.dto.GoogleSignupRequiredResponse;
 import backend.dto.LoginRequest;
 import backend.dto.LoginResponse;
 import backend.dto.OtpResendRequest;
@@ -26,19 +27,31 @@ public class AuthService {
     private final LoginRateLimiter loginRateLimiter;
     private final OtpService otpService;
     private final RefreshTokenService refreshTokenService;
+    private final GoogleSignInService googleSignInService;
     private final boolean adminTwoFactorEnabled;
 
     // What a sign-in hands back: either the body for the browser plus the raw refresh token that goes
     // into the httpOnly cookie (never into the body), or, when an administrator still has to enter the
     // e-mailed code, a challenge and no session at all.
-    public record LoginResult(LoginResponse response, String refreshToken, TwoFactorRequiredResponse challenge) {
+    // A Google sign-in whose Google account is connected to nobody can instead end in an offer to create an
+    // account (signup), which carries no session either.
+    public record LoginResult(LoginResponse response, String refreshToken, TwoFactorRequiredResponse challenge,
+                              GoogleSignupRequiredResponse signup) {
 
         public LoginResult(LoginResponse response, String refreshToken) {
-            this(response, refreshToken, null);
+            this(response, refreshToken, null, null);
+        }
+
+        public LoginResult(LoginResponse response, String refreshToken, TwoFactorRequiredResponse challenge) {
+            this(response, refreshToken, challenge, null);
         }
 
         static LoginResult challenge(TwoFactorRequiredResponse challenge) {
-            return new LoginResult(null, null, challenge);
+            return new LoginResult(null, null, challenge, null);
+        }
+
+        static LoginResult signup(GoogleSignupRequiredResponse signup) {
+            return new LoginResult(null, null, null, signup);
         }
     }
 
@@ -49,6 +62,7 @@ public class AuthService {
             LoginRateLimiter loginRateLimiter,
             OtpService otpService,
             RefreshTokenService refreshTokenService,
+            GoogleSignInService googleSignInService,
             @Value("${app.auth.admin-2fa-enabled}") boolean adminTwoFactorEnabled) {
         this.authenticationManager = authenticationManager;
         this.adminTwoFactorEnabled = adminTwoFactorEnabled;
@@ -57,6 +71,7 @@ public class AuthService {
         this.loginRateLimiter = loginRateLimiter;
         this.otpService = otpService;
         this.refreshTokenService = refreshTokenService;
+        this.googleSignInService = googleSignInService;
     }
 
     public RegisterResponse register(RegisterRequest request) {
@@ -126,6 +141,49 @@ public class AuthService {
                     new TwoFactorRequiredResponse(true, user.getUsername(), maskEmail(user.getEmail())));
         }
         return signIn(user);
+    }
+
+    // "Sign in with Google": the ID token Google gave the browser (GoogleSignInService). For an account that was
+    // connected to that Google account it follows the same rules as a password sign-in: the account must be
+    // ACTIVE (this path skips the AuthenticationManager that checks it for a password), the same lock-out
+    // counts the misses, and an administrator still has to enter the e-mailed code (verifyLogin), so Google
+    // is never a way around the second step. A Google account connected to nobody gets an offer to create an
+    // account (the page asks for a username, see registerWithGoogle), or an explanation when that is not
+    // possible; nothing is attached to an existing account by e-mail address.
+    public LoginResult loginWithGoogle(String credential, String rateLimitKey) {
+        loginRateLimiter.assertNotLocked(rateLimitKey);
+
+        GoogleSignInService.Identified identified;
+        try {
+            identified = googleSignInService.identify(credential);
+        } catch (IllegalArgumentException ex) {
+            loginRateLimiter.recordFailure(rateLimitKey);
+            throw ex;
+        }
+        User user = identified.user();
+        if (user == null) {
+            return LoginResult.signup(googleSignInService.offerSignup(identified.google()));
+        }
+        if (!"ACTIVE".equals(user.getAccountStatus())) {
+            loginRateLimiter.recordFailure(rateLimitKey);
+            throw new IllegalArgumentException("This account is not active. Contact an administrator.");
+        }
+        loginRateLimiter.recordSuccess(rateLimitKey);
+
+        if (requiresSecondStep(user)) {
+            otpService.sendLoginCode(user);
+            return LoginResult.challenge(
+                    new TwoFactorRequiredResponse(true, user.getUsername(), maskEmail(user.getEmail())));
+        }
+        return signIn(user);
+    }
+
+    // The second half of a Google sign-up: creates the account with the username the person chose and starts
+    // their session. A new account has the plain USER role, so there is no second step. Only a bad token
+    // counts toward the lock-out (a username already taken must be easy to retype).
+    public LoginResult registerWithGoogle(String credential, String username, String rateLimitKey) {
+        loginRateLimiter.assertNotLocked(rateLimitKey);
+        return signIn(googleSignInService.register(credential, username));
     }
 
     // Second step of an administrator's sign-in: the e-mailed code, then the same session as any

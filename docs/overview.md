@@ -47,10 +47,10 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 .
 ├── backend/               Spring Boot API
 │   └── src/main/java/backend/
-│       ├── controller/    26 REST controllers (129 endpoints)
+│       ├── controller/    27 REST controllers (136 endpoints)
 │       ├── service/       business rules, transactions, ProjectAccessGuard
 │       ├── repository/    Spring Data JPA repositories
-│       ├── entity/        24 JPA entities
+│       ├── entity/        25 JPA entities
 │       ├── dto/           request/response objects, PasswordPolicy
 │       ├── security/      Resource and Action enums, PermissionChecker
 │       ├── exception/     GlobalExceptionHandler, NotFoundException, ConflictException, TooManyRequestsException, SessionExpiredException, MailDeliveryException
@@ -66,7 +66,7 @@ Not present (confirmed by absence in `pom.xml` / `package.json`): Swagger/spring
 │   └── e2e/               Playwright specs
 ├── database/
 │   ├── init/              01-init.sql (schema), 02-seed.sql (demo data), 03-app-role.sh, 04-flyway-baseline.sql
-│   ├── taskmanager/       Flyway project (migrations V1–V22) — applied by the Compose `migrate` service, not by the app
+│   ├── taskmanager/       Flyway project (migrations V1–V24) — applied by the Compose `migrate` service, not by the app
 │   ├── verify_invariants.sql
 │   └── verify_grants.sql
 ├── api/                   openapi.yaml (partly out of date — see issues.md)
@@ -104,6 +104,7 @@ Status uses three levels: **Done** (works through UI, API and database), **Parti
 | Auto-logout | Done (2026-10-12) — 15 idle minutes, a 60-second warning, then sign-out (the timer is browser-side; signing out also deletes the refresh token on the server) |
 | Sign-in session | Done (2026-10-14) — a 15-minute access token in memory, renewed from a 7-day httpOnly refresh cookie; sign-out and a password change end it |
 | Administrator sign-in code | Done (2026-10-17) — optional (`ADMIN_2FA_ENABLED`, default off): after the password, a 6-digit code is e-mailed; migration `V22` ([ADR-0016](adr/0016-admin-two-factor-and-https-mail.md)) |
+| Sign in with Google | Done (2026-10-24) — optional (`GOOGLE_CLIENT_ID`, default blank = off): signs in an account connected to a Google account (connected from Profile with the current password) and creates a new account for a Google account connected to nobody (a username the person chooses, no password until set on Profile, confirmed with Google); keyed by Google's `sub`, never by e-mail; migrations `V23` and `V24` ([ADR-0017](adr/0017-link-only-google-sign-in.md), [ADR-0018](adr/0018-google-sign-up-and-first-password.md), [google-sign-in.md](google-sign-in.md)); by hand, connecting a real Google account, signing in with it and creating an account from a second one worked (2026-10-24); setting that account's first password with a real Google account is not yet confirmed |
 | Public home, privacy policy and terms pages | Done (2026-10-17) — `/`, `/privacy-policy`, `/terms-of-service`, open without signing in ([google-oauth-verification.md](google-oauth-verification.md)) |
 | Hosting | Done (2026-10-17) — Vercel, Render and Neon ([../host/README.md](../host/README.md)); the CD pipeline still only builds and pushes images |
 | List search, filter, sort and paging | Done (2026-10-13 / 2026-10-14) — optional parameters on the project and task lists, optional paging on those and the notification list; the screens that need a whole list still read it whole |

@@ -6,8 +6,6 @@ import { login, SEED_PASSWORD, SEED_ADMIN_USERNAME } from './helpers.js'
 // name. Entries cannot be deleted (that is the point of the log), so the test database keeps
 // them, like the activity feed.
 
-const ADMIN_NAME = 'Alex Rivera'
-
 const apiLogin = async (request, username) => {
   const res = await request.post('/api/auth/login', { data: { username, password: SEED_PASSWORD } })
   expect(res.status()).toBe(200)
@@ -25,6 +23,8 @@ const rolesByName = async (request, headers) =>
 test.describe('audit log: API', () => {
   test('account changes are recorded with the actor, the target and the values before and after', async ({ request }) => {
     const admin = await apiLogin(request, SEED_ADMIN_USERNAME)
+    // The name the log records for the actor is whatever the administrator's account is called now.
+    const ADMIN_NAME = (await (await request.get(`/api/users/username/${SEED_ADMIN_USERNAME}`, { headers: admin })).json()).fullName
     const stamp = `${Date.now()}`
     const username = `audit.${stamp}`
     const roles = await rolesByName(request, admin)

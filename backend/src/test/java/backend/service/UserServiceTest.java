@@ -28,6 +28,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -400,5 +402,90 @@ class UserServiceTest {
         assertThatThrownBy(() -> userService.uploadOwnProfilePhoto("anyone", big))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("max 5MB");
+    }
+
+    // ---- accounts that "Sign in with Google" creates (ADR-0018) ----
+
+    private Role userRole() {
+        Role role = new Role();
+        role.setName(Role.USER);
+        return role;
+    }
+
+    @Test
+    void registerGoogleUser_createsAnActiveAccountWithNoPasswordTheyKnow() {
+        when(roleRepository.findByName(Role.USER)).thenReturn(Optional.of(userRole()));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        User created = userService.registerGoogleUser("sam.lee", "sam@gmail.com", "Sam Lee");
+
+        assertThat(created.getUsername()).isEqualTo("sam.lee");
+        assertThat(created.getEmail()).isEqualTo("sam@gmail.com");
+        assertThat(created.getFullName()).isEqualTo("Sam Lee");
+        assertThat(created.getAccountStatus()).isEqualTo("ACTIVE");
+        assertThat(created.getRole().getName()).isEqualTo(Role.USER);
+        assertThat(created.isPasswordSet()).isFalse();
+        // a real BCrypt hash of random bytes: present, and not a password anyone could type
+        assertThat(created.getPasswordHash()).startsWith("$2");
+        assertThat(passwordEncoder.matches("", created.getPasswordHash())).isFalse();
+        verify(auditLogService).record(any(User.class), eq(AuditLogService.ACCOUNT_CREATED), eq(AuditLogService.USER),
+                any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void registerGoogleUser_fullNameFallsBackToTheUsername_andALongGoogleNameIsCut() {
+        when(roleRepository.findByName(Role.USER)).thenReturn(Optional.of(userRole()));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThat(userService.registerGoogleUser("sam.lee", "sam@gmail.com", null).getFullName()).isEqualTo("sam.lee");
+        assertThat(userService.registerGoogleUser("sam.lee", "sam@gmail.com", "  ").getFullName()).isEqualTo("sam.lee");
+        assertThat(userService.registerGoogleUser("sam.lee", "sam@gmail.com", "x".repeat(200)).getFullName()).hasSize(150);
+    }
+
+    @Test
+    void registerGoogleUser_refusesATakenUsername_andATakenEmail_andSavesNothing() {
+        when(userRepository.existsByUsernameIgnoreCase("taken")).thenReturn(true);
+        when(userRepository.existsByUsernameIgnoreCase("free")).thenReturn(false);
+        when(userRepository.existsByEmailIgnoreCase("used@gmail.com")).thenReturn(true);
+
+        assertThatThrownBy(() -> userService.registerGoogleUser("taken", "new@gmail.com", "N"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Username is already taken");
+        assertThatThrownBy(() -> userService.registerGoogleUser("free", "used@gmail.com", "N"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Email is already registered");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void setInitialPassword_givesAGoogleAccountItsFirstPassword_once() {
+        User user = new User();
+        user.setUsername("sam.lee");
+        user.setPasswordHash("random-hash");
+        user.setPasswordSet(false);
+        when(userRepository.findByUsername("sam.lee")).thenReturn(Optional.of(user));
+
+        userService.setInitialPassword("sam.lee", "Password123!");
+
+        assertThat(user.isPasswordSet()).isTrue();
+        assertThat(passwordEncoder.matches("Password123!", user.getPasswordHash())).isTrue();
+        verify(userRepository).save(user);
+        assertThatThrownBy(() -> userService.setInitialPassword("sam.lee", "Another123!"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("already has a password");
+    }
+
+    @Test
+    void changeOwnPassword_isRefusedForAnAccountThatHasNoPasswordYet() {
+        User user = new User();
+        user.setUsername("sam.lee");
+        user.setPasswordHash("random-hash");
+        user.setPasswordSet(false);
+        when(userRepository.findByUsername("sam.lee")).thenReturn(Optional.of(user));
+        backend.dto.ChangePasswordRequest request = new backend.dto.ChangePasswordRequest();
+        request.setCurrentPassword("anything");
+        request.setNewPassword("Password123!");
+        request.setConfirmNewPassword("Password123!");
+
+        assertThatThrownBy(() -> userService.changeOwnPassword("sam.lee", request))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("no password yet");
+        verify(userRepository, never()).save(any(User.class));
     }
 }

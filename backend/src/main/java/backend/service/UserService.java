@@ -29,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.io.UncheckedIOException;
 import java.util.HashSet;
 import java.util.List;
@@ -44,6 +46,8 @@ public class UserService {
     // client-side accept="image/*" is only a UI hint, not a security
     // boundary.
     private static final long MAX_PHOTO_BYTES = 5L * 1024 * 1024;
+
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private static final Set<String> ALLOWED_PHOTO_TYPES =
             Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
@@ -221,6 +225,7 @@ public class UserService {
                 throw new IllegalArgumentException(PasswordPolicy.MESSAGE);
             }
             user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+            user.setPasswordSet(true);
             // A reset password ends every session the account had.
             refreshTokenService.revokeAll(user.getId());
         }
@@ -465,6 +470,11 @@ public class UserService {
     public void changeOwnPassword(String username, ChangePasswordRequest request) {
         User user = getUserEntityByUsername(username);
 
+        if (!user.isPasswordSet()) {
+            throw new IllegalArgumentException(
+                    "This account has no password yet. Set one from your Profile page, confirming with Google");
+        }
+
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
             // IllegalArgumentException (not AccessDeniedException) because
             // GlobalExceptionHandler's AccessDeniedException handler always
@@ -563,6 +573,51 @@ public class UserService {
         auditLogService.record(saved, AuditLogService.ACCOUNT_CREATED, AuditLogService.USER, saved.getId(), auditLabel(saved),
                 null, null, describe(saved));
         return saved;
+    }
+
+    // "Sign in with Google" creating an account (ADR-0018). Google has already verified the e-mail address, so the
+    // account is ACTIVE at once (no e-mailed code) with the plain USER role, like a self-registered one. It has no
+    // password the person knows: password_hash holds a hash of random bytes nobody has seen and password_set is
+    // false until they set one (setInitialPassword).
+    public User registerGoogleUser(String username, String email, String googleName) {
+        if (userRepository.existsByUsernameIgnoreCase(username)) {
+            throw new IllegalArgumentException("Username is already taken");
+        }
+        if (userRepository.existsByEmailIgnoreCase(email)) {
+            throw new IllegalArgumentException("Email is already registered");
+        }
+
+        String name = googleName == null ? "" : googleName.trim();
+        User user = new User();
+        user.setFullName(name.isEmpty() ? username : name.substring(0, Math.min(150, name.length())));
+        user.setUsername(username);
+        user.setEmail(email);
+        user.setPasswordHash(passwordEncoder.encode(randomSecret()));
+        user.setPasswordSet(false);
+        user.setRole(defaultUserRole());
+
+        User saved = userRepository.save(user);
+        auditLogService.record(saved, AuditLogService.ACCOUNT_CREATED, AuditLogService.USER, saved.getId(), auditLabel(saved),
+                null, null, describe(saved));
+        return saved;
+    }
+
+    // The first password of an account Google created. The caller has already checked who is asking (a Google ID
+    // token for the connected Google account); there are no sessions to end, because the account had no password.
+    public void setInitialPassword(String username, String newPassword) {
+        User user = getUserEntityByUsername(username);
+        if (user.isPasswordSet()) {
+            throw new IllegalArgumentException("This account already has a password. Change it with your current password");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setPasswordSet(true);
+        userRepository.save(user);
+    }
+
+    private static String randomSecret() {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     // The USER role seeded in database/init/01-init.sql (migration V10 for

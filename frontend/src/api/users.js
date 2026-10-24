@@ -30,6 +30,27 @@ export function changeOwnPassword(request) {
   return apiFetch('/users/me/password', { method: 'PUT', body: request })
 }
 
+// { enabled, linked, email }: whether "Sign in with Google" exists here and whether this account has a
+// Google account connected.
+export function getGoogleStatus() {
+  return apiFetch('/users/me/google')
+}
+
+// Connects the Google account behind the ID token to this account; needs the current password.
+export function linkGoogle(credential, currentPassword) {
+  return apiFetch('/users/me/google', { method: 'POST', body: { credential, currentPassword } })
+}
+
+// The first password of an account that Google created (it has none): the new password, confirmed with a fresh
+// Google ID token for the connected Google account instead of a current password.
+export function setPasswordWithGoogle(credential, newPassword, confirmNewPassword) {
+  return apiFetch('/users/me/google/password', { method: 'POST', body: { credential, newPassword, confirmNewPassword } })
+}
+
+export function unlinkGoogle() {
+  return apiFetch('/users/me/google', { method: 'DELETE' })
+}
+
 export function updateOwnPreferences(request) {
   return apiFetch('/users/me/preferences', { method: 'PUT', body: request })
 }

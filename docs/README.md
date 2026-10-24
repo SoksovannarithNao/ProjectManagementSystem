@@ -25,14 +25,14 @@ Documentation for the **TaskFlow** task and project management system (React fro
 | 5 | Task management — fields, statuses, assignment, *My Tasks*, subtasks, comments, activity, rules | [tasks.md](tasks.md) |
 | 6 | Notifications — types, triggers, read/unread, deletion | [notifications.md](notifications.md) |
 | 7 | Database — tables, relationships, constraints, ERD, triggers, migrations, running and inspecting, design decisions | [database.md](database.md) |
-| 8 | API reference — all 129 endpoints, permissions, payloads, error codes, known quirks | [api-reference.md](api-reference.md) |
+| 8 | API reference — all 136 endpoints, permissions, payloads, error codes, known quirks | [api-reference.md](api-reference.md) |
 | 9 | Validation & security — validation layers, error handling, hardening, gaps | [security.md](security.md) |
 | 10 | Testing — inventory, coverage, regression tests, gaps | [testing.md](testing.md) |
 | 11 | Bug & issue tracking — open defects, inconsistencies, fixed, limitations, debt | [issues.md](issues.md) |
 | 12 | Feature & development roadmap — done / partial / not started / planned | [roadmap.md](roadmap.md) |
 | 13 | Development setup — install, environment, database, run, build, test | [setup.md](setup.md) |
 | 14 | Change log — reconstructed from the git history | [changelog.md](changelog.md) |
-| 15 | Architecture decision records (16) | [adr/README.md](adr/README.md) |
+| 15 | Architecture decision records (18) | [adr/README.md](adr/README.md) |
 | 16 | Backend guide — stack, run, structure, security reasoning, logging, invitations, notifications, status | [backend.md](backend.md) |
 | 17 | Frontend guide — stack, scripts, structure, routes, behaviours, design tokens, end-to-end tests | [frontend.md](frontend.md) |
 | 18 | Product context and design system | [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md) |
@@ -40,6 +40,7 @@ Documentation for the **TaskFlow** task and project management system (React fro
 | 20 | Test cases — every case with its steps, expected result and the test that proves it | [test-cases.md](test-cases.md) |
 | 21 | Pages — one short document per screen: what it does, how it works, what it reads | [pages_docs/](pages_docs/README.md) |
 | 22 | Google OAuth consent screen — the public home, privacy and terms pages, and the manual steps in Google Cloud | [google-oauth-verification.md](google-oauth-verification.md) |
+| 23 | Sign in with Google — how it works (sign-in, sign-up, first password), the Google Cloud Console steps, where the client ID goes, rolling back | [google-sign-in.md](google-sign-in.md) |
 
 ## Where the rest of the documentation lives
 
