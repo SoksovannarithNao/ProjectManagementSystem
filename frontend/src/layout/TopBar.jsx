@@ -54,12 +54,64 @@ function usePinFirstRow(ref) {
   }, [ref])
 }
 
+// When the action buttons would wrap under the title (a project's many actions on a laptop-width window), the title
+// and its subtitle are made smaller together, 5% at a time (the title down to 20px, the subtitle down to 11px), until
+// the title and the actions fit on one row. The subtitle has to shrink too: it is often the wider of the two lines
+// (a project's code, manager and lead). If the smallest size does not fit either (a phone, a very long name) both
+// keep their normal size and the header wraps as before (see usePinFirstRow).
+// The title's own size changes would retrigger a ResizeObserver on the header, so only the window width and the
+// actions block are watched, and the work is done in the next frame rather than inside the observer's callback.
+const TITLE_MIN_PX = 20
+const SUBTITLE_MIN_PX = 11
+function useFitTitle(ref, title, subtitle) {
+  useLayoutEffect(() => {
+    const header = ref.current
+    const h1 = header?.querySelector('h1')
+    const [titleBlock, actionsBlock] = header ? header.children : []
+    if (!h1 || !actionsBlock) return undefined
+    const sub = h1.nextElementSibling
+    const wraps = () => actionsBlock.getBoundingClientRect().top >= titleBlock.getBoundingClientRect().bottom - 1
+    const reset = () => {
+      h1.style.fontSize = ''
+      if (sub) sub.style.fontSize = ''
+    }
+    const fit = () => {
+      reset()
+      if (!wraps()) return
+      const titlePx = parseFloat(globalThis.getComputedStyle(h1).fontSize)
+      const subPx = sub ? parseFloat(globalThis.getComputedStyle(sub).fontSize) : 0
+      for (let scale = 0.95; titlePx * scale >= TITLE_MIN_PX; scale -= 0.05) {
+        h1.style.fontSize = `${titlePx * scale}px`
+        if (sub) sub.style.fontSize = `${Math.max(SUBTITLE_MIN_PX, subPx * scale)}px`
+        if (!wraps()) return
+      }
+      reset()
+    }
+    fit()
+    let frame = 0
+    const later = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(fit)
+    }
+    const observer = new ResizeObserver(later)
+    observer.observe(actionsBlock)
+    globalThis.addEventListener('resize', later)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      globalThis.removeEventListener('resize', later)
+      reset()
+    }
+  }, [ref, title, subtitle])
+}
+
 // Search only renders when a page actually wires `onSearchChange` — a
 // decorative input that filters nothing is worse than no input at all.
 export function TopBar({ title, subtitle, actions, searchValue, onSearchChange, searchPlaceholder = 'Search' }) {
   const showSearch = Boolean(onSearchChange)
   const headerRef = useRef(null)
   usePinFirstRow(headerRef)
+  useFitTitle(headerRef, title, subtitle)
   const { openMobileNav } = useLayout()
   const { profile, username, logout, refreshProfile } = useAuth()
   const { theme, setTheme } = useTheme()
