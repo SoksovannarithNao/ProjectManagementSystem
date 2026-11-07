@@ -6,6 +6,11 @@ Categories: **Added** · **Changed** · **Fixed** · **Database** · **Architect
 
 ---
 
+## 2026-11-07 (page header title fits one row)
+
+**Changed**
+- The page header (`TopBar`) shrinks its title and subtitle together, 5% at a time (title down to 20px, subtitle down to 11px), when the action buttons would otherwise wrap under the title, so a project page on a 1600px-wide window keeps one header row (title 27px, subtitle 11.7px; 111px tall instead of 181px). Where even the smallest size does not fit (a phone, a 1280-1536px window on a project page) both keep their normal size and the header wraps and pins its first row as before. Front end only (`useFitTitle` in `TopBar.jsx`); see F-91 in `issues.md`.
+
 ## 2026-10-24 (local demo database reset)
 
 **Database**
