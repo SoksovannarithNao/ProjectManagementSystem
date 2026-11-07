@@ -1,0 +1,1236 @@
+1
+00:00:00,500 --> 00:00:05,866
+Welcome. This video presents TaskFlow, a
+project and task management web application.
+
+2
+00:00:05,906 --> 00:00:09,110
+In the first part, we look at the
+technology stack,
+
+3
+00:00:09,150 --> 00:00:12,608
+with the exact versions and real code from
+the project.
+
+4
+00:00:12,648 --> 00:00:17,188
+In the second part, we use the running
+application from start to finish.
+
+5
+00:00:19,328 --> 00:00:21,730
+TaskFlow is built in three layers.
+
+6
+00:00:21,770 --> 00:00:25,249
+The browser runs a React single-page
+application.
+
+7
+00:00:25,289 --> 00:00:28,624
+Its built files are served by nginx, which
+also
+
+8
+00:00:28,664 --> 00:00:32,143
+forwards every request under /api to the
+backend.
+
+9
+00:00:32,183 --> 00:00:35,375
+The backend is a Spring Boot REST API
+written
+
+10
+00:00:35,415 --> 00:00:38,607
+in Java, and it keeps its data in
+PostgreSQL.
+
+11
+00:00:38,647 --> 00:00:42,629
+Flyway keeps the database schema up to
+date, e-mail goes
+
+12
+00:00:42,669 --> 00:00:47,584
+through a mail service, and the whole
+stack runs with Docker Compose.
+
+13
+00:00:49,224 --> 00:00:52,128
+The user interface is built with React,
+
+14
+00:00:52,168 --> 00:00:55,676
+version 19.2.8, and React Router, version
+7.18.
+
+15
+00:00:55,716 --> 00:00:58,469
+Here is the route table from App.jsx.
+
+16
+00:00:58,509 --> 00:01:01,941
+The sign-in and registration pages are
+public.
+
+17
+00:01:01,981 --> 00:01:07,300
+Every other page sits inside
+ProtectedRoute, so it needs a session, and
+
+18
+00:01:07,340 --> 00:01:12,584
+it is drawn inside the shared layout with
+the sidebar and the top bar.
+
+19
+00:01:14,224 --> 00:01:19,504
+The frontend is written in plain
+JavaScript with JSX, as ES modules.
+
+20
+00:01:19,544 --> 00:01:25,059
+Every screen talks to the REST API through
+one helper, called apiFetch.
+
+21
+00:01:25,099 --> 00:01:31,396
+It sends JSON to a path under /api, and
+adds the access token as a bearer header.
+
+22
+00:01:31,436 --> 00:01:34,526
+If the token has expired, the request is
+
+23
+00:01:34,566 --> 00:01:37,968
+retried once after the session is
+refreshed.
+
+24
+00:01:39,608 --> 00:01:42,861
+Styling uses Tailwind CSS, version 4.3.3.
+
+25
+00:01:42,901 --> 00:01:46,797
+In Tailwind four, the configuration lives
+in CSS.
+
+26
+00:01:46,837 --> 00:01:51,215
+Each token inside the theme block, such as
+the charcoal
+
+27
+00:01:51,255 --> 00:01:55,713
+colour, becomes a utility class that the
+components use.
+
+28
+00:01:55,753 --> 00:01:59,247
+The dark theme redefines the same
+variables.
+
+29
+00:01:59,287 --> 00:02:01,576
+Icons come from Lucide React.
+
+30
+00:02:03,216 --> 00:02:06,438
+Vite, version 8.2.2, is the build tool,
+and
+
+31
+00:02:06,478 --> 00:02:10,154
+npm installs the dependencies from the
+lock file.
+
+32
+00:02:10,194 --> 00:02:14,705
+The Vite configuration loads the Tailwind
+and React plugins.
+
+33
+00:02:14,745 --> 00:02:19,863
+During development, requests to /api are
+forwarded to the backend on
+
+34
+00:02:19,903 --> 00:02:25,400
+port 8080, so the frontend uses the same
+relative paths as in production.
+
+35
+00:02:27,040 --> 00:02:30,069
+Charts are drawn with Recharts, version
+3.10.
+
+36
+00:02:30,109 --> 00:02:34,025
+This is the team productivity chart from
+the Reports page.
+
+37
+00:02:34,065 --> 00:02:37,912
+It is a bar chart of the tasks each member
+has completed,
+
+38
+00:02:37,952 --> 00:02:41,663
+and its colours come from the same CSS
+variables as the
+
+39
+00:02:41,703 --> 00:02:45,960
+rest of the interface, so it follows the
+light and dark themes.
+
+40
+00:02:47,600 --> 00:02:51,684
+The backend is written in Java 25, on
+Spring Boot 4.0.8,
+
+41
+00:02:51,724 --> 00:02:56,251
+which brings Spring Framework 7 and an
+embedded Tomcat server.
+
+42
+00:02:56,291 --> 00:02:59,639
+Controllers map HTTP requests to Java
+methods.
+
+43
+00:02:59,679 --> 00:03:05,236
+These two endpoints let a user accept or
+decline an invitation to a project.
+
+44
+00:03:05,276 --> 00:03:11,128
+The service behind them checks that the
+invitation really belongs to the caller.
+
+45
+00:03:12,768 --> 00:03:17,295
+Database access uses Spring Data JPA with
+Hibernate, version 7.2.
+
+46
+00:03:17,335 --> 00:03:22,002
+A repository is an interface, and Spring
+writes the code behind it.
+
+47
+00:03:22,042 --> 00:03:26,358
+This query returns the projects a user is
+an active member of.
+
+48
+00:03:26,398 --> 00:03:30,924
+It is the visibility boundary of the whole
+application: a pending
+
+49
+00:03:30,964 --> 00:03:36,896
+invitation does not count, so it never shows a
+project to someone who has not joined.
+
+50
+00:03:38,536 --> 00:03:40,779
+The data lives in PostgreSQL 18.
+
+51
+00:03:40,819 --> 00:03:44,418
+Some rules are enforced inside the
+database itself.
+
+52
+00:03:44,458 --> 00:03:47,914
+This trigger function refuses to assign a
+task to
+
+53
+00:03:47,954 --> 00:03:51,980
+anyone who is not an active member of the
+task's project.
+
+54
+00:03:52,020 --> 00:03:56,832
+So the rule holds, even for a request that
+bypasses the application.
+
+55
+00:03:58,472 --> 00:04:01,897
+Schema changes are handled by Flyway,
+version 11.
+
+56
+00:04:01,937 --> 00:04:07,484
+In Docker Compose, a one-shot migrate
+container runs before the backend starts.
+
+57
+00:04:07,524 --> 00:04:11,515
+It applies every versioned SQL file that
+the database has
+
+58
+00:04:11,555 --> 00:04:15,688
+not seen yet, so an existing database is
+upgraded in place.
+
+59
+00:04:17,328 --> 00:04:21,357
+Authentication is handled by Spring
+Security, version 7.
+
+60
+00:04:21,397 --> 00:04:23,392
+The server keeps no session.
+
+61
+00:04:23,432 --> 00:04:27,461
+Apart from a short list of public paths,
+such as sign-in
+
+62
+00:04:27,501 --> 00:04:31,458
+and registration, every request must carry
+a valid JWT.
+
+63
+00:04:31,498 --> 00:04:34,727
+The OAuth 2 resource server checks the
+token,
+
+64
+00:04:34,767 --> 00:04:38,288
+and turns it into the caller's identity
+and role.
+
+65
+00:04:39,928 --> 00:04:44,985
+Access tokens are created with the JJWT
+library, version 0.12.6.
+
+66
+00:04:45,025 --> 00:04:49,127
+Each token carries the username, when it
+was issued,
+
+67
+00:04:49,167 --> 00:04:53,666
+when it expires, and the system role if
+the user has one.
+
+68
+00:04:53,706 --> 00:04:57,012
+It is signed with the server's secret key.
+
+69
+00:04:57,052 --> 00:05:01,392
+A separate refresh token is kept in an
+HttpOnly cookie.
+
+70
+00:05:03,032 --> 00:05:04,955
+Authorization is role based.
+
+71
+00:05:04,995 --> 00:05:08,741
+Seven permissions, view, create, edit,
+delete, assign,
+
+72
+00:05:08,781 --> 00:05:12,527
+approve and generate reports, are granted
+per role and
+
+73
+00:05:12,567 --> 00:05:16,312
+per resource, at system level and inside
+each project.
+
+74
+00:05:16,352 --> 00:05:19,537
+These rows are the defaults for a Team
+Member.
+
+75
+00:05:19,577 --> 00:05:24,304
+They may view the project, change a task's
+status, and add subtasks,
+
+76
+00:05:24,344 --> 00:05:29,492
+comments, time and files, but they cannot
+create tasks or delete anything.
+
+77
+00:05:29,532 --> 00:05:33,208
+The Administrator can change these grants
+in the app.
+
+78
+00:05:34,848 --> 00:05:37,986
+E-mail is sent with Spring Boot's mail
+starter.
+
+79
+00:05:38,026 --> 00:05:41,434
+Locally it goes to Mailpit, a test mail
+server, and
+
+80
+00:05:41,474 --> 00:05:44,815
+the hosted version can send through the
+Gmail API.
+
+81
+00:05:44,855 --> 00:05:47,316
+One-time codes are six random digits.
+
+82
+00:05:47,356 --> 00:05:50,089
+Only a bcrypt hash of the code is stored,
+
+83
+00:05:50,129 --> 00:05:53,672
+together with an expiry time and a limit
+on attempts.
+
+84
+00:05:55,312 --> 00:05:57,722
+Reports are exported in the browser.
+
+85
+00:05:57,762 --> 00:06:00,784
+write-excel-file creates the spreadsheet,
+and
+
+86
+00:06:00,824 --> 00:06:04,119
+jsPDF with its auto table plugin creates
+the PDF.
+
+87
+00:06:04,159 --> 00:06:07,793
+Both libraries are imported only when
+someone asks for
+
+88
+00:06:07,833 --> 00:06:11,400
+a file, so they do not slow down the first
+page load.
+
+89
+00:06:13,040 --> 00:06:15,977
+The backend is built with Maven, and both
+
+90
+00:06:16,017 --> 00:06:19,825
+halves ship as Docker images with
+multi-stage builds.
+
+91
+00:06:19,865 --> 00:06:23,746
+The first stage compiles the jar with
+Maven on JDK 25.
+
+92
+00:06:23,786 --> 00:06:27,304
+The second stage copies only the jar into
+a small
+
+93
+00:06:27,344 --> 00:06:31,298
+Java runtime image, which runs as an
+unprivileged user.
+
+94
+00:06:31,338 --> 00:06:35,800
+The frontend image is built the same way,
+and served by nginx.
+
+95
+00:06:37,440 --> 00:06:39,523
+Testing happens at three levels.
+
+96
+00:06:39,563 --> 00:06:44,631
+Vitest runs the frontend unit tests, JUnit
+with the Spring Boot test starters
+
+97
+00:06:44,671 --> 00:06:50,138
+covers the backend, and Playwright drives
+a real browser against the running stack.
+
+98
+00:06:50,178 --> 00:06:53,588
+This test registers a new person, reads
+the e-mailed
+
+99
+00:06:53,628 --> 00:06:57,104
+code from Mailpit, verifies the account
+and signs in.
+
+100
+00:06:58,744 --> 00:07:02,550
+That is the stack. Now let's open the
+running application, and
+
+101
+00:07:02,590 --> 00:07:05,280
+follow one project from sign-up to
+approval.
+
+102
+00:07:06,920 --> 00:07:10,584
+This is the home page, the first thing a
+visitor sees.
+
+103
+00:07:10,624 --> 00:07:16,071
+It explains what TaskFlow does: projects
+and milestones, tasks with subtasks and
+
+104
+00:07:16,111 --> 00:07:21,832
+checklists, a board and a calendar, roles
+and approvals, notifications, and reports.
+
+105
+00:07:22,785 --> 00:07:27,258
+Let's create an account. We choose a
+username and an e-mail address.
+
+106
+00:07:27,298 --> 00:07:29,779
+As we type the password, the checklist
+
+107
+00:07:29,819 --> 00:07:32,633
+underneath turns green, one rule at a
+time.
+
+108
+00:07:33,586 --> 00:07:35,959
+If the confirmation does not match the
+
+109
+00:07:35,999 --> 00:07:38,754
+password, the form refuses it, and says
+why.
+
+110
+00:07:39,700 --> 00:07:42,804
+We correct the confirmation, and create
+the account.
+
+111
+00:07:43,753 --> 00:07:48,696
+TaskFlow e-mails a six-digit code, to
+prove that the address is real.
+
+112
+00:07:48,736 --> 00:07:51,441
+We type the code in, and press Verify.
+
+113
+00:07:52,393 --> 00:07:57,513
+The account is verified, and it starts as
+a regular user. Let's sign in with it.
+
+114
+00:08:00,025 --> 00:08:02,669
+The dashboard shows only zeros, because
+
+115
+00:08:02,709 --> 00:08:05,834
+nobody has added this person to a project
+yet.
+
+116
+00:08:05,874 --> 00:08:10,857
+In TaskFlow, people only see the projects
+they belong to. Let's sign out.
+
+117
+00:08:11,798 --> 00:08:14,357
+Next, Olivia, a Project Manager.
+
+118
+00:08:14,397 --> 00:08:19,798
+First, a wrong password: TaskFlow refuses
+it, with a clear message.
+
+119
+00:08:20,745 --> 00:08:23,777
+With the right password, Olivia is signed
+in.
+
+120
+00:08:24,725 --> 00:08:27,719
+Her dashboard sums up everything she can
+see.
+
+121
+00:08:27,759 --> 00:08:32,507
+The cards at the top count her projects,
+active, completed and delayed,
+
+122
+00:08:32,547 --> 00:08:37,429
+the average completion, and her tasks,
+with how many are done or overdue.
+
+123
+00:08:38,369 --> 00:08:42,019
+Below, the task overview breaks the work
+down by status,
+
+124
+00:08:42,059 --> 00:08:46,104
+and the due and overdue list puts the most
+urgent tasks first.
+
+125
+00:08:46,144 --> 00:08:48,937
+On the right, delayed projects are
+flagged.
+
+126
+00:08:49,882 --> 00:08:53,986
+The sidebar leads to every module: tasks,
+projects, the
+
+127
+00:08:54,026 --> 00:08:58,506
+calendar, the Kanban board, the team
+directory, and reports.
+
+128
+00:08:59,452 --> 00:09:04,363
+On the Projects page, each card shows a
+project's status, progress and team.
+
+129
+00:09:04,403 --> 00:09:08,011
+By default, only Administrators and
+Project Managers can
+
+130
+00:09:08,051 --> 00:09:11,724
+create projects, so only they see the New
+Project button.
+
+131
+00:09:12,678 --> 00:09:18,251
+Olivia enters a name, a priority, a start
+and an end date, and a short description.
+
+132
+00:09:18,291 --> 00:09:20,618
+TaskFlow gives the project its code
+
+133
+00:09:20,658 --> 00:09:24,878
+automatically, and whoever creates a
+project becomes its Owner.
+
+134
+00:09:25,833 --> 00:09:30,822
+Every project has its own page, with its
+code and manager at the top, then
+
+135
+00:09:30,862 --> 00:09:35,851
+its status, priority, dates, and a
+progress bar calculated from its tasks.
+
+136
+00:09:35,891 --> 00:09:39,521
+Olivia moves the project from Planning to
+In Progress.
+
+137
+00:09:40,466 --> 00:09:42,234
+Next, she builds the team.
+
+138
+00:09:42,274 --> 00:09:45,571
+She opens Add member, gives Owen the Team
+Leader
+
+139
+00:09:45,611 --> 00:09:49,186
+role, shown here as Admin, and sends the
+invitation.
+
+140
+00:09:50,134 --> 00:09:53,227
+Mia is invited as a Team Member in the
+same way.
+
+141
+00:09:53,267 --> 00:09:56,034
+Both are now listed as pending
+invitations.
+
+142
+00:09:56,074 --> 00:09:58,710
+Nobody joins a project until they accept.
+
+143
+00:09:59,653 --> 00:10:02,134
+Projects are planned with milestones.
+
+144
+00:10:02,174 --> 00:10:05,337
+Olivia adds one called Launch, but its due
+date
+
+145
+00:10:05,377 --> 00:10:08,949
+falls after the project ends, so TaskFlow
+refuses it.
+
+146
+00:10:09,900 --> 00:10:12,707
+With a due date inside the project's
+dates,
+
+147
+00:10:12,747 --> 00:10:15,620
+the milestone is added, with its own
+status.
+
+148
+00:10:16,562 --> 00:10:20,207
+Now Owen signs in. His bell shows Olivia's
+invitation.
+
+149
+00:10:20,247 --> 00:10:23,755
+He accepts it, and joins the project as
+Team Leader.
+
+150
+00:10:23,795 --> 00:10:25,666
+He could also have declined.
+
+151
+00:10:29,592 --> 00:10:32,768
+Mia does the same, and joins as a Team
+Member.
+
+152
+00:10:42,485 --> 00:10:45,969
+Back with Olivia, both now appear in the
+members list.
+
+153
+00:10:46,009 --> 00:10:48,710
+As the Owner, she makes Owen the project's
+
+154
+00:10:48,750 --> 00:10:51,973
+lead, and his name appears at the top of
+the page.
+
+155
+00:11:00,694 --> 00:11:06,247
+Now for the work itself. Olivia adds a
+task: Build the one-page checkout form.
+
+156
+00:11:06,287 --> 00:11:09,115
+She sets a high priority, a due date, an
+
+157
+00:11:09,155 --> 00:11:12,342
+estimate of six hours, and assigns it to
+Mia.
+
+158
+00:11:13,287 --> 00:11:17,759
+She adds a second task, Launch the
+checkout page, and opens it.
+
+159
+00:11:22,346 --> 00:11:25,953
+In the task panel, she makes it depend on
+the checkout form.
+
+160
+00:11:25,993 --> 00:11:29,722
+Until the form is finished, the launch
+task counts as blocked.
+
+161
+00:11:30,664 --> 00:11:32,845
+Let's follow Mia, the Team Member.
+
+162
+00:11:32,885 --> 00:11:35,980
+Her bell shows the task she has just been
+given.
+
+163
+00:11:36,020 --> 00:11:39,377
+TaskFlow also sends reminders three days
+and one day
+
+164
+00:11:39,417 --> 00:11:43,296
+before a deadline, and a notice when a
+task becomes overdue.
+
+165
+00:11:44,250 --> 00:11:46,891
+The Tasks page lists every task in her
+
+166
+00:11:46,931 --> 00:11:50,348
+projects, grouped by project, and then by
+status.
+
+167
+00:11:50,388 --> 00:11:54,722
+Quick views pick out today's, upcoming, in
+progress, completed
+
+168
+00:11:54,762 --> 00:11:59,378
+and overdue work, and there is a search
+box, filters, and sorting.
+
+169
+00:12:00,324 --> 00:12:03,888
+Mia opens her task, and the detail panel
+slides in.
+
+170
+00:12:03,928 --> 00:12:06,644
+She moves it from To Do to In Progress.
+
+171
+00:12:07,596 --> 00:12:12,488
+She breaks the work into two subtasks, and
+adds a checklist item for testing.
+
+172
+00:12:12,528 --> 00:12:15,050
+Every change is saved straight away, and
+
+173
+00:12:15,090 --> 00:12:17,804
+recorded in the project's activity
+history.
+
+174
+00:12:18,747 --> 00:12:22,690
+She attaches a wireframe, so everyone
+works from the same design.
+
+175
+00:12:22,730 --> 00:12:25,203
+Each file can be up to ten megabytes, and
+
+176
+00:12:25,243 --> 00:12:27,899
+file types that are not allowed are
+refused.
+
+177
+00:12:28,843 --> 00:12:32,276
+Next, she logs two and a half hours, with
+a short note.
+
+178
+00:12:32,316 --> 00:12:34,865
+The bar compares the logged time with the
+
+179
+00:12:34,905 --> 00:12:37,770
+six-hour estimate, and shows how much is
+left.
+
+180
+00:12:37,810 --> 00:12:40,107
+She could also start a timer instead.
+
+181
+00:12:41,052 --> 00:12:43,032
+Then she leaves a comment for Owen.
+
+182
+00:12:43,072 --> 00:12:45,744
+Typing the at sign lists the project's
+members,
+
+183
+00:12:45,784 --> 00:12:48,572
+and mentioning someone sends them a
+notification.
+
+184
+00:12:49,522 --> 00:12:52,797
+When the work is done, she ticks off the
+subtasks and
+
+185
+00:12:52,837 --> 00:12:56,049
+the checklist item, and submits the task
+for review.
+
+186
+00:12:56,089 --> 00:12:58,864
+A task cannot be completed while subtasks
+are
+
+187
+00:12:58,904 --> 00:13:01,866
+still open, and Mia cannot approve her own
+work.
+
+188
+00:13:02,812 --> 00:13:06,590
+The Kanban board shows the same tasks as
+cards, in five
+
+189
+00:13:06,630 --> 00:13:10,963
+columns: to do, in progress, in review,
+blocked, and completed.
+
+190
+00:13:11,003 --> 00:13:15,476
+Each card shows the project, the priority,
+the time spent and the
+
+191
+00:13:15,516 --> 00:13:20,196
+due date, and cards can be dragged, or
+moved with their move button.
+
+192
+00:13:21,141 --> 00:13:23,674
+What about a project Mia is not part of?
+
+193
+00:13:23,714 --> 00:13:26,054
+TaskFlow simply says the page was not
+
+194
+00:13:26,094 --> 00:13:29,142
+found, so nobody can learn which projects
+exist.
+
+195
+00:13:29,182 --> 00:13:32,229
+The same error page appears for any
+address that
+
+196
+00:13:32,269 --> 00:13:35,381
+does not exist, with a way back to the
+dashboard.
+
+197
+00:13:36,329 --> 00:13:41,309
+Now Owen signs in. His bell says a task is
+waiting for his review, and the same
+
+198
+00:13:41,349 --> 00:13:45,313
+request appears in a yellow block at the
+top of his Tasks page.
+
+199
+00:13:53,526 --> 00:13:54,778
+He opens the task.
+
+200
+00:13:54,818 --> 00:14:00,878
+Requesting changes, or rejecting the work,
+needs a comment, so Mia knows what to fix.
+
+201
+00:14:01,818 --> 00:14:03,646
+This time, the work is good.
+
+202
+00:14:03,686 --> 00:14:06,115
+Owen adds a comment, and approves it.
+
+203
+00:14:06,155 --> 00:14:07,850
+The task is now completed.
+
+204
+00:14:08,801 --> 00:14:13,665
+Back with Olivia. The project's progress
+has updated by itself, the finished
+
+205
+00:14:13,705 --> 00:14:17,665
+task is crossed out, and the launch task
+is no longer blocked.
+
+206
+00:14:26,655 --> 00:14:29,134
+For a fuller picture, let's open Website
+
+207
+00:14:29,174 --> 00:14:32,471
+Redesign, a project that has been running
+for months.
+
+208
+00:14:32,511 --> 00:14:35,431
+Four views show its work from different
+angles.
+
+209
+00:14:35,471 --> 00:14:39,839
+Team tasks lists each member's tasks, and
+lets managers reassign them.
+
+210
+00:14:40,791 --> 00:14:45,964
+Workload compares each person's assigned,
+active and overdue tasks, and their
+
+211
+00:14:46,004 --> 00:14:51,719
+hours, with the team average, and marks them
+as overloaded, balanced, or underloaded.
+
+212
+00:14:52,661 --> 00:14:55,889
+The timeline places the project, its
+milestones
+
+213
+00:14:55,929 --> 00:14:59,365
+and its tasks on one time axis, with today
+marked.
+
+214
+00:15:00,308 --> 00:15:03,656
+The Gantt chart draws each task as a bar,
+coloured
+
+215
+00:15:03,696 --> 00:15:07,180
+by status, with the dependencies drawn
+between them.
+
+216
+00:15:08,122 --> 00:15:13,697
+The calendar shows task due dates and
+milestones, by month, by week, or by day.
+
+217
+00:15:13,737 --> 00:15:19,098
+Clicking an item opens its day in a side
+drawer, with the details beside it.
+
+218
+00:15:20,044 --> 00:15:24,192
+Reports turn the data into charts: task
+counts, completion
+
+219
+00:15:24,232 --> 00:15:28,740
+over time, team productivity, and the
+progress of each project.
+
+220
+00:15:29,694 --> 00:15:33,350
+The KPI tab calculates the completion
+rates, the overdue
+
+221
+00:15:33,390 --> 00:15:37,046
+rate, the on-time rate, and the average
+completion time.
+
+222
+00:15:38,001 --> 00:15:40,545
+There are also seven named reports.
+
+223
+00:15:40,585 --> 00:15:43,645
+Olivia chooses Website Redesign, generates
+
+224
+00:15:43,685 --> 00:15:48,665
+the project report, and exports it to
+Excel. PDF works the same way.
+
+225
+00:15:49,616 --> 00:15:53,357
+The Team page is a directory of everyone
+in the workspace.
+
+226
+00:15:53,397 --> 00:15:57,660
+Selecting a person shows their e-mail,
+their assigned tasks, their
+
+227
+00:15:57,700 --> 00:16:02,224
+position and department, and their
+projects, with each one's progress.
+
+228
+00:16:03,164 --> 00:16:04,936
+Finally, the Administrator.
+
+229
+00:16:04,976 --> 00:16:09,904
+Because this account has the most power,
+the password alone is not enough.
+
+230
+00:16:09,944 --> 00:16:12,992
+TaskFlow e-mails a six-digit sign-in code,
+and
+
+231
+00:16:13,032 --> 00:16:16,348
+the session starts only once that code is
+entered.
+
+232
+00:16:17,297 --> 00:16:22,309
+On the Users page, the Administrator
+manages every account: the system
+
+233
+00:16:22,349 --> 00:16:27,721
+role, the personal details, and the
+status, active, inactive, or suspended.
+
+234
+00:16:28,662 --> 00:16:31,924
+Accounts can also be deleted, after a
+confirmation.
+
+235
+00:16:31,964 --> 00:16:36,715
+TaskFlow suggests making an account
+inactive instead, to keep its history.
+
+236
+00:16:36,755 --> 00:16:40,406
+Here, we delete the test account we
+created at the start.
+
+237
+00:16:41,347 --> 00:16:45,766
+Roles and Permissions shows what each role
+may do, as a grid of seven
+
+238
+00:16:45,806 --> 00:16:50,483
+permissions: one grid for the whole
+system, and one for inside a project.
+
+239
+00:16:50,523 --> 00:16:54,490
+The Administrator can change the grants,
+and create new roles.
+
+240
+00:16:54,530 --> 00:16:57,075
+The Administrator role itself is locked.
+
+241
+00:16:58,029 --> 00:17:01,613
+The audit log is a read-only record of
+sensitive changes,
+
+242
+00:17:01,653 --> 00:17:05,301
+such as role and permission changes, and
+deleted accounts.
+
+243
+00:17:05,341 --> 00:17:10,134
+The deletion we just made is already at
+the top, with who made it, and when.
+
+244
+00:17:10,174 --> 00:17:13,949
+The log can be searched, and filtered by
+action and by date.
+
+245
+00:17:14,897 --> 00:17:17,153
+Every user has personal settings.
+
+246
+00:17:17,193 --> 00:17:20,424
+They choose a light, a dark, or a system
+theme,
+
+247
+00:17:20,464 --> 00:17:23,833
+and decide whether to receive task
+notifications.
+
+248
+00:17:24,785 --> 00:17:28,171
+The Profile page holds their photo, and
+their personal
+
+249
+00:17:28,211 --> 00:17:32,106
+details, such as their name, e-mail,
+position, and department.
+
+250
+00:17:32,146 --> 00:17:34,961
+Further down, they can change their
+password,
+
+251
+00:17:35,001 --> 00:17:37,753
+with the same strength checklist as
+sign-up.
+
+252
+00:17:41,412 --> 00:17:45,788
+Help and Support answers the most common
+questions, grouped into getting
+
+253
+00:17:45,828 --> 00:17:50,204
+started, projects and the team, work and
+approvals, and troubleshooting.
+
+254
+00:17:53,687 --> 00:17:58,738
+That is TaskFlow: projects, tasks, teams,
+approvals and reports, in one
+
+255
+00:17:58,778 --> 00:18:03,972
+place, with every person seeing and doing
+exactly what their role allows.
+
+256
+00:18:04,012 --> 00:18:06,051
+For safety, sessions also end
+
+257
+00:18:06,091 --> 00:18:10,855
+automatically after a period of
+inactivity. Thank you for watching.
